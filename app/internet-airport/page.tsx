@@ -154,6 +154,24 @@ function BigClock({ now }: { now: Date | null }) {
   )
 }
 
+function FilterTiles({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  const FW = 16, FH = 26, FFS = 10
+  return (
+    <div
+      onClick={onClick}
+      style={{ display: 'flex', gap: 2, cursor: 'pointer', alignItems: 'center' }}
+    >
+      {Array.from(label).map((ch, i) => (
+        <Tile key={i} ch={ch} w={FW} h={FH} fs={FFS}
+          color={active ? '#f0b020' : '#444'}
+          tt={active ? '#3a2800' : '#202020'}
+          tb={active ? '#2a1c00' : '#181818'}
+        />
+      ))}
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Page() {
   const [domains,  setDomains]  = useState<DomainRow[]>([])
@@ -165,7 +183,7 @@ export default function Page() {
   const timerRef                = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [tab,           setTab]       = useState<'live' | 'top'>('live')
-  const [topFilter,     setTopFilter] = useState<TopFilter>('all')
+  const [topFilter,     setTopFilter] = useState<TopFilter>('day')
   const [leaderboard,   setLeader]    = useState<LeaderRow[]>([])
   const [leaderLoading, setLL]        = useState(false)
 
@@ -299,7 +317,7 @@ export default function Page() {
   })
 
   const TOP_FILTER_LABELS: Record<TopFilter, string> = {
-    day: '24H', week: '7D', month: '30D', all: 'ALL TIME',
+    day: '24H', week: '7D', month: '30D', all: 'ALL',
   }
 
   let countLabel: string
@@ -538,27 +556,14 @@ export default function Page() {
 
           {/* Filter bar — top tab only */}
           {tab === 'top' && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'center' }}>
               {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
-                <button
+                <FilterTiles
                   key={f}
+                  label={TOP_FILTER_LABELS[f]}
+                  active={topFilter === f}
                   onClick={() => setTopFilter(f)}
-                  style={{
-                    background: topFilter === f ? '#f0b020' : 'transparent',
-                    border: `1px solid ${topFilter === f ? '#f0b020' : '#3a3a3a'}`,
-                    color: topFilter === f ? '#111' : '#666',
-                    borderRadius: 3,
-                    fontFamily: 'inherit',
-                    fontSize: 9,
-                    letterSpacing: '0.22em',
-                    fontWeight: topFilter === f ? 700 : 400,
-                    cursor: 'pointer',
-                    padding: '5px 10px',
-                    transition: 'all 0.12s',
-                  }}
-                >
-                  {TOP_FILTER_LABELS[f]}
-                </button>
+                />
               ))}
             </div>
           )}
