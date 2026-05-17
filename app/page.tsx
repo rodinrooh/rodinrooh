@@ -1,73 +1,80 @@
 import Image from "next/image"
-import Link from "next/link"
 
 export default function Home() {
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#fff",
-      fontFamily: "Georgia, serif",
-      color: "#111",
-      padding: "48px 40px",
-      maxWidth: 900,
-      margin: "0 auto",
-    }}>
-      <h1 style={{ fontSize: 32, fontWeight: "bold", margin: 0, lineHeight: 1 }}>
-        <span style={{ background: "linear-gradient(90deg, #e84393, #a855f7, #3b82f6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
+
+      {/* Header */}
+      <div style={{ background: "#6fa8dc", padding: "48px 48px 52px" }}>
+        <h1 style={{ fontSize: 52, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
           Rodin Roohipour
-        </span>
-      </h1>
-      <p style={{ fontSize: "11pt", fontStyle: "italic", marginTop: 12, marginBottom: 0, color: "#444", lineHeight: 1.6, maxWidth: 480 }}>
-        15 y/o. Founder of{" "}
-        <a href="https://atova.co" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Atova</a>.
-      </p>
-      <div style={{ marginTop: 10, display: "flex", gap: 16 }}>
-        <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ fontSize: "10pt", color: "#555" }}>Twitter</a>
-        <a href="https://cal.com/atova" target="_blank" rel="noopener noreferrer" style={{ fontSize: "10pt", color: "#555" }}>Book a call</a>
-        <a href="mailto:rodin.avella@gmail.com" style={{ fontSize: "10pt", color: "#555" }}>Email</a>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 40 }}>
-        {/* SF Towing card — has real screenshot */}
-        <Link href="/sf-towing" style={{ textDecoration: "none", color: "inherit" }}>
-          <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, overflow: "hidden" }} className="hover:shadow-lg">
-            <div style={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
-              <Image src="/preview-towing.jpg" alt="Find My Towed Car" fill style={{ objectFit: "cover" }} />
-            </div>
-            <div style={{ padding: "12px 14px" }}>
-              <div style={{ fontWeight: "bold", fontSize: "12pt" }}>Find My Towed Car</div>
-              <div style={{ fontSize: "10pt", color: "#666", marginTop: 2, fontStyle: "italic" }}>Live map of every car towed in SF</div>
-            </div>
-          </div>
-        </Link>
-
-        <Link href="/internet-airport" style={{ textDecoration: "none", color: "inherit" }}>
-          <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, overflow: "hidden" }} className="hover:shadow-lg">
-            <div style={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
-              <Image src="/preview-airport.png" alt="Internet Airport" fill style={{ objectFit: "cover" }} />
-            </div>
-            <div style={{ padding: "12px 14px" }}>
-              <div style={{ fontWeight: "bold", fontSize: "12pt" }}>Internet Airport</div>
-              <div style={{ fontSize: "10pt", color: "#666", marginTop: 2, fontStyle: "italic" }}>Live arrivals board for every new domain registered</div>
-            </div>
-          </div>
-        </Link>
-      </div>
-
-      <div style={{ marginTop: 40 }}>
-        <p style={{ fontSize: "10pt", margin: 0, lineHeight: 2, color: "#333" }}>
-          <span style={{ background: "yellow", fontWeight: "bold", padding: "0 2px" }}>SF Standard, May 2026</span>{" · "}
-          <a href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontStyle: "italic" }}>
-            Meet the teen whose viral SF tow truck tracker got banned after 3 hours.
-          </a>
+        </h1>
+        <p style={{ fontSize: 16, color: "#333", margin: "14px 0 0", lineHeight: 1.6, maxWidth: 480 }}>
+          15 y/o. Founder of{" "}
+          <a href="https://atova.co" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Atova</a>.
+          {" "}Previously ChampionPac.
         </p>
-        <p style={{ fontSize: "10pt", margin: 0, lineHeight: 2, color: "#333" }}>
-          <span style={{ background: "yellow", fontWeight: "bold", padding: "0 2px" }}>Business Insider, Dec 2025</span>{" · "}
-          <a href="https://www.businessinsider.com/student-advice-writing-cold-emails-mark-cuban-paul-graham-2025-12" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontStyle: "italic" }}>
-            I&apos;m a 15-year-old who got advice from Mark Cuban and Paul Graham over email.
-          </a>
-        </p>
+        <div style={{ marginTop: 12, display: "flex", gap: 18 }}>
+          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>Twitter</a>
+          <a href="https://cal.com/atova" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>Book a call</a>
+          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111", fontSize: 14 }}>Email</a>
+        </div>
       </div>
+
+      {/* Projects */}
+      <div style={{ padding: "40px 48px", maxWidth: 960, margin: "0 auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px 48px" }}>
+          <ProjectRow
+            href="/sf-towing"
+            img="/preview-towing.jpg"
+            title="Find My Towed Car"
+            desc="Live map of every car being towed in San Francisco"
+          />
+          <ProjectRow
+            href="/internet-airport"
+            img="/preview-airport.png"
+            title="Internet Airport"
+            desc="Live arrivals board for every domain registered today"
+          />
+        </div>
+
+        {/* Press */}
+        <div style={{ marginTop: 48, borderTop: "1px solid #eee", paddingTop: 32 }}>
+          <PressRow
+            date="May 2026 · SF Standard"
+            href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/"
+            text="Meet the teen whose viral SF tow truck tracker got banned after 3 hours."
+          />
+          <PressRow
+            date="Dec 2025 · Business Insider"
+            href="https://www.businessinsider.com/student-advice-writing-cold-emails-mark-cuban-paul-graham-2025-12"
+            text="I'm a 15-year-old who got advice from Mark Cuban and Paul Graham over email."
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
+      <div style={{ position: "relative", width: 160, height: 100, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
+        <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
+      </div>
+      <div style={{ paddingTop: 4 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{title}:</div>
+        <div style={{ fontSize: 15, color: "#888", marginTop: 4, lineHeight: 1.4 }}>{desc}</div>
+      </div>
+    </a>
+  )
+}
+
+function PressRow({ date, href, text }: { date: string; href: string; text: string }) {
+  return (
+    <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "baseline" }}>
+      <div style={{ fontSize: 13, color: "#aaa", whiteSpace: "nowrap", minWidth: 180 }}>{date}</div>
+      <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{text}</a>
     </div>
   )
 }
