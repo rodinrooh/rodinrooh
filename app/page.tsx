@@ -1,32 +1,45 @@
+"use client"
+
 import Image from "next/image"
+import { useState } from "react"
+
+const COLORS = ["#f97316", "#a78bfa", "#34d399", "#fb7185", "#fbbf24", "#60a5fa", "#f472b6", "#e879f9", "#4ade80", "#fb923c"]
 
 export default function Home() {
+  const [bgColor] = useState(() => COLORS[Math.floor(Math.random() * COLORS.length)])
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
 
       {/* Header */}
-      <div style={{ background: "#a78bfa", padding: "48px 48px 52px" }}>
-        <h1 style={{ fontSize: 52, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
-          Rodin Roohipour
-        </h1>
-        <p style={{ fontSize: 16, color: "#333", margin: "14px 0 0" }}>
-          15 —{" "}
-          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>My Twitter</a>
-          {" "}—{" "}
-          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
-        </p>
+      <div style={{ background: bgColor }}>
+        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "48px 48px 52px" }}>
+          <h1 style={{ fontSize: 56, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
+            Rodin Roohipour
+          </h1>
+          <p style={{ fontSize: 18, color: "#222", margin: "20px 0 0", lineHeight: 1.65, maxWidth: 620 }}>
+            I&apos;m 15 and I build things people actually use. I made the SF tow truck tracker
+            that went viral and got banned after 3 hours, and Internet Airport — a live arrivals
+            board for every domain registered today. SF Standard and Business Insider have written about me.
+          </p>
+          <div style={{ marginTop: 16, fontSize: 15, color: "#333" }}>
+            <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
+            {" · "}
+            <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
+          </div>
+        </div>
       </div>
 
       {/* Projects */}
-      <div style={{ padding: "40px 48px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1196, margin: "0 auto", padding: "48px 48px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px 56px" }}>
-          <ProjectRow
+          <ProjectCard
             href="/sf-towing"
             img="/preview-towing.jpg"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
           />
-          <ProjectRow
+          <ProjectCard
             href="/internet-airport"
             img="/preview-airport.png"
             title="Internet Airport"
@@ -35,7 +48,7 @@ export default function Home() {
         </div>
 
         {/* Press */}
-        <div style={{ marginTop: 48, borderTop: "1px solid #eee", paddingTop: 32 }}>
+        <div style={{ marginTop: 56, borderTop: "1px solid #eee", paddingTop: 32 }}>
           <PressRow
             date="May 2026 · SF Standard"
             href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/"
@@ -52,14 +65,14 @@ export default function Home() {
   )
 }
 
-function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
+function ProjectCard({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
-      <div style={{ position: "relative", width: 240, height: 150, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", flexDirection: "column", gap: 14, textDecoration: "none", color: "inherit" }}>
+      <div style={{ position: "relative", width: "100%", height: 220, borderRadius: 8, overflow: "hidden", background: "#f0f0f0" }}>
         <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
       </div>
-      <div style={{ paddingTop: 4 }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{title}:</div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 17, color: "#111" }}>{title}</div>
         <div style={{ fontSize: 15, color: "#888", marginTop: 4, lineHeight: 1.4 }}>{desc}</div>
       </div>
     </a>
