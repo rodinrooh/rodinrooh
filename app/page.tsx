@@ -90,8 +90,7 @@ function ProjectCard({
         cursor: "pointer",
         transition: "box-shadow 0.15s",
       }}
-        onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.1)")}
-        onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}
+        className="hover:shadow-lg"
       >
         {/* Preview image */}
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: fallbackBg ?? "#f5f5f5" }}>
