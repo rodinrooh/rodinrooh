@@ -35,7 +35,7 @@ export default function Home() {
         </div>
 
         {/* Projects */}
-        <div style={{ paddingTop: 24 }}>
+        <div style={{ paddingTop: 32 }}>
           <ProjectRow
             href="/sf-towing"
             title="Find My Towed Car"
