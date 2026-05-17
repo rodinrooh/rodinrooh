@@ -3,12 +3,15 @@
 import Image from "next/image"
 import { useState, useEffect } from "react"
 
-const COLORS = ["#f97316", "#a78bfa", "#34d399", "#fb7185", "#fbbf24", "#60a5fa", "#f472b6", "#e879f9", "#4ade80", "#fb923c"]
+function randomColor() {
+  const h = Math.floor(Math.random() * 360)
+  return `hsl(${h}, 70%, 68%)`
+}
 
 export default function Home() {
-  const [bgColor, setBgColor] = useState(COLORS[0])
+  const [bgColor, setBgColor] = useState("hsl(30, 70%, 68%)")
   useEffect(() => {
-    setBgColor(COLORS[Math.floor(Math.random() * COLORS.length)])
+    setBgColor(randomColor())
   }, [])
 
   return (
@@ -27,10 +30,10 @@ export default function Home() {
       <div style={{ maxWidth: 1196, margin: "0 auto", padding: "40px 48px 64px" }}>
 
         {/* Blurb + links */}
-        <p style={{ fontSize: 18, color: "#222", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 640 }}>
-          I&apos;m 15, coding since I was 8 and building companies since 12. Currently working on Atova — previously
-          built ChampionPac, which had a partnership with Trump Golf. I ship things fast, some go viral, some get
-          written about. I cold email people I have no business emailing. Most write back.
+        <p style={{ fontSize: 16, color: "#333", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 580 }}>
+          I&apos;m 15, coding since 8 and building companies since 12. I&apos;m currently working on Atova, previously
+          built ChampionPac with a partnership with Trump Golf. I ship things fast, some go viral, some get
+          written about. I&apos;ve mastered the cold email.
         </p>
         <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
           <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
@@ -39,14 +42,14 @@ export default function Home() {
         </div>
 
         {/* Projects */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px 56px" }}>
-          <ProjectCard
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px 48px" }}>
+          <ProjectRow
             href="/sf-towing"
             img="/preview-towing.jpg"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
           />
-          <ProjectCard
+          <ProjectRow
             href="/internet-airport"
             img="/preview-airport.png"
             title="Internet Airport"
@@ -55,7 +58,7 @@ export default function Home() {
         </div>
 
         {/* Press */}
-        <div style={{ marginTop: 56, borderTop: "1px solid #eee", paddingTop: 32 }}>
+        <div style={{ marginTop: 48, borderTop: "1px solid #eee", paddingTop: 32 }}>
           <PressRow
             date="May 2026 · SF Standard"
             href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/"
@@ -72,14 +75,14 @@ export default function Home() {
   )
 }
 
-function ProjectCard({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
+function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", flexDirection: "column", gap: 14, textDecoration: "none", color: "inherit" }}>
-      <div style={{ position: "relative", width: "100%", height: 220, borderRadius: 8, overflow: "hidden", background: "#f0f0f0" }}>
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
+      <div style={{ position: "relative", width: 200, height: 130, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
         <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
       </div>
-      <div>
-        <div style={{ fontWeight: 700, fontSize: 17, color: "#111" }}>{title}</div>
+      <div style={{ paddingTop: 4 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{title}</div>
         <div style={{ fontSize: 15, color: "#888", marginTop: 4, lineHeight: 1.4 }}>{desc}</div>
       </div>
     </a>
