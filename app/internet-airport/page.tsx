@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-airport'
 
 type DomainRow = { id: number; domain: string; shown_at: string | null; score: number | null }
 type LeaderRow = { id: number; domain: string; score: number; shown_at: string | null }
