@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import { useState, useEffect } from "react"
 
 export default function Home() {
@@ -36,16 +35,18 @@ export default function Home() {
         </div>
 
         {/* Projects */}
-        <div className="home-projects-grid">
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
           <ProjectRow
             href="/sf-towing"
-            img="/preview-towing.jpg"
+            emoji="🚗"
+            color="#f97316"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
           />
           <ProjectRow
             href="/internet-airport"
-            img="/preview-airport.png"
+            emoji="✈️"
+            color="#6366f1"
             title="Internet Airport"
             desc="Live arrivals board for every domain registered today"
           />
@@ -69,15 +70,15 @@ export default function Home() {
   )
 }
 
-function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
+function ProjectRow({ href, emoji, color, title, desc }: { href: string; emoji: string; color: string; title: string; desc: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
-      <div className="home-project-img">
-        <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
+    <a href={href} target="_blank" rel="noopener noreferrer" className="home-project-row">
+      <div className="home-project-emoji-box" style={{ background: color }}>
+        {emoji}
       </div>
-      <div style={{ paddingTop: 4 }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{title}</div>
-        <div style={{ fontSize: 15, color: "#888", marginTop: 4, lineHeight: 1.4 }}>{desc}</div>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 15, color: "#111" }}>{title}</div>
+        <div style={{ fontSize: 14, color: "#888", marginTop: 2 }}>{desc}</div>
       </div>
     </a>
   )
