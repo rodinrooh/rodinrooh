@@ -396,35 +396,39 @@ export default function Page() {
             }}
           >
             {/* Header */}
-            <div style={{ marginBottom: 28 }}>
+            <div style={{ marginBottom: 24 }}>
               <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.3em', marginBottom: 8 }}>INTERNATIONAL ARRIVALS</div>
               <div style={{ color: '#f0b020', fontSize: 24, letterSpacing: '0.1em', fontWeight: 600, lineHeight: 1 }}>INTERNET AIRPORT</div>
             </div>
 
             {/* Divider */}
-            <div style={{ height: 1, background: '#222', marginBottom: 24 }} />
+            <div style={{ height: 1, background: '#222', marginBottom: 22 }} />
 
             {/* Section 1 */}
-            <div style={{ marginBottom: 22 }}>
-              <div style={{ color: '#f5f5f5', fontSize: 10, letterSpacing: '0.2em', fontWeight: 700, marginBottom: 8 }}>WHAT IS THIS?</div>
-              <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
-                A live feed of every single domain name registered on the internet. New domains are revealed continuously throughout the day.
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>✈️ What is this?</div>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
+                Every domain name registered on the internet, live. Around 70,000 new ones land every day, from real startups to spam to things that make no sense. This is all of them, displayed as an{' '}
+                <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
+                Domains arriving into the internet, just like flights arriving at an airport.
               </div>
             </div>
 
             {/* Section 2 */}
-            <div style={{ marginBottom: 22 }}>
-              <div style={{ color: '#f5f5f5', fontSize: 10, letterSpacing: '0.2em', fontWeight: 700, marginBottom: 8 }}>WHERE IS THE DATA FROM?</div>
-              <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
-                Domain registration data is sourced from <span style={{ color: '#ccc' }}>WHOIS Daily</span>, which aggregates newly registered domains from registrars worldwide. Around <span style={{ color: '#ccc' }}>70,000+</span> new domains are registered each day.
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>📡 Where&apos;s the data from?</div>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
+                A public database of newly registered domains on{' '}
+                <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.{' '}
+                Pulled daily and dripped onto the board one by one.
               </div>
             </div>
 
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
-              <div style={{ color: '#f5f5f5', fontSize: 10, letterSpacing: '0.2em', fontWeight: 700, marginBottom: 8 }}>HOW DOES IT WORK?</div>
-              <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
-                Each row is a domain that just got registered, and landed in the world of the Internet. They scroll in like an airport arrivals board. Every domain name gets a score from 0–100 based on how good it is. <span style={{ color: '#60b878' }}>Great</span> means it&apos;s great, <span style={{ color: '#c0c0c0' }}>Mid</span> means it&apos;s average, and <span style={{ color: '#e07820' }}>Trash</span>{' '}means it&apos;s the worst domain name ever.
+              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>🏆 Top Arrivals</div>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
+                Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
             </div>
 
