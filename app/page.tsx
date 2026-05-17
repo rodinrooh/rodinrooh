@@ -5,25 +5,22 @@ export default function Home() {
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
 
       {/* Header */}
-      <div style={{ background: "#6fa8dc", padding: "48px 48px 52px" }}>
+      <div style={{ background: "#f97316", padding: "48px 48px 52px" }}>
         <h1 style={{ fontSize: 52, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
           Rodin Roohipour
         </h1>
         <p style={{ fontSize: 16, color: "#333", margin: "14px 0 0", lineHeight: 1.6, maxWidth: 480 }}>
-          15 y/o. Founder of{" "}
-          <a href="https://atova.co" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Atova</a>.
-          {" "}Previously ChampionPac.
+          15 y/o.
         </p>
         <div style={{ marginTop: 12, display: "flex", gap: 18 }}>
-          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>Twitter</a>
-          <a href="https://cal.com/atova" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>Book a call</a>
+          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>My Twitter</a>
           <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111", fontSize: 14 }}>Email</a>
         </div>
       </div>
 
       {/* Projects */}
-      <div style={{ padding: "40px 48px", maxWidth: 960, margin: "0 auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px 48px" }}>
+      <div style={{ padding: "40px 48px", maxWidth: 1100, margin: "0 auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px 56px" }}>
           <ProjectRow
             href="/sf-towing"
             img="/preview-towing.jpg"
@@ -59,7 +56,7 @@ export default function Home() {
 function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
-      <div style={{ position: "relative", width: 160, height: 100, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
+      <div style={{ position: "relative", width: 240, height: 150, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
         <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
       </div>
       <div style={{ paddingTop: 4 }}>
