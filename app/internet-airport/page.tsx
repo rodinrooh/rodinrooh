@@ -396,37 +396,36 @@ export default function Page() {
             }}
           >
             {/* Header */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.3em', marginBottom: 8 }}>INTERNATIONAL ARRIVALS</div>
-              <div style={{ color: '#f0b020', fontSize: 24, letterSpacing: '0.1em', fontWeight: 600, lineHeight: 1 }}>INTERNET AIRPORT</div>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>✈️</div>
+              <div style={{ color: '#f0b020', fontSize: 22, letterSpacing: '0.1em', fontWeight: 600, lineHeight: 1 }}>INTERNET AIRPORT</div>
             </div>
 
             {/* Divider */}
-            <div style={{ height: 1, background: '#222', marginBottom: 22 }} />
+            <div style={{ height: 1, background: '#222', marginBottom: 20 }} />
 
             {/* Section 1 */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>✈️ What is this?</div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>✈️ What is this?</div>
               <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
-                Every domain name registered on the internet, live. Around 70,000 new ones land every day, from real startups to spam to things that make no sense. This is all of them, displayed as an{' '}
-                <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
+                Every domain name registered on the internet, live, displayed as an{' '}
+                <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
                 Domains arriving into the internet, just like flights arriving at an airport.
               </div>
             </div>
 
             {/* Section 2 */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>📡 Where&apos;s the data from?</div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>📡 Where&apos;s the data from?</div>
               <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
                 A public database of newly registered domains on{' '}
-                <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.{' '}
-                Pulled daily and dripped onto the board one by one.
+                <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.
               </div>
             </div>
 
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
-              <div style={{ color: '#ccc', fontSize: 11, letterSpacing: '0.08em', fontWeight: 500, marginBottom: 8 }}>🏆 Top Arrivals</div>
+              <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>🏆 Top Arrivals</div>
               <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400 }}>
                 Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
@@ -437,7 +436,7 @@ export default function Page() {
               onClick={dismissIntro}
               style={{
                 background: '#f0b020', color: '#111', border: 'none',
-                borderRadius: 4, padding: '11px 24px',
+                borderRadius: 50, padding: '13px 24px',
                 fontSize: 10, letterSpacing: '0.22em', fontWeight: 700,
                 cursor: 'pointer', width: '100%', marginBottom: 16,
               }}
