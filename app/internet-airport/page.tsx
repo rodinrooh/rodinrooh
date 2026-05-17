@@ -36,7 +36,8 @@ function getTopFilterCutoff(f: TopFilter): string | null {
   if (f === 'day')   d.setDate(d.getDate() - 1)
   if (f === 'week')  d.setDate(d.getDate() - 7)
   if (f === 'month') d.setMonth(d.getMonth() - 1)
-  return d.toISOString()
+  // date_added is a DATE column — format as YYYY-MM-DD
+  return d.toISOString().slice(0, 10)
 }
 
 // ── Tokens ───────────────────────────────────────────────────────────────────
@@ -246,7 +247,7 @@ export default function Page() {
       const cutoff = getTopFilterCutoff(topFilter)
       let q = supabase.from('domains').select('id, domain, score, shown_at')
         .eq('shown', true).not('score', 'is', null).order('score', { ascending: false }).limit(99)
-      if (cutoff) q = q.gte('shown_at', cutoff)
+      if (cutoff) q = q.gte('date_added', cutoff)
       const { data } = await q
       if (!cancelled) {
         setLeader((data as LeaderRow[]) ?? [])
