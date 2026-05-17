@@ -1,19 +1,22 @@
 "use client"
 
 import Image from "next/image"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 const COLORS = ["#f97316", "#a78bfa", "#34d399", "#fb7185", "#fbbf24", "#60a5fa", "#f472b6", "#e879f9", "#4ade80", "#fb923c"]
 
 export default function Home() {
-  const [bgColor] = useState(() => COLORS[Math.floor(Math.random() * COLORS.length)])
+  const [bgColor, setBgColor] = useState(COLORS[0])
+  useEffect(() => {
+    setBgColor(COLORS[Math.floor(Math.random() * COLORS.length)])
+  }, [])
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
 
       {/* Header — name only */}
       <div style={{ background: bgColor }}>
-        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "80px 48px 88px" }}>
+        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "108px 48px 116px" }}>
           <h1 style={{ fontSize: 60, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-2px", lineHeight: 1 }}>
             Rodin Roohipour
           </h1>
