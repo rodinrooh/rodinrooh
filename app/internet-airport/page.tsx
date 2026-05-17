@@ -49,7 +49,7 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H     = 164
+const HDR_H     = 148
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -512,50 +512,19 @@ export default function Page() {
               }}
             />
 
-            {/* Main tabs + top filter on same row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0, width: '100%' }}>
-              {/* Live / Top tabs */}
-              <div style={{ display: 'flex' }}>
-                {(['live', 'top'] as const).map(t => (
-                  <button key={t} onClick={() => setTab(t)} style={{
-                    background: 'transparent', border: 'none',
-                    borderBottom: tab === t ? '2px solid #888' : '2px solid transparent',
-                    color: tab === t ? '#f5f5f5' : '#666',
-                    fontFamily: 'inherit', fontSize: 9, letterSpacing: '0.28em',
-                    cursor: 'pointer', padding: '9px 24px 6px 0',
-                    fontWeight: tab === t ? 700 : 400,
-                  }}>
-                    {t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
-                  </button>
-                ))}
-              </div>
-
-              {/* Top filter pills — only when on top tab */}
-              {tab === 'top' && (
-                <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', paddingBottom: 6 }}>
-                  {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setTopFilter(f)}
-                      style={{
-                        background: topFilter === f ? '#f0b020' : 'transparent',
-                        border: `1px solid ${topFilter === f ? '#f0b020' : '#3a3a3a'}`,
-                        color: topFilter === f ? '#111' : '#666',
-                        borderRadius: 3,
-                        fontFamily: 'inherit',
-                        fontSize: 8,
-                        letterSpacing: '0.22em',
-                        fontWeight: topFilter === f ? 700 : 400,
-                        cursor: 'pointer',
-                        padding: '3px 7px',
-                        transition: 'all 0.12s',
-                      }}
-                    >
-                      {TOP_FILTER_LABELS[f]}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div style={{ display: 'flex' }}>
+              {(['live', 'top'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)} style={{
+                  background: 'transparent', border: 'none',
+                  borderBottom: tab === t ? '2px solid #888' : '2px solid transparent',
+                  color: tab === t ? '#f5f5f5' : '#666',
+                  fontFamily: 'inherit', fontSize: 9, letterSpacing: '0.28em',
+                  cursor: 'pointer', padding: '9px 24px 6px 0',
+                  fontWeight: tab === t ? 700 : 400,
+                }}>
+                  {t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
+                </button>
+              ))}
             </div>
 
           </div>
@@ -565,6 +534,34 @@ export default function Page() {
       {/* ── Board ── */}
       <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: HDR_H + 20, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
+
+          {/* Filter bar — top tab only */}
+          {tab === 'top' && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
+              {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setTopFilter(f)}
+                  style={{
+                    background: topFilter === f ? '#f0b020' : 'transparent',
+                    border: `1px solid ${topFilter === f ? '#f0b020' : '#3a3a3a'}`,
+                    color: topFilter === f ? '#111' : '#666',
+                    borderRadius: 3,
+                    fontFamily: 'inherit',
+                    fontSize: 9,
+                    letterSpacing: '0.22em',
+                    fontWeight: topFilter === f ? 700 : 400,
+                    cursor: 'pointer',
+                    padding: '5px 10px',
+                    transition: 'all 0.12s',
+                  }}
+                >
+                  {TOP_FILTER_LABELS[f]}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div style={{
             background: BOARD_BG,
             borderRadius: 8,
