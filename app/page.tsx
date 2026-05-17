@@ -41,25 +41,10 @@ export default function Home() {
           </div>
         </Link>
 
-        {/* Internet Airport card — styled placeholder (replace with preview-airport.png when ready) */}
         <Link href="/internet-airport" style={{ textDecoration: "none", color: "inherit" }}>
           <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, overflow: "hidden" }} className="hover:shadow-lg">
-            <div style={{
-              width: "100%", aspectRatio: "16/9",
-              background: "#1a1a1a",
-              display: "flex", flexDirection: "column",
-              alignItems: "flex-start", justifyContent: "center",
-              padding: "0 28px", gap: 6,
-            }}>
-              <div style={{ color: "#555", fontSize: 9, letterSpacing: "0.3em", fontFamily: "monospace" }}>INTERNATIONAL ARRIVALS</div>
-              <div style={{ color: "#f0b020", fontSize: 22, letterSpacing: "0.12em", fontWeight: 700, fontFamily: "monospace" }}>INTERNET AIRPORT</div>
-              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                {["T","H","E","B","E","L","L","A","N","D"].map((ch, i) => (
-                  <div key={i} style={{ width: 18, height: 26, background: "linear-gradient(to bottom, #272727 50%, #1d1d1d 50%)", borderRadius: 3, border: "1px solid #0c0c0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <span style={{ color: "#f0b020", fontSize: 10, fontWeight: 600, fontFamily: "monospace" }}>{ch}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
+              <Image src="/preview-airport.png" alt="Internet Airport" fill style={{ objectFit: "cover" }} />
             </div>
             <div style={{ padding: "12px 14px" }}>
               <div style={{ fontWeight: "bold", fontSize: "12pt" }}>Internet Airport</div>
