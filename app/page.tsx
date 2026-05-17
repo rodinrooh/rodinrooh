@@ -44,7 +44,7 @@ export default function Home() {
           <ProjectRow
             href="/internet-airport"
             title="Internet Airport"
-            desc="Live arrivals board for every domain registered today"
+            desc="Live board for every domain registered today"
           />
         </div>
 
@@ -69,7 +69,7 @@ export default function Home() {
 function ProjectRow({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
     <div className="home-press-row">
-      <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-date" style={{ color: "#111", fontWeight: 600, fontSize: 14, textDecoration: "none" }}>{title}</a>
+      <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-date" style={{ textDecoration: "none" }}>{title}</a>
       <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{desc}</div>
     </div>
   )
