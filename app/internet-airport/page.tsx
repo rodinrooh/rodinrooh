@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase-airport'
 
 type DomainRow = { id: number; domain: string; shown_at: string | null; score: number | null }
 type LeaderRow = { id: number; domain: string; score: number; shown_at: string | null }
+type TopFilter = 'day' | 'week' | 'month' | 'all'
 
 function getTld(d: string) { const i = d.lastIndexOf('.'); return i >= 0 ? d.slice(i) : '' }
 function getSld(d: string) { const i = d.lastIndexOf('.'); return i >= 0 ? d.slice(0, i) : d }
@@ -29,6 +30,15 @@ function timeHHMM(ts: string | null): { h: string; m: string } {
   return { h: h === '24' ? '00' : h, m }
 }
 
+function getTopFilterCutoff(f: TopFilter): string | null {
+  if (f === 'all') return null
+  const d = new Date()
+  if (f === 'day')   d.setDate(d.getDate() - 1)
+  if (f === 'week')  d.setDate(d.getDate() - 7)
+  if (f === 'month') d.setMonth(d.getMonth() - 1)
+  return d.toISOString()
+}
+
 // ── Tokens ───────────────────────────────────────────────────────────────────
 const PAGE_BG  = '#2a2a2a'
 const HDR_BG   = '#1e1e1e'
@@ -39,7 +49,7 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H     = 148
+const HDR_H     = 164
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -153,10 +163,10 @@ export default function Page() {
   const [newIds,   setNewIds]   = useState<Set<number>>(new Set())
   const timerRef                = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [tab,           setTab]    = useState<'live' | 'top'>('live')
-  const [leaderboard,   setLeader] = useState<LeaderRow[]>([])
-  const [leaderLoading, setLL]     = useState(false)
-  const leaderLoadedRef            = useRef(false)
+  const [tab,           setTab]       = useState<'live' | 'top'>('live')
+  const [topFilter,     setTopFilter] = useState<TopFilter>('all')
+  const [leaderboard,   setLeader]    = useState<LeaderRow[]>([])
+  const [leaderLoading, setLL]        = useState(false)
 
   const [results,   setResults]   = useState<DomainRow[]>([])
   const [rCount,    setRCount]    = useState<number | null>(null)
@@ -226,19 +236,29 @@ export default function Page() {
     return () => { clearInterval(iv); if (timerRef.current) clearTimeout(timerRef.current) }
   }, [])
 
-  // Leaderboard — loads on first visit, then refreshes every 60s while on tab
+  // Leaderboard — reloads when tab becomes 'top' or topFilter changes
   useEffect(() => {
     if (tab !== 'top') return
-    const load = () => {
+    let cancelled = false
+
+    const load = async () => {
       setLL(true)
-      supabase.from('domains').select('id, domain, score, shown_at').eq('shown', true)
-        .not('score', 'is', null).order('score', { ascending: false }).limit(99)
-        .then(({ data }) => { if (data?.length) setLeader(data as LeaderRow[]); setLL(false) })
+      const cutoff = getTopFilterCutoff(topFilter)
+      let q = supabase.from('domains').select('id, domain, score, shown_at')
+        .eq('shown', true).not('score', 'is', null).order('score', { ascending: false }).limit(99)
+      if (cutoff) q = q.gte('shown_at', cutoff)
+      const { data } = await q
+      if (!cancelled) {
+        setLeader((data as LeaderRow[]) ?? [])
+        setLL(false)
+      }
     }
-    if (!leaderLoadedRef.current) { leaderLoadedRef.current = true; load() }
+
+    setLeader([])
+    load()
     const iv = setInterval(load, 60_000)
-    return () => clearInterval(iv)
-  }, [tab])
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [tab, topFilter])
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
@@ -277,13 +297,18 @@ export default function Page() {
     scrollMargin: 0,
   })
 
+  const TOP_FILTER_LABELS: Record<TopFilter, string> = {
+    day: '24H', week: '7D', month: '30D', all: 'ALL TIME',
+  }
+
   let countLabel: string
   if (searching) {
     countLabel = 'SEARCHING...'
   } else if (tab === 'top') {
+    const filterLabel = TOP_FILTER_LABELS[topFilter]
     countLabel = search
       ? `${filteredLeader.length} MATCHES`
-      : `TOP ${leaderboard.length}`
+      : `TOP ${leaderboard.length} · ${filterLabel}`
   } else if (search && rCount !== null) {
     countLabel = rCount > results.length
       ? `SHOWING ${results.length.toLocaleString()} OF ${rCount.toLocaleString()}`
@@ -487,19 +512,50 @@ export default function Page() {
               }}
             />
 
-            <div style={{ display: 'flex' }}>
-              {(['live', 'top'] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  background: 'transparent', border: 'none',
-                  borderBottom: tab === t ? '2px solid #888' : '2px solid transparent',
-                  color: tab === t ? '#f5f5f5' : '#666',
-                  fontFamily: 'inherit', fontSize: 9, letterSpacing: '0.28em',
-                  cursor: 'pointer', padding: '9px 24px 6px 0',
-                  fontWeight: tab === t ? 700 : 400,
-                }}>
-                  {t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
-                </button>
-              ))}
+            {/* Main tabs + top filter on same row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0, width: '100%' }}>
+              {/* Live / Top tabs */}
+              <div style={{ display: 'flex' }}>
+                {(['live', 'top'] as const).map(t => (
+                  <button key={t} onClick={() => setTab(t)} style={{
+                    background: 'transparent', border: 'none',
+                    borderBottom: tab === t ? '2px solid #888' : '2px solid transparent',
+                    color: tab === t ? '#f5f5f5' : '#666',
+                    fontFamily: 'inherit', fontSize: 9, letterSpacing: '0.28em',
+                    cursor: 'pointer', padding: '9px 24px 6px 0',
+                    fontWeight: tab === t ? 700 : 400,
+                  }}>
+                    {t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Top filter pills — only when on top tab */}
+              {tab === 'top' && (
+                <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', paddingBottom: 6 }}>
+                  {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setTopFilter(f)}
+                      style={{
+                        background: topFilter === f ? '#f0b020' : 'transparent',
+                        border: `1px solid ${topFilter === f ? '#f0b020' : '#3a3a3a'}`,
+                        color: topFilter === f ? '#111' : '#666',
+                        borderRadius: 3,
+                        fontFamily: 'inherit',
+                        fontSize: 8,
+                        letterSpacing: '0.22em',
+                        fontWeight: topFilter === f ? 700 : 400,
+                        cursor: 'pointer',
+                        padding: '3px 7px',
+                        transition: 'all 0.12s',
+                      }}
+                    >
+                      {TOP_FILTER_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
           </div>
