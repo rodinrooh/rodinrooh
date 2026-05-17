@@ -28,32 +28,28 @@ export default function Home() {
         <p style={{ fontSize: 16, color: "#333", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 580 }}>
           I&apos;m 15. I ship things fast and some go viral. I&apos;m also cracked at cold emailing.
         </p>
-        <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
+        <div style={{ fontSize: 15, color: "#555", paddingBottom: 32, borderBottom: "1px solid #eee" }}>
           <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", textDecoration: "underline" }}>Twitter</a>
           {" · "}
           <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111", textDecoration: "underline" }}>Email</a>
         </div>
 
         {/* Projects */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        <div style={{ paddingTop: 24 }}>
           <ProjectRow
             href="/sf-towing"
-            emoji="🚗"
-            color="#f97316"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
           />
           <ProjectRow
             href="/internet-airport"
-            emoji="✈️"
-            color="#6366f1"
             title="Internet Airport"
             desc="Live arrivals board for every domain registered today"
           />
         </div>
 
         {/* Press */}
-        <div style={{ marginTop: 48, borderTop: "1px solid #eee", paddingTop: 32 }}>
+        <div style={{ marginTop: 32, borderTop: "1px solid #eee", paddingTop: 32 }}>
           <PressRow
             date="May 2026 · SF Standard"
             href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/"
@@ -70,17 +66,12 @@ export default function Home() {
   )
 }
 
-function ProjectRow({ href, emoji, color, title, desc }: { href: string; emoji: string; color: string; title: string; desc: string }) {
+function ProjectRow({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="home-project-row">
-      <div className="home-project-emoji-box" style={{ background: color }}>
-        {emoji}
-      </div>
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 15, color: "#111" }}>{title}</div>
-        <div style={{ fontSize: 14, color: "#888", marginTop: 2 }}>{desc}</div>
-      </div>
-    </a>
+    <div className="home-press-row">
+      <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-date" style={{ color: "#111", fontWeight: 600, fontSize: 14, textDecoration: "none" }}>{title}</a>
+      <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{desc}</div>
+    </div>
   )
 }
 
