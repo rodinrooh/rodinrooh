@@ -5,17 +5,16 @@ export default function Home() {
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
 
       {/* Header */}
-      <div style={{ background: "#f97316", padding: "48px 48px 52px" }}>
+      <div style={{ background: "#a78bfa", padding: "48px 48px 52px" }}>
         <h1 style={{ fontSize: 52, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
           Rodin Roohipour
         </h1>
-        <p style={{ fontSize: 16, color: "#333", margin: "14px 0 0", lineHeight: 1.6, maxWidth: 480 }}>
-          15 y/o.
+        <p style={{ fontSize: 16, color: "#333", margin: "14px 0 0" }}>
+          15 —{" "}
+          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>My Twitter</a>
+          {" "}—{" "}
+          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
         </p>
-        <div style={{ marginTop: 12, display: "flex", gap: 18 }}>
-          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontSize: 14 }}>My Twitter</a>
-          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111", fontSize: 14 }}>Email</a>
-        </div>
       </div>
 
       {/* Projects */}
