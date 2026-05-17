@@ -38,11 +38,13 @@ export default function Home() {
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
             href="/sf-towing"
+            date="May 2026"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
           />
           <ProjectRow
             href="/internet-airport"
+            date="May 2026"
             title="Internet Airport"
             desc="Live board for every domain registered today"
           />
@@ -66,10 +68,10 @@ export default function Home() {
   )
 }
 
-function ProjectRow({ href, title, desc }: { href: string; title: string; desc: string }) {
+function ProjectRow({ href, date, title, desc }: { href: string; date: string; title: string; desc: string }) {
   return (
     <div className="home-press-row">
-      <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-date" style={{ textDecoration: "none" }}>{title}</a>
+      <div className="home-press-date">{date} · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }}>{title}</a></div>
       <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{desc}</div>
     </div>
   )
