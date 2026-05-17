@@ -99,7 +99,6 @@ function ProjectCard({
             alt={imageAlt}
             fill
             style={{ objectFit: "cover" }}
-            onError={() => {}}
           />
         </div>
         {/* Label */}
