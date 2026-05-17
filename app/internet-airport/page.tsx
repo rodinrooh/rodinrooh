@@ -172,6 +172,31 @@ function FilterTiles({ label, active, onClick }: { label: string; active: boolea
   )
 }
 
+function TabTiles({ label, active, onClick, animKey, sm }: {
+  label: string; active: boolean; onClick: () => void; animKey: number; sm: boolean
+}) {
+  const FW = sm ? 13 : 16, FH = sm ? 22 : 26, FFS = sm ? 8 : 10
+  return (
+    <button onClick={onClick} style={{
+      background: 'none', border: 'none', cursor: 'pointer',
+      padding: '8px 0', marginRight: sm ? 14 : 20, flexShrink: 0,
+    }}>
+      <div key={animKey} className={animKey > 0 ? 'flip-in' : ''}
+        style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        {Array.from(label).map((ch, i) =>
+          ch === ' '
+            ? <div key={i} style={{ width: 5, flexShrink: 0 }} />
+            : <Tile key={i} ch={ch} w={FW} h={FH} fs={FFS}
+                color={active ? '#f0b020' : '#3a3a3a'}
+                tt={active ? '#3a2800' : '#1a1a1a'}
+                tb={active ? '#2a1c00' : '#141414'}
+              />
+        )}
+      </div>
+    </button>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Page() {
   const [domains,  setDomains]  = useState<DomainRow[]>([])
@@ -194,6 +219,7 @@ export default function Page() {
 
   const [showIntro, setShowIntro] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [tabFlipKey, setTabFlipKey] = useState(0)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -407,7 +433,7 @@ export default function Page() {
             {/* Section 1 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>✈️ What is this?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
                 Every domain name registered on the internet, live, displayed as an{' '}
                 <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
                 Domains arriving into the internet, just like flights arriving at an airport.
@@ -417,7 +443,7 @@ export default function Page() {
             {/* Section 2 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>📡 Where&apos;s the data from?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
                 A public database of newly registered domains on{' '}
                 <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.
               </div>
@@ -426,7 +452,7 @@ export default function Page() {
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>🏆 Top Arrivals</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
                 Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
             </div>
@@ -507,10 +533,10 @@ export default function Page() {
             >i</button>
           )}
 
-          {/* Left-aligned title + search + tabs */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          {/* Title + search + tabs */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
 
-            <div style={{ textAlign: 'left', marginBottom: 10 }}>
+            <div style={{ textAlign: isMobile ? 'left' : 'center', marginBottom: 10 }}>
               <div style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.12em', fontWeight: 600, lineHeight: 1 }}>
                 INTERNET AIRPORT
               </div>
@@ -522,30 +548,30 @@ export default function Page() {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="SEARCH ARRIVALS..."
+              placeholder="SEARCH ARRIVALS"
               style={{
-                display: 'block', width: '100%', maxWidth: 480,
-                background: 'transparent', border: 'none',
-                borderBottom: '1px solid #3a3a3a',
+                display: 'block',
+                width: isMobile ? '100%' : 380,
+                background: '#111',
+                border: '1px solid #222',
+                borderRadius: 4,
                 outline: 'none', color: '#bbb',
-                fontSize: 11, letterSpacing: '0.16em',
-                padding: '6px 0 8px', fontFamily: 'inherit',
-                textAlign: 'left',
+                fontSize: 10, letterSpacing: '0.20em',
+                padding: '8px 12px', fontFamily: 'inherit',
+                marginBottom: 8,
               }}
             />
 
             <div style={{ display: 'flex' }}>
               {(['live', 'top'] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  background: 'transparent', border: 'none',
-                  borderBottom: tab === t ? '2px solid #888' : '2px solid transparent',
-                  color: tab === t ? '#f5f5f5' : '#666',
-                  fontFamily: 'inherit', fontSize: 9, letterSpacing: '0.28em',
-                  cursor: 'pointer', padding: '9px 24px 6px 0',
-                  fontWeight: tab === t ? 700 : 400,
-                }}>
-                  {t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
-                </button>
+                <TabTiles
+                  key={t}
+                  label={t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
+                  active={tab === t}
+                  animKey={tabFlipKey}
+                  sm={isMobile}
+                  onClick={() => { setTab(t); setTabFlipKey(k => k + 1) }}
+                />
               ))}
             </div>
 
