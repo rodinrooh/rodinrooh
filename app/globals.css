@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+
+:root {
+  --background: #ffffff;
+  --foreground: #1c1c1e;
+}
+
+/* Apple Maps canvas fills its container */
+.mk-map-view {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Split-flap animation for internet-airport */
+@keyframes splitFlap {
+  0%   { transform: perspective(600px) rotateX(0deg);   opacity: 1; }
+  40%  { transform: perspective(600px) rotateX(-90deg); opacity: 0.1; }
+  60%  { transform: perspective(600px) rotateX(90deg);  opacity: 0.1; }
+  100% { transform: perspective(600px) rotateX(0deg);   opacity: 1; }
+}
+.flip-in {
+  animation: splitFlap 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: center center;
+}
+.board-row { content-visibility: auto; contain-intrinsic-size: 0 70px; }
+.board-row:hover { background: #252525 !important; }
+input::placeholder { color: #333; letter-spacing: 0.14em; }
