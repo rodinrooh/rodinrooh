@@ -251,7 +251,7 @@ export default function Page() {
   const liveVirtualizer = useWindowVirtualizer({
     count: liveRows.length,
     estimateSize: () => 70,
-    overscan: 20,
+    overscan: 50,
     scrollMargin: 0,
   })
 
