@@ -3,15 +3,12 @@
 import Image from "next/image"
 import { useState, useEffect } from "react"
 
-function randomColor() {
-  const h = Math.floor(Math.random() * 360)
-  return `hsl(${h}, 70%, 68%)`
-}
+const COLORS = ["#f97316", "#a78bfa", "#34d399", "#fb7185", "#fbbf24", "#60a5fa", "#f472b6", "#e879f9", "#4ade80", "#fb923c"]
 
 export default function Home() {
-  const [bgColor, setBgColor] = useState("hsl(30, 70%, 68%)")
+  const [bgColor, setBgColor] = useState(COLORS[0])
   useEffect(() => {
-    setBgColor(randomColor())
+    setBgColor(COLORS[Math.floor(Math.random() * COLORS.length)])
   }, [])
 
   return (
@@ -31,9 +28,9 @@ export default function Home() {
 
         {/* Blurb + links */}
         <p style={{ fontSize: 16, color: "#333", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 580 }}>
-          I&apos;m 15, coding since 8 and building companies since 12. I&apos;m currently working on Atova, previously
+          I&apos;m 15, coding since 8 and building companies since 12. I&apos;m currently working on Atova and previously
           built ChampionPac with a partnership with Trump Golf. I ship things fast, some go viral, some get
-          written about. I&apos;ve mastered the cold email.
+          written about. I&apos;ve mastered the art of cold emailing and can get a response from anyone you could imagine.
         </p>
         <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
           <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
