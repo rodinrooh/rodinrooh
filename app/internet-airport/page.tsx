@@ -50,7 +50,7 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H     = 165
+const HDR_H     = 150
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -154,6 +154,14 @@ function BigClock({ now }: { now: Date | null }) {
   )
 }
 
+function PlaneIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="#f0b020" style={{ flexShrink: 0, opacity: 0.85 }}>
+      <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+    </svg>
+  )
+}
+
 function FilterTiles({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   const FW = 16, FH = 26, FFS = 10
   return (
@@ -172,8 +180,8 @@ function FilterTiles({ label, active, onClick }: { label: string; active: boolea
   )
 }
 
-function TabTiles({ label, active, onClick, animKey, sm }: {
-  label: string; active: boolean; onClick: () => void; animKey: number; sm: boolean
+function TabTiles({ label, active, onClick, sm }: {
+  label: string; active: boolean; onClick: () => void; sm: boolean
 }) {
   const FW = sm ? 13 : 16, FH = sm ? 22 : 26, FFS = sm ? 8 : 10
   return (
@@ -181,8 +189,7 @@ function TabTiles({ label, active, onClick, animKey, sm }: {
       background: 'none', border: 'none', cursor: 'pointer',
       padding: '8px 0', marginRight: sm ? 14 : 20, flexShrink: 0,
     }}>
-      <div key={animKey} className={animKey > 0 ? 'flip-in' : ''}
-        style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
         {Array.from(label).map((ch, i) =>
           ch === ' '
             ? <div key={i} style={{ width: 5, flexShrink: 0 }} />
@@ -219,7 +226,6 @@ export default function Page() {
 
   const [showIntro, setShowIntro] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-  const [tabFlipKey, setTabFlipKey] = useState(0)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -497,23 +503,21 @@ export default function Page() {
       }}>
         <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 0' : '14px 40px 0', position: 'relative' }}>
 
-          {/* Clock + info — top right, desktop only */}
+          {/* Info button — top right */}
           {!isMobile && (
-            <div style={{ position: 'absolute', top: 14, right: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button
-                onClick={() => setShowIntro(true)}
-                style={{
-                  width: 22, height: 22, borderRadius: '50%',
-                  background: 'transparent', border: '1px solid #3a3a3a',
-                  color: '#555', fontSize: 11, fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  lineHeight: 1, fontFamily: 'inherit', flexShrink: 0,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
-              >i</button>
-              <BigClock now={now} />
-            </div>
+            <button
+              onClick={() => setShowIntro(true)}
+              style={{
+                position: 'absolute', top: 14, right: 40,
+                width: 22, height: 22, borderRadius: '50%',
+                background: 'transparent', border: '1px solid #3a3a3a',
+                color: '#555', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
+            >i</button>
           )}
 
           {/* Info button — mobile only */}
@@ -536,17 +540,14 @@ export default function Page() {
           {/* Title + search + tabs */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
 
-            <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
-              <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 8 }}>
-                {Array.from('INTERNET AIRPORT').map((ch, i) =>
-                  ch === ' '
-                    ? <div key={i} style={{ width: 8, flexShrink: 0 }} />
-                    : <Tile key={i} ch={ch} w={isMobile ? 16 : 24} h={isMobile ? 24 : 36} fs={isMobile ? 10 : 14}
-                        color='#f0b020' tt='#3a2800' tb='#2a1c00'
-                      />
-                )}
+            <div style={{ textAlign: isMobile ? 'left' : 'center', marginBottom: 10 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <PlaneIcon />
+                <span style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.12em', fontWeight: 600, lineHeight: 1 }}>
+                  INTERNET AIRPORT
+                </span>
               </div>
-              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em' }}>
+              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em', marginTop: 6 }}>
                 {countLabel}
               </div>
             </div>
@@ -574,9 +575,8 @@ export default function Page() {
                   key={t}
                   label={t === 'live' ? 'LIVE' : 'TOP'}
                   active={tab === t}
-                  animKey={tabFlipKey}
                   sm={isMobile}
-                  onClick={() => { setTab(t); setTabFlipKey(k => k + 1) }}
+                  onClick={() => setTab(t)}
                 />
               ))}
             </div>
