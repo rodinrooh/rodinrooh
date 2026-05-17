@@ -11,27 +11,31 @@ export default function Home() {
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
 
-      {/* Header */}
+      {/* Header — name only */}
       <div style={{ background: bgColor }}>
-        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "72px 48px 80px" }}>
-          <h1 style={{ fontSize: 56, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
+        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "80px 48px 88px" }}>
+          <h1 style={{ fontSize: 60, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-2px", lineHeight: 1 }}>
             Rodin Roohipour
           </h1>
-          <p style={{ fontSize: 18, color: "#222", margin: "20px 0 0", lineHeight: 1.65, maxWidth: 620 }}>
-            I&apos;m 15 and I build things people actually use. I made the SF tow truck tracker
-            that went viral and got banned after 3 hours, and Internet Airport — a live arrivals
-            board for every domain registered today. SF Standard and Business Insider have written about me.
-          </p>
-          <div style={{ marginTop: 16, fontSize: 15, color: "#333" }}>
-            <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
-            {" · "}
-            <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
-          </div>
         </div>
       </div>
 
-      {/* Projects */}
-      <div style={{ maxWidth: 1196, margin: "0 auto", padding: "48px 48px" }}>
+      {/* Everything below header */}
+      <div style={{ maxWidth: 1196, margin: "0 auto", padding: "40px 48px 64px" }}>
+
+        {/* Blurb + links */}
+        <p style={{ fontSize: 18, color: "#222", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 640 }}>
+          I&apos;m 15 and I&apos;ve been building companies since I was 13. Currently running Atova — previously ChampionPac.
+          I ship things fast, some go viral, some get written up in SF Standard or Business Insider.
+          I&apos;ve cold emailed Mark Cuban and Paul Graham. They wrote back.
+        </p>
+        <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
+          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
+          {" · "}
+          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
+        </div>
+
+        {/* Projects */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "40px 56px" }}>
           <ProjectCard
             href="/sf-towing"

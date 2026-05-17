@@ -1,12 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <!-- Plane arriving: nose pointing lower-right, tail upper-left -->
-  <!-- Fuselage -->
-  <path d="M20 20 Q50 50 78 78" stroke="#1e293b" stroke-width="10" stroke-linecap="round" fill="none"/>
-  <!-- Wings (perpendicular to fuselage direction, ~135deg) -->
-  <path d="M53 47 L80 18 L62 44" fill="#1e293b"/>
-  <path d="M47 53 L20 82 L38 56" fill="#1e293b"/>
-  <!-- Tail fins -->
-  <path d="M24 24 L10 12 L22 36" fill="#334155"/>
-  <!-- Runway dashes at bottom -->
-  <line x1="8" y1="94" x2="92" y2="94" stroke="#94a3b8" stroke-width="3" stroke-dasharray="10 6"/>
+  <!-- Plane arriving: nose lower-right, tail upper-left, ~38° slope -->
+
+  <!-- Fuselage body (elongated, angled) -->
+  <path d="M14 14 C11 17 11 21 15 25 L78 85 C82 89 86 89 89 86 C92 83 92 79 88 75 L25 15 C21 11 17 11 14 14 Z" fill="#b0bec5"/>
+
+  <!-- Fuselage highlight -->
+  <path d="M18 16 C16 18 16 21 19 24 L78 81 C80 83 82 83 84 81 L22 17 C20 15 19 14 18 16 Z" fill="#cfd8dc"/>
+
+  <!-- Right wing (upper side) -->
+  <path d="M56 42 L88 14 L62 50" fill="#90a4ae"/>
+
+  <!-- Left wing (lower side) -->
+  <path d="M42 56 L14 86 L36 50" fill="#90a4ae"/>
+
+  <!-- Vertical tail fin -->
+  <path d="M16 18 L6 6 L22 24" fill="#78909c"/>
+
+  <!-- Horizontal stabilizer -->
+  <path d="M18 20 L8 28 L20 26" fill="#78909c"/>
+
+  <!-- Cockpit windows -->
+  <ellipse cx="83" cy="80" rx="6" ry="6" fill="#4fc3f7" opacity="0.9"/>
+
+  <!-- Landing gear (front) -->
+  <line x1="74" y1="74" x2="72" y2="90" stroke="#546e7a" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="72" cy="92" r="4" fill="#37474f"/>
+
+  <!-- Landing gear (rear) -->
+  <line x1="64" y1="64" x2="62" y2="80" stroke="#546e7a" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="62" cy="82" r="4" fill="#37474f"/>
+
+  <!-- Runway -->
+  <rect x="4" y="96" width="92" height="3" rx="1.5" fill="#9e9e9e"/>
 </svg>
