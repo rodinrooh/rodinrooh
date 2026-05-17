@@ -5,7 +5,6 @@ import "./globals.css"
 export const metadata: Metadata = {
   title: "Rodin Roohipour",
   description: "Rodin Roohipour",
-  icons: { icon: "/icon.svg?v=2" },
 }
 
 export default function RootLayout({

@@ -3,7 +3,6 @@ import type { Metadata } from "next"
 export const metadata: Metadata = {
   title: "Find My Towed Car",
   description: "Live map of every car being towed in San Francisco",
-  icons: { icon: "/sf-towing/icon.svg?v=2" },
   metadataBase: new URL("https://www.rodinrooh.com"),
   openGraph: {
     title: "Find My Towed Car",
