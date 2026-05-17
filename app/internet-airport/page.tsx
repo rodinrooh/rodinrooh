@@ -50,7 +50,7 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H     = 148
+const HDR_H     = 165
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -536,11 +536,17 @@ export default function Page() {
           {/* Title + search + tabs */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
 
-            <div style={{ textAlign: isMobile ? 'left' : 'center', marginBottom: 10 }}>
-              <div style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.12em', fontWeight: 600, lineHeight: 1 }}>
-                INTERNET AIRPORT
+            <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
+              <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 8 }}>
+                {Array.from('INTERNET AIRPORT').map((ch, i) =>
+                  ch === ' '
+                    ? <div key={i} style={{ width: 8, flexShrink: 0 }} />
+                    : <Tile key={i} ch={ch} w={isMobile ? 16 : 24} h={isMobile ? 24 : 36} fs={isMobile ? 10 : 14}
+                        color='#f0b020' tt='#3a2800' tb='#2a1c00'
+                      />
+                )}
               </div>
-              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em', marginTop: 6 }}>
+              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em' }}>
                 {countLabel}
               </div>
             </div>
@@ -566,7 +572,7 @@ export default function Page() {
               {(['live', 'top'] as const).map(t => (
                 <TabTiles
                   key={t}
-                  label={t === 'live' ? 'LIVE ARRIVALS' : 'TOP ARRIVALS'}
+                  label={t === 'live' ? 'LIVE' : 'TOP'}
                   active={tab === t}
                   animKey={tabFlipKey}
                   sm={isMobile}
