@@ -48,6 +48,11 @@ const TW = 14, TH = 30, TFS = 10
 const NW = 30, NH = 44, NFS = 21
 const CW = 36, CH = 48, CFS = 26
 
+const M_DW = 22, M_DH = 34, M_DFS = 13
+const M_TW = 12, M_TH = 26, M_TFS = 9
+const M_DOM_SLOTS = 8
+const M_TLD_SLOTS = 5
+
 const PAGE_SIZE = 1000
 
 // ── Tile ─────────────────────────────────────────────────────────────────────
@@ -155,6 +160,14 @@ export default function Page() {
   const searchTimer               = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [showIntro, setShowIntro] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     if (!sessionStorage.getItem('intro_seen')) setShowIntro(true)
@@ -200,7 +213,7 @@ export default function Page() {
           setDomains(prev => [...incoming, ...prev])
           setTotal(prev => prev + data.length)
         })
-        if (prevScrollY > 10) window.scrollBy(0, incoming.length * 70)
+        if (prevScrollY > 10) window.scrollBy(0, incoming.length * (isMobile ? 60 : 70))
         setNewIds(new Set(incoming.map(r => r.id)))
         if (timerRef.current) clearTimeout(timerRef.current)
         timerRef.current = setTimeout(() => setNewIds(new Set()), 400)
@@ -255,7 +268,7 @@ export default function Page() {
   const liveListRef = useRef<HTMLDivElement>(null)
   const liveVirtualizer = useWindowVirtualizer({
     count: liveRows.length,
-    estimateSize: () => 70,
+    estimateSize: () => isMobile ? 60 : 70,
     overscan: 50,
     scrollMargin: 0,
   })
@@ -280,9 +293,26 @@ export default function Page() {
     : <>EVERY DOMAIN REGISTERED TODAY<br />LIVE AS IT ARRIVES</>
 
 
-  const LIVE_GRID = `${4 * NW + 2 * 3 + 22}px ${DOM_SLOTS * DW + (DOM_SLOTS - 1) * 3}px ${TLD_SLOTS * TW + (TLD_SLOTS - 1) * 2}px 90px`
+  const aDW = isMobile ? M_DW : DW
+  const aDH = isMobile ? M_DH : DH
+  const aDFS = isMobile ? M_DFS : DFS
+  const aTW = isMobile ? M_TW : TW
+  const aTH = isMobile ? M_TH : TH
+  const aTFS = isMobile ? M_TFS : TFS
+  const aDOM = isMobile ? M_DOM_SLOTS : DOM_SLOTS
+  const aTLD = isMobile ? M_TLD_SLOTS : TLD_SLOTS
+
+  const domColW = aDOM * aDW + (aDOM - 1) * 3
+  const tldColW = aTLD * aTW + (aTLD - 1) * 2
+  const timeColW = 4 * NW + 2 * 3 + 22
+
+  const LIVE_GRID = isMobile
+    ? `${domColW}px ${tldColW}px 72px`
+    : `${timeColW}px ${domColW}px ${tldColW}px 90px`
   const RW = 22, RH = 34, RFS = 13
-  const TOP_GRID  = `${2 * RW + 1 * 3}px ${DOM_SLOTS * DW + (DOM_SLOTS - 1) * 3}px ${TLD_SLOTS * TW + (TLD_SLOTS - 1) * 2}px ${3 * RW + 2 * 3}px 90px`
+  const TOP_GRID = isMobile
+    ? `${2 * RW + 3}px ${domColW}px ${tldColW}px ${3 * RW + 6}px 72px`
+    : `${2 * RW + 3}px ${domColW}px ${tldColW}px ${3 * RW + 6}px 90px`
 
   return (
     <main style={{ background: PAGE_BG, minHeight: '100vh' }}>
@@ -381,15 +411,17 @@ export default function Page() {
         borderBottom: '2px solid #181818',
         boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
       }}>
-        <div style={{ maxWidth: MAX_W, margin: '0 auto', padding: '14px 40px 0', position: 'relative' }}>
+        <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 0' : '14px 40px 0', position: 'relative' }}>
 
-          {/* Clock + blurb — top right */}
-          <div style={{ position: 'absolute', top: 14, right: 40, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-            <BigClock now={now} />
-            <div style={{ color: '#f5f5f5', fontSize: 9, letterSpacing: '0.2em', textAlign: 'right', lineHeight: 1.7 }}>
-              {blurb}
+          {/* Clock + blurb — top right, desktop only */}
+          {!isMobile && (
+            <div style={{ position: 'absolute', top: 14, right: 40, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+              <BigClock now={now} />
+              <div style={{ color: '#f5f5f5', fontSize: 9, letterSpacing: '0.2em', textAlign: 'right', lineHeight: 1.7 }}>
+                {blurb}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Left-aligned title + search + tabs */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -441,8 +473,8 @@ export default function Page() {
       </div>
 
       {/* ── Board ── */}
-      <div style={{ maxWidth: MAX_W, margin: '0 auto', paddingTop: HDR_H + 20, paddingBottom: 80 }}>
-        <div style={{ margin: '0 40px' }}>
+      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: HDR_H + 20, paddingBottom: 80 }}>
+        <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
           <div style={{
             background: BOARD_BG,
             borderRadius: 8,
@@ -455,15 +487,15 @@ export default function Page() {
             <div style={{
               display: 'grid',
               gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
-              gap: '0 16px',
-              padding: '10px 20px',
+              gap: isMobile ? '0 8px' : '0 16px',
+              padding: isMobile ? '10px 12px' : '10px 20px',
               position: 'sticky', top: HDR_H, zIndex: 9,
               background: BOARD_BG,
               borderBottom: '2px solid #1c1c1c',
             }}>
               {tab === 'live' ? (
                 <>
-                  <CH2>TIME</CH2>
+                  {!isMobile && <CH2>TIME</CH2>}
                   <CH2>DEPARTURE</CH2>
                   <CH2>GATE</CH2>
                   <CH2 right>STATUS</CH2>
@@ -503,19 +535,19 @@ export default function Page() {
                           transform: `translateY(${vi.start}px)`,
                           display: 'grid',
                           gridTemplateColumns: LIVE_GRID,
-                          gap: '0 16px',
-                          padding: '12px 20px',
+                          gap: isMobile ? '0 8px' : '0 16px',
+                          padding: isMobile ? '12px 12px' : '12px 20px',
                           alignItems: 'center',
                           background: '#1e1e1e',
                           borderBottom: '2px solid #1c1c1c',
                           cursor: 'pointer',
                         }}
                       >
-                        <TimeTiles ts={d.shown_at} />
-                        <SlotRow text={getSld(d.domain)} w={DW} h={DH} fs={DFS}
-                          color={isNew ? '#f8d060' : '#f0b020'} slots={DOM_SLOTS} />
-                        <SlotRow text={getTld(d.domain)} w={TW} h={TH} fs={TFS}
-                          color='#f5f5f5' slots={TLD_SLOTS} gap={2} />
+                        {!isMobile && <TimeTiles ts={d.shown_at} />}
+                        <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS}
+                          color={isNew ? '#f8d060' : '#f0b020'} slots={aDOM} />
+                        <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS}
+                          color='#f5f5f5' slots={aTLD} gap={2} />
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                           <StatusBadge status={getStatus(d.score)} />
                         </div>
@@ -539,8 +571,8 @@ export default function Page() {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: TOP_GRID,
-                      gap: '0 16px',
-                      padding: '12px 20px',
+                      gap: isMobile ? '0 8px' : '0 16px',
+                      padding: isMobile ? '12px 12px' : '12px 20px',
                       alignItems: 'center',
                       background: '#1e1e1e',
                       borderBottom: '2px solid #1c1c1c',
@@ -548,8 +580,8 @@ export default function Page() {
                     }}
                   >
                     <SlotRow text={String(rank)} w={RW} h={RH} fs={RFS} color={LETTER} slots={2} rightAlign />
-                    <SlotRow text={getSld(d.domain)} w={DW} h={DH} fs={DFS} color='#f0b020' slots={DOM_SLOTS} />
-                    <SlotRow text={getTld(d.domain)} w={TW} h={TH} fs={TFS} color='#f5f5f5' slots={TLD_SLOTS} gap={2} />
+                    <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS} color='#f0b020' slots={aDOM} />
+                    <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS} color='#f5f5f5' slots={aTLD} gap={2} />
                     <SlotRow text={String(d.score)} w={RW} h={RH} fs={RFS} color={LETTER} slots={3} rightAlign />
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <StatusBadge status={getStatus(d.score)} />
