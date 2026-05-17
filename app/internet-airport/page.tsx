@@ -430,6 +430,29 @@ export default function Page() {
             </div>
           )}
 
+          {/* Info button */}
+          <button
+            onClick={() => setShowIntro(true)}
+            style={{
+              position: 'absolute',
+              top: isMobile ? 14 : undefined,
+              bottom: isMobile ? undefined : 12,
+              right: isMobile ? 16 : 40,
+              width: 22, height: 22,
+              borderRadius: '50%',
+              background: 'transparent',
+              border: '1px solid #3a3a3a',
+              color: '#555',
+              fontSize: 11, fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1, fontFamily: 'inherit',
+              flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
+          >i</button>
+
           {/* Left-aligned title + search + tabs */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
 
