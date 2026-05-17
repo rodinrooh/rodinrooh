@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken"
 export const runtime = "nodejs"
 
 export async function GET() {
-  const teamId = process.env.APPLE_MAPS_TEAM_ID
-  const keyId = process.env.APPLE_MAPS_KEY_ID
+  const teamId = process.env.APPLE_MAPS_TEAM_ID?.trim()
+  const keyId = process.env.APPLE_MAPS_KEY_ID?.trim()
   const privateKey = process.env.APPLE_MAPS_PRIVATE_KEY
 
   if (!teamId || !keyId || !privateKey) {

@@ -1,91 +1,114 @@
+import Image from "next/image"
+import Link from "next/link"
+
 export default function Home() {
   return (
     <div style={{
-      maxWidth: 400,
-      margin: "auto",
-      lineHeight: 1.6,
-      padding: "0 20px",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "flex-start",
-      height: "100vh",
+      minHeight: "100vh",
+      background: "#fff",
       fontFamily: "Georgia, serif",
       color: "#111",
-      background: "white",
+      padding: "48px 40px",
+      maxWidth: 900,
+      margin: "0 auto",
     }}>
-      <h1 style={{ fontSize: 30, fontWeight: "bold", marginBottom: "0.5rem" }}>
-        Rodin Roohipour
+      {/* Header */}
+      <h1 style={{ fontSize: 32, fontWeight: "bold", margin: 0, lineHeight: 1 }}>
+        <span style={{ background: "linear-gradient(90deg, #e84393, #a855f7, #3b82f6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          Rodin Roohipour
+        </span>
       </h1>
-
-      <p style={{ fontSize: "11pt", fontStyle: "italic", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-        I&apos;m 15 and the founder of{" "}
-        <a href="https://atova.co" target="_blank" rel="noopener noreferrer" style={{ color: "black" }}>
-          Atova
-        </a>
-        , a system that maps invisible credibility in your network. Previously, I founded ChampionPac and
-        built a partnership with Trump National Golf Club.
+      <p style={{ fontSize: "11pt", fontStyle: "italic", marginTop: 12, marginBottom: 0, color: "#444", lineHeight: 1.6, maxWidth: 480 }}>
+        15 y/o. Founder of{" "}
+        <a href="https://atova.co" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Atova</a>.
       </p>
-
-      <div style={{ marginBottom: "0.5rem" }}>
-        <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ marginRight: 15, fontSize: "11pt", color: "black" }}>
-          Twitter
-        </a>
-        <a href="https://cal.com/atova" target="_blank" rel="noopener noreferrer" style={{ marginRight: 15, fontSize: "11pt", color: "black" }}>
-          Book a Call
-        </a>
-        <a href="mailto:rodin.avella@gmail.com" style={{ fontSize: "11pt", color: "black" }}>
-          Email
-        </a>
+      <div style={{ marginTop: 10, display: "flex", gap: 16 }}>
+        <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ fontSize: "10pt", color: "#555" }}>Twitter</a>
+        <a href="https://cal.com/atova" target="_blank" rel="noopener noreferrer" style={{ fontSize: "10pt", color: "#555" }}>Book a call</a>
+        <a href="mailto:rodin.avella@gmail.com" style={{ fontSize: "10pt", color: "#555" }}>Email</a>
       </div>
 
-      <h2 style={{ marginTop: "2rem", marginBottom: "0.5rem", fontSize: "13pt", fontWeight: "bold" }}>
-        Projects
-      </h2>
-      <div style={{ fontSize: "11pt" }}>
-        <div style={{ marginBottom: "0.5rem" }}>
-          <a href="/sf-towing" style={{ color: "black", fontStyle: "italic" }}>
-            Find My Towed Car
-          </a>{" "}
-          — live map of every car towed in SF
-        </div>
-        <div>
-          <a href="/internet-airport" style={{ color: "black", fontStyle: "italic" }}>
-            Internet Airport
-          </a>{" "}
-          — live arrivals board for every new domain registered
-        </div>
+      {/* Project cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 40 }}>
+        <ProjectCard
+          href="/sf-towing"
+          title="Find My Towed Car"
+          desc="Live map of every car towed in SF"
+          imageSrc="/preview-towing.jpg"
+          imageAlt="Find My Towed Car screenshot"
+        />
+        <ProjectCard
+          href="/internet-airport"
+          title="Internet Airport"
+          desc="Live arrivals board for every new domain registered"
+          imageSrc="/preview-airport.png"
+          imageAlt="Internet Airport screenshot"
+          fallbackBg="#1e1e1e"
+        />
       </div>
 
-      <h2 style={{ marginTop: "2rem", marginBottom: "0.5rem", fontSize: "13pt", fontWeight: "bold" }}>
-        Recent
-      </h2>
-      <div style={{ fontSize: "11pt" }}>
-        <div style={{ marginBottom: "0.5rem" }}>
-          <span style={{ background: "yellow", fontWeight: "bold" }}>14 May 2026 (SF Standard)</span>{" "}
-          »{" "}
-          <a
-            href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/"
-            style={{ fontStyle: "italic", color: "black" }}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+      {/* Press */}
+      <div style={{ marginTop: 40 }}>
+        <p style={{ fontSize: "10pt", margin: 0, lineHeight: 2, color: "#333" }}>
+          <span style={{ background: "yellow", fontWeight: "bold", padding: "0 2px" }}>SF Standard, May 2026</span>{" · "}
+          <a href="https://sfstandard.com/2026/05/14/teen-viral-sf-tow-truck-tracker-banned/" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontStyle: "italic" }}>
             Meet the teen whose viral SF tow truck tracker got banned after 3 hours.
           </a>
-        </div>
-        <div>
-          <span style={{ background: "yellow", fontWeight: "bold" }}>30 December 2025 (Business Insider)</span>{" "}
-          »{" "}
-          <a
-            href="https://www.businessinsider.com/student-advice-writing-cold-emails-mark-cuban-paul-graham-2025-12"
-            style={{ fontStyle: "italic", color: "black" }}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            I&apos;m a 15-year-old who got advice from Mark Cuban and Paul Graham over email. Here&apos;s how I craft my cold reach-outs.
+        </p>
+        <p style={{ fontSize: "10pt", margin: 0, lineHeight: 2, color: "#333" }}>
+          <span style={{ background: "yellow", fontWeight: "bold", padding: "0 2px" }}>Business Insider, Dec 2025</span>{" · "}
+          <a href="https://www.businessinsider.com/student-advice-writing-cold-emails-mark-cuban-paul-graham-2025-12" target="_blank" rel="noopener noreferrer" style={{ color: "#111", fontStyle: "italic" }}>
+            I&apos;m a 15-year-old who got advice from Mark Cuban and Paul Graham over email.
           </a>
-        </div>
+        </p>
       </div>
     </div>
+  )
+}
+
+function ProjectCard({
+  href,
+  title,
+  desc,
+  imageSrc,
+  imageAlt,
+  fallbackBg,
+}: {
+  href: string
+  title: string
+  desc: string
+  imageSrc: string
+  imageAlt: string
+  fallbackBg?: string
+}) {
+  return (
+    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
+      <div style={{
+        border: "1px solid #e5e5e5",
+        borderRadius: 10,
+        overflow: "hidden",
+        cursor: "pointer",
+        transition: "box-shadow 0.15s",
+      }}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.1)")}
+        onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}
+      >
+        {/* Preview image */}
+        <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: fallbackBg ?? "#f5f5f5" }}>
+          <Image
+            src={imageSrc}
+            alt={imageAlt}
+            fill
+            style={{ objectFit: "cover" }}
+            onError={() => {}}
+          />
+        </div>
+        {/* Label */}
+        <div style={{ padding: "12px 14px" }}>
+          <div style={{ fontWeight: "bold", fontSize: "12pt" }}>{title}</div>
+          <div style={{ fontSize: "10pt", color: "#666", marginTop: 2, fontStyle: "italic" }}>{desc}</div>
+        </div>
+      </div>
+    </Link>
   )
 }
