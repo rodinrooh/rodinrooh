@@ -15,15 +15,15 @@ export default function Home() {
 
       {/* Header — name only */}
       <div style={{ background: bgColor }}>
-        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "136px 48px 116px" }}>
-          <h1 style={{ fontSize: 68, fontWeight: 710, margin: 0, color: "#fff", letterSpacing: "-2px", lineHeight: 1 }}>
+        <div className="home-header-pad">
+          <h1 className="home-h1">
             Rodin Roohipour
           </h1>
         </div>
       </div>
 
       {/* Everything below header */}
-      <div style={{ maxWidth: 1196, margin: "0 auto", padding: "40px 48px 64px" }}>
+      <div className="home-content">
 
         {/* Blurb + links */}
         <p style={{ fontSize: 16, color: "#333", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 580 }}>
@@ -38,7 +38,7 @@ export default function Home() {
         </div>
 
         {/* Projects */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px 48px" }}>
+        <div className="home-projects-grid">
           <ProjectRow
             href="/sf-towing"
             img="/preview-towing.jpg"
@@ -74,7 +74,7 @@ export default function Home() {
 function ProjectRow({ href, img, title, desc }: { href: string; img: string; title: string; desc: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 18, alignItems: "flex-start", textDecoration: "none", color: "inherit" }}>
-      <div style={{ position: "relative", width: 200, height: 130, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#f0f0f0" }}>
+      <div className="home-project-img">
         <Image src={img} alt={title} fill style={{ objectFit: "cover" }} />
       </div>
       <div style={{ paddingTop: 4 }}>
@@ -87,8 +87,8 @@ function ProjectRow({ href, img, title, desc }: { href: string; img: string; tit
 
 function PressRow({ date, href, text }: { date: string; href: string; text: string }) {
   return (
-    <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "baseline" }}>
-      <div style={{ fontSize: 13, color: "#aaa", whiteSpace: "nowrap", minWidth: 180 }}>{date}</div>
+    <div className="home-press-row">
+      <div className="home-press-date">{date}</div>
       <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{text}</a>
     </div>
   )
