@@ -52,6 +52,8 @@ const M_DW = 22, M_DH = 34, M_DFS = 13
 const M_TW = 12, M_TH = 26, M_TFS = 9
 const M_DOM_SLOTS = 8
 const M_TLD_SLOTS = 5
+const M_TOP_DOM_SLOTS = 7
+const M_TOP_TLD_SLOTS = 4
 
 const PAGE_SIZE = 1000
 
@@ -306,13 +308,18 @@ export default function Page() {
   const tldColW = aTLD * aTW + (aTLD - 1) * 2
   const timeColW = 4 * NW + 2 * 3 + 22
 
+  const aTopDOM = isMobile ? M_TOP_DOM_SLOTS : DOM_SLOTS
+  const aTopTLD = isMobile ? M_TOP_TLD_SLOTS : TLD_SLOTS
+  const topDomColW = aTopDOM * aDW + (aTopDOM - 1) * 3
+  const topTldColW = aTopTLD * aTW + (aTopTLD - 1) * 2
+
   const LIVE_GRID = isMobile
     ? `${domColW}px ${tldColW}px 72px`
     : `${timeColW}px ${domColW}px ${tldColW}px 90px`
   const RW = 22, RH = 34, RFS = 13
   const TOP_GRID = isMobile
-    ? `${2 * RW + 3}px ${domColW}px ${tldColW}px ${3 * RW + 6}px 72px`
-    : `${2 * RW + 3}px ${domColW}px ${tldColW}px ${3 * RW + 6}px 90px`
+    ? `24px ${topDomColW}px ${topTldColW}px 72px`
+    : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px 90px`
 
   return (
     <main style={{ background: PAGE_BG, minHeight: '100vh' }}>
@@ -496,16 +503,16 @@ export default function Page() {
               {tab === 'live' ? (
                 <>
                   {!isMobile && <CH2>TIME</CH2>}
-                  <CH2>DEPARTURE</CH2>
+                  <CH2>ARRIVALS</CH2>
                   <CH2>GATE</CH2>
                   <CH2 right>STATUS</CH2>
                 </>
               ) : (
                 <>
                   <CH2>#</CH2>
-                  <CH2>DEPARTURE</CH2>
+                  <CH2>ARRIVALS</CH2>
                   <CH2>GATE</CH2>
-                  <CH2 right>SCORE</CH2>
+                  {!isMobile && <CH2 right>SCORE</CH2>}
                   <CH2 right>STATUS</CH2>
                 </>
               )}
@@ -579,10 +586,13 @@ export default function Page() {
                       cursor: 'pointer',
                     }}
                   >
-                    <SlotRow text={String(rank)} w={RW} h={RH} fs={RFS} color={LETTER} slots={2} rightAlign />
-                    <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS} color='#f0b020' slots={aDOM} />
-                    <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS} color='#f5f5f5' slots={aTLD} gap={2} />
-                    <SlotRow text={String(d.score)} w={RW} h={RH} fs={RFS} color={LETTER} slots={3} rightAlign />
+                    {isMobile
+                      ? <div style={{ color: '#888', fontSize: 10, letterSpacing: '0.08em', fontWeight: 700, textAlign: 'left' }}>#{rank}</div>
+                      : <SlotRow text={String(rank)} w={RW} h={RH} fs={RFS} color={LETTER} slots={2} rightAlign />
+                    }
+                    <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS} color='#f0b020' slots={aTopDOM} />
+                    <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS} color='#f5f5f5' slots={aTopTLD} gap={2} />
+                    {!isMobile && <SlotRow text={String(d.score)} w={RW} h={RH} fs={RFS} color={LETTER} slots={3} rightAlign />}
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <StatusBadge status={getStatus(d.score)} />
                     </div>
