@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { flushSync } from 'react-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { supabase } from '@/lib/supabase-airport'
 
@@ -194,11 +195,15 @@ export default function Page() {
       if (data?.length) {
         lastIdRef.current = data[data.length - 1].id
         const incoming = [...data].reverse() as DomainRow[]
+        const prevScrollY = window.scrollY
+        flushSync(() => {
+          setDomains(prev => [...incoming, ...prev])
+          setTotal(prev => prev + data.length)
+        })
+        if (prevScrollY > 10) window.scrollBy(0, incoming.length * 70)
         setNewIds(new Set(incoming.map(r => r.id)))
         if (timerRef.current) clearTimeout(timerRef.current)
         timerRef.current = setTimeout(() => setNewIds(new Set()), 400)
-        setDomains(prev => [...incoming, ...prev])
-        setTotal(prev => prev + data.length)
       }
     }, 1000)
     return () => { clearInterval(iv); if (timerRef.current) clearTimeout(timerRef.current) }
