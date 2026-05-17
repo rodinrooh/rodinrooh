@@ -3,12 +3,11 @@
 import Image from "next/image"
 import { useState, useEffect } from "react"
 
-const COLORS = ["#f97316", "#a78bfa", "#34d399", "#fb7185", "#fbbf24", "#60a5fa", "#f472b6", "#e879f9", "#4ade80", "#fb923c"]
-
 export default function Home() {
-  const [bgColor, setBgColor] = useState(COLORS[0])
+  const [bgColor, setBgColor] = useState("hsl(30, 70%, 68%)")
   useEffect(() => {
-    setBgColor(COLORS[Math.floor(Math.random() * COLORS.length)])
+    const h = Math.floor(Math.random() * 360)
+    setBgColor(`hsl(${h}, 70%, 68%)`)
   }, [])
 
   return (
