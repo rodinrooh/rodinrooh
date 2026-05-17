@@ -30,9 +30,9 @@ export default function Home() {
           I&apos;m 15. I ship things fast and some go viral. I&apos;m also cracked at cold emailing.
         </p>
         <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
-          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
+          <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111", textDecoration: "underline" }}>Twitter</a>
           {" · "}
-          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111" }}>Email</a>
+          <a href="mailto:rodin.avella@gmail.com" style={{ color: "#111", textDecoration: "underline" }}>Email</a>
         </div>
 
         {/* Projects */}
