@@ -15,8 +15,8 @@ export default function Home() {
 
       {/* Header — name only */}
       <div style={{ background: bgColor }}>
-        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "108px 48px 116px" }}>
-          <h1 style={{ fontSize: 60, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-2px", lineHeight: 1 }}>
+        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "136px 48px 116px" }}>
+          <h1 style={{ fontSize: 60, fontWeight: 600, margin: 0, color: "#111", letterSpacing: "-1px", lineHeight: 1 }}>
             Rodin Roohipour
           </h1>
         </div>
