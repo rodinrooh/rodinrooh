@@ -50,7 +50,8 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H     = 150
+const HDR_H_DESK = 172
+const HDR_H_MOB  = 122
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -136,20 +137,23 @@ function TimeTiles({ ts }: { ts: string | null }) {
   )
 }
 
-function BigClock({ now }: { now: Date | null }) {
-  if (!now) return <div style={{ width: 260, height: CH }} />
+function BigClock({ now, w = CW, h = CH, fs = CFS }: {
+  now: Date | null; w?: number; h?: number; fs?: number
+}) {
+  if (!now) return <div style={{ height: h }} />
   const pad = (n: number) => String(n).padStart(2, '0')
-  const [h, m, s] = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())]
+  const [hr, m, s] = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())]
+  const cfs = Math.round(fs * 0.8)
   return (
     <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-      <Tile ch={h[0]} w={CW} h={CH} fs={CFS} color={LETTER} />
-      <Tile ch={h[1]} w={CW} h={CH} fs={CFS} color={LETTER} />
-      <Colon fs={22} color="#3a3a3a" />
-      <Tile ch={m[0]} w={CW} h={CH} fs={CFS} color={LETTER} />
-      <Tile ch={m[1]} w={CW} h={CH} fs={CFS} color={LETTER} />
-      <Colon fs={22} color="#3a3a3a" />
-      <Tile ch={s[0]} w={CW} h={CH} fs={CFS} color={LETTER} />
-      <Tile ch={s[1]} w={CW} h={CH} fs={CFS} color={LETTER} />
+      <Tile ch={hr[0]} w={w} h={h} fs={fs} color={LETTER} />
+      <Tile ch={hr[1]} w={w} h={h} fs={fs} color={LETTER} />
+      <Colon fs={cfs} color="#3a3a3a" />
+      <Tile ch={m[0]} w={w} h={h} fs={fs} color={LETTER} />
+      <Tile ch={m[1]} w={w} h={h} fs={fs} color={LETTER} />
+      <Colon fs={cfs} color="#3a3a3a" />
+      <Tile ch={s[0]} w={w} h={h} fs={fs} color={LETTER} />
+      <Tile ch={s[1]} w={w} h={h} fs={fs} color={LETTER} />
     </div>
   )
 }
@@ -373,6 +377,8 @@ export default function Page() {
     : <>EVERY DOMAIN REGISTERED TODAY<br />LIVE AS IT ARRIVES</>
 
 
+  const hdrH = isMobile ? HDR_H_MOB : HDR_H_DESK
+
   const aDW = isMobile ? M_DW : DW
   const aDH = isMobile ? M_DH : DH
   const aDFS = isMobile ? M_DFS : DFS
@@ -439,7 +445,7 @@ export default function Page() {
             {/* Section 1 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>✈️ What is this?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
+              <div className="modal-body">
                 Every domain name registered on the internet, live, displayed as an{' '}
                 <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
                 Domains arriving into the internet, just like flights arriving at an airport.
@@ -449,7 +455,7 @@ export default function Page() {
             {/* Section 2 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>📡 Where&apos;s the data from?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
+              <div className="modal-body">
                 A public database of newly registered domains on{' '}
                 <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.
               </div>
@@ -458,7 +464,7 @@ export default function Page() {
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>🏆 Top Arrivals</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.5, fontWeight: 300, WebkitFontSmoothing: 'auto' as const }}>
+              <div className="modal-body">
                 Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
             </div>
@@ -541,13 +547,18 @@ export default function Page() {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'flex-start' : 'center' }}>
 
             <div style={{ textAlign: isMobile ? 'left' : 'center', marginBottom: 10 }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <PlaneIcon />
                 <span style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.12em', fontWeight: 600, lineHeight: 1 }}>
                   INTERNET AIRPORT
                 </span>
               </div>
-              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em', marginTop: 6 }}>
+              {!isMobile && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                  <BigClock now={now} w={20} h={30} fs={13} />
+                </div>
+              )}
+              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em' }}>
                 {countLabel}
               </div>
             </div>
@@ -569,15 +580,17 @@ export default function Page() {
               }}
             />
 
-            <div style={{ display: 'flex' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
               {(['live', 'top'] as const).map(t => (
-                <TabTiles
-                  key={t}
-                  label={t === 'live' ? 'LIVE' : 'TOP'}
-                  active={tab === t}
-                  sm={isMobile}
-                  onClick={() => setTab(t)}
-                />
+                <button key={t} onClick={() => setTab(t)} style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: tab === t ? '#f0b020' : '#3a3a3a',
+                  fontFamily: 'inherit', fontSize: 10, letterSpacing: '0.22em',
+                  fontWeight: tab === t ? 700 : 400,
+                  padding: '6px 12px 6px 0',
+                }}>
+                  {t === 'live' ? 'LIVE' : 'TOP'}
+                </button>
               ))}
             </div>
 
@@ -586,7 +599,7 @@ export default function Page() {
       </div>
 
       {/* ── Board ── */}
-      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: HDR_H + 20, paddingBottom: 80 }}>
+      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: hdrH + 20, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
 
           {/* Filter bar — top tab only */}
@@ -617,7 +630,7 @@ export default function Page() {
               gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
               gap: isMobile ? '0 8px' : '0 16px',
               padding: isMobile ? '10px 12px' : '10px 20px',
-              position: 'sticky', top: HDR_H, zIndex: 9,
+              position: 'sticky', top: hdrH, zIndex: 9,
               background: BOARD_BG,
               borderBottom: '2px solid #1c1c1c',
             }}>
