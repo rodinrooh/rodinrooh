@@ -28,9 +28,9 @@ export default function Home() {
 
         {/* Blurb + links */}
         <p style={{ fontSize: 18, color: "#222", margin: "0 0 10px", lineHeight: 1.7, maxWidth: 640 }}>
-          I&apos;m 15 and I&apos;ve been building companies since I was 13. Currently running Atova — previously ChampionPac.
-          I ship things fast, some go viral, some get written up in SF Standard or Business Insider.
-          I&apos;ve cold emailed Mark Cuban and Paul Graham. They wrote back.
+          I&apos;m 15, coding since I was 8 and building companies since 12. Currently working on Atova — previously
+          built ChampionPac, which had a partnership with Trump Golf. I ship things fast, some go viral, some get
+          written about. I cold email people I have no business emailing. Most write back.
         </p>
         <div style={{ fontSize: 15, color: "#555", marginBottom: 48 }}>
           <a href="https://twitter.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#111" }}>Twitter</a>
