@@ -376,7 +376,7 @@ export default function Page() {
             <div style={{ marginBottom: 28 }}>
               <div style={{ color: '#f5f5f5', fontSize: 10, letterSpacing: '0.2em', fontWeight: 700, marginBottom: 8 }}>HOW DOES IT WORK?</div>
               <div style={{ color: '#888', fontSize: 12, lineHeight: 1.7 }}>
-                Each row is a domain that just got registered, and landed in the world of the Internet. They scroll in like an airport arrivals board. Every domain name gets a score from 0–100 based on how good it is. <span style={{ color: '#60b878' }}>Great</span> means it&apos;s great, <span style={{ color: '#c0c0c0' }}>Mid</span> means it&apos;s average, and <span style={{ color: '#e07820' }}>Trash</span> means it&apos;s the worst domain name ever.
+                Each row is a domain that just got registered, and landed in the world of the Internet. They scroll in like an airport arrivals board. Every domain name gets a score from 0–100 based on how good it is. <span style={{ color: '#60b878' }}>Great</span> means it&apos;s great, <span style={{ color: '#c0c0c0' }}>Mid</span> means it&apos;s average, and <span style={{ color: '#e07820' }}>Trash</span>{' '}means it&apos;s the worst domain name ever.
               </div>
             </div>
 
