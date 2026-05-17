@@ -318,7 +318,7 @@ export default function Page() {
     : `${timeColW}px ${domColW}px ${tldColW}px 90px`
   const RW = 22, RH = 34, RFS = 13
   const TOP_GRID = isMobile
-    ? `24px ${topDomColW}px ${topTldColW}px 72px`
+    ? `${2 * M_TW + 3}px ${topDomColW}px ${topTldColW}px 72px`
     : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px 90px`
 
   return (
@@ -586,10 +586,7 @@ export default function Page() {
                       cursor: 'pointer',
                     }}
                   >
-                    {isMobile
-                      ? <div style={{ color: '#888', fontSize: 10, letterSpacing: '0.08em', fontWeight: 700, textAlign: 'left' }}>#{rank}</div>
-                      : <SlotRow text={String(rank)} w={RW} h={RH} fs={RFS} color={LETTER} slots={2} rightAlign />
-                    }
+                    <SlotRow text={String(rank)} w={isMobile ? M_TW : RW} h={isMobile ? M_TH : RH} fs={isMobile ? M_TFS : RFS} color={LETTER} slots={2} rightAlign />
                     <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS} color='#f0b020' slots={aTopDOM} />
                     <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS} color='#f5f5f5' slots={aTopTLD} gap={2} />
                     {!isMobile && <SlotRow text={String(d.score)} w={RW} h={RH} fs={RFS} color={LETTER} slots={3} rightAlign />}
