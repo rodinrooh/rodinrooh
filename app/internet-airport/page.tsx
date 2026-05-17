@@ -407,7 +407,7 @@ export default function Page() {
             {/* Section 1 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>✈️ What is this?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
                 Every domain name registered on the internet, live, displayed as an{' '}
                 <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
                 Domains arriving into the internet, just like flights arriving at an airport.
@@ -417,7 +417,7 @@ export default function Page() {
             {/* Section 2 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>📡 Where&apos;s the data from?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
                 A public database of newly registered domains on{' '}
                 <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.
               </div>
@@ -426,7 +426,7 @@ export default function Page() {
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>🏆 Top Arrivals</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.6, fontWeight: 300, fontFamily: 'inherit' }}>
                 Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
             </div>
@@ -445,21 +445,18 @@ export default function Page() {
             </button>
 
             {/* Footer */}
-            <div style={{ textAlign: 'center', color: '#3a3a3a', fontSize: 10, letterSpacing: '0.08em', lineHeight: 1.8 }}>
-              <div>
-                By{' '}
-                <a href="https://rodinrooh.com" target="_blank" rel="noopener noreferrer"
-                  style={{ color: '#3a3a3a', textDecoration: 'underline', textUnderlineOffset: 2 }}>
-                  Rodin Roohipour
-                </a>
-              </div>
-              <div>
-                Powered by{' '}
-                <a href="https://whop.com" target="_blank" rel="noopener noreferrer"
-                  style={{ color: '#3a3a3a', textDecoration: 'underline', textUnderlineOffset: 2 }}>
-                  Whop
-                </a>
-              </div>
+            <div style={{ textAlign: 'center', color: '#3a3a3a', fontSize: 10, letterSpacing: '0.06em', fontWeight: 400 }}>
+              By{' '}
+              <a href="https://rodinrooh.com" target="_blank" rel="noopener noreferrer"
+                style={{ color: '#3a3a3a', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                Rodin Roohipour
+              </a>
+              {'. Powered by '}
+              <a href="https://whop.com" target="_blank" rel="noopener noreferrer"
+                style={{ color: '#3a3a3a', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                Whop
+              </a>
+              .
             </div>
           </div>
         </div>
@@ -474,50 +471,50 @@ export default function Page() {
       }}>
         <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 0' : '14px 40px 0', position: 'relative' }}>
 
-          {/* Clock + blurb — top right, desktop only */}
+          {/* Clock + info — top right, desktop only */}
           {!isMobile && (
-            <div style={{ position: 'absolute', top: 14, right: 40, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+            <div style={{ position: 'absolute', top: 14, right: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                onClick={() => setShowIntro(true)}
+                style={{
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: 'transparent', border: '1px solid #3a3a3a',
+                  color: '#555', fontSize: 11, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  lineHeight: 1, fontFamily: 'inherit', flexShrink: 0,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
+              >i</button>
               <BigClock now={now} />
-              <div style={{ color: '#f5f5f5', fontSize: 9, letterSpacing: '0.2em', textAlign: 'right', lineHeight: 1.7 }}>
-                {blurb}
-              </div>
             </div>
           )}
 
-          {/* Info button */}
-          <button
-            onClick={() => setShowIntro(true)}
-            style={{
-              position: 'absolute',
-              top: isMobile ? 14 : undefined,
-              bottom: isMobile ? undefined : 12,
-              right: isMobile ? 16 : 40,
-              width: 22, height: 22,
-              borderRadius: '50%',
-              background: 'transparent',
-              border: '1px solid #3a3a3a',
-              color: '#555',
-              fontSize: 11, fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              lineHeight: 1, fontFamily: 'inherit',
-              flexShrink: 0,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
-          >i</button>
+          {/* Info button — mobile only */}
+          {isMobile && (
+            <button
+              onClick={() => setShowIntro(true)}
+              style={{
+                position: 'absolute', top: 14, right: 16,
+                width: 22, height: 22, borderRadius: '50%',
+                background: 'transparent', border: '1px solid #3a3a3a',
+                color: '#555', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
+            >i</button>
+          )}
 
           {/* Left-aligned title + search + tabs */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
 
-            <div style={{ textAlign: 'left', marginBottom: 12 }}>
-              <div style={{ color: '#f5f5f5', fontSize: 9, letterSpacing: '0.32em', marginBottom: 5 }}>
-                INTERNATIONAL ARRIVALS
-              </div>
+            <div style={{ textAlign: 'left', marginBottom: 10 }}>
               <div style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.12em', fontWeight: 600, lineHeight: 1 }}>
                 INTERNET AIRPORT
               </div>
-              <div style={{ color: '#f5f5f5', fontSize: 9, letterSpacing: '0.22em', marginTop: 5 }}>
+              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em', marginTop: 6 }}>
                 {countLabel}
               </div>
             </div>
