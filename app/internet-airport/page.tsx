@@ -58,13 +58,14 @@ const M_TOP_TLD_SLOTS = 4
 const PAGE_SIZE = 1000
 
 // ── Tile ─────────────────────────────────────────────────────────────────────
-function Tile({ ch, w, h, fs, color }: {
+function Tile({ ch, w, h, fs, color, tt = TILE_TOP, tb = TILE_BTM }: {
   ch: string; w: number; h: number; fs: number; color: string
+  tt?: string; tb?: string
 }) {
   return (
     <div style={{
       width: w, height: h, flexShrink: 0,
-      background: `linear-gradient(to bottom, ${TILE_TOP} 50%, ${TILE_BTM} 50%)`,
+      background: `linear-gradient(to bottom, ${tt} 50%, ${tb} 50%)`,
       borderRadius: 4,
       border: '1px solid #0c0c0c',
       boxShadow: '0 2px 5px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.04)',
@@ -94,17 +95,18 @@ function Colon({ fs, color }: { fs: number; color: string }) {
   )
 }
 
-function SlotRow({ text, w, h, fs, color, slots, gap = 3, rightAlign = false }: {
+function SlotRow({ text, w, h, fs, color, slots, gap = 3, rightAlign = false, tt, tb }: {
   text: string; w: number; h: number; fs: number
   color: string; slots: number; gap?: number; rightAlign?: boolean
+  tt?: string; tb?: string
 }) {
   const chars = Array.from(text.toUpperCase()).slice(0, slots)
   const empties = slots - chars.length
-  const emptyTiles = Array.from({ length: empties }, (_, i) => <Tile key={`e${i}`} ch="" w={w} h={h} fs={fs} color={color} />)
+  const emptyTiles = Array.from({ length: empties }, (_, i) => <Tile key={`e${i}`} ch="" w={w} h={h} fs={fs} color={color} tt={tt} tb={tb} />)
   return (
     <div style={{ display: 'flex', gap, alignItems: 'center', flexShrink: 0 }}>
       {rightAlign && emptyTiles}
-      {chars.map((ch, i) => <Tile key={i} ch={ch} w={w} h={h} fs={fs} color={color} />)}
+      {chars.map((ch, i) => <Tile key={i} ch={ch} w={w} h={h} fs={fs} color={color} tt={tt} tb={tb} />)}
       {!rightAlign && emptyTiles}
     </div>
   )
@@ -313,13 +315,15 @@ export default function Page() {
   const topDomColW = aTopDOM * aDW + (aTopDOM - 1) * 3
   const topTldColW = aTopTLD * aTW + (aTopTLD - 1) * 2
 
+  const statusColW = isMobile ? 5 * M_TW + 4 * 2 : 5 * TW + 4 * 2
+
   const LIVE_GRID = isMobile
-    ? `${domColW}px ${tldColW}px 72px`
-    : `${timeColW}px ${domColW}px ${tldColW}px 90px`
+    ? `${domColW}px ${tldColW}px ${statusColW}px`
+    : `${timeColW}px ${domColW}px ${tldColW}px ${statusColW}px`
   const RW = 22, RH = 34, RFS = 13
   const TOP_GRID = isMobile
-    ? `${2 * M_TW + 3}px ${topDomColW}px ${topTldColW}px 72px`
-    : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px 90px`
+    ? `${2 * M_TW + 3}px ${topDomColW}px ${topTldColW}px ${statusColW}px`
+    : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px ${statusColW}px`
 
   return (
     <main style={{ background: PAGE_BG, minHeight: '100vh' }}>
@@ -578,9 +582,7 @@ export default function Page() {
                           color={isNew ? '#f8d060' : '#f0b020'} slots={aDOM} />
                         <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS}
                           color='#f5f5f5' slots={aTLD} gap={2} />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <StatusBadge status={getStatus(d.score)} />
-                        </div>
+                        <StatusTiles status={getStatus(d.score)} w={isMobile ? M_TW : TW} h={isMobile ? M_TH : TH} fs={isMobile ? M_TFS : TFS} />
                       </div>
                     )
                   })}
@@ -613,9 +615,7 @@ export default function Page() {
                     <SlotRow text={getSld(d.domain)} w={aDW} h={aDH} fs={aDFS} color='#f0b020' slots={aTopDOM} />
                     <SlotRow text={getTld(d.domain)} w={aTW} h={aTH} fs={aTFS} color='#f5f5f5' slots={aTopTLD} gap={2} />
                     {!isMobile && <SlotRow text={String(d.score)} w={RW} h={RH} fs={RFS} color={LETTER} slots={3} rightAlign />}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <StatusBadge status={getStatus(d.score)} />
-                    </div>
+                    <StatusTiles status={getStatus(d.score)} w={isMobile ? M_TW : TW} h={isMobile ? M_TH : TH} fs={isMobile ? M_TFS : TFS} />
                   </div>
                 ))}
               </>
@@ -637,22 +637,17 @@ function CH2({ children, right, center }: { children: React.ReactNode; right?: b
   )
 }
 
-const STATUS_STYLES = {
-  GREAT: { bg: '#0a1a0e', color: '#60b878', border: '#1a3824' },
-  MID:   { bg: '#1a1a1a', color: '#c0c0c0', border: '#383838' },
-  TRASH: { bg: '#1a0e00', color: '#e07820', border: '#3a2200' },
+const STATUS_TILE_STYLES = {
+  GREAT: { tt: '#0e2414', tb: '#091a0e', color: '#60b878' },
+  MID:   { tt: TILE_TOP,  tb: TILE_BTM,  color: '#c0c0c0' },
+  TRASH: { tt: '#221100', tb: '#180c00', color: '#e07820' },
 }
 
-function StatusBadge({ status }: { status: 'GREAT' | 'MID' | 'TRASH' }) {
-  const s = STATUS_STYLES[status]
-  return (
-    <span style={{
-      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-      fontSize: 9, letterSpacing: '0.18em', fontWeight: 700,
-      padding: '5px 0', borderRadius: 3, whiteSpace: 'nowrap',
-      display: 'inline-block', width: 72, textAlign: 'center',
-    }}>{status}</span>
-  )
+function StatusTiles({ status, w, h, fs }: {
+  status: 'GREAT' | 'MID' | 'TRASH'; w: number; h: number; fs: number
+}) {
+  const { tt, tb, color } = STATUS_TILE_STYLES[status]
+  return <SlotRow text={status} w={w} h={h} fs={fs} color={color} slots={5} gap={2} rightAlign tt={tt} tb={tb} />
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
