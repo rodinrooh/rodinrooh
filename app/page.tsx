@@ -13,7 +13,7 @@ export default function Home() {
 
       {/* Header */}
       <div style={{ background: bgColor }}>
-        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "48px 48px 52px" }}>
+        <div style={{ maxWidth: 1196, margin: "0 auto", padding: "72px 48px 80px" }}>
           <h1 style={{ fontSize: 56, fontWeight: 800, margin: 0, color: "#111", letterSpacing: "-1px" }}>
             Rodin Roohipour
           </h1>
@@ -57,7 +57,7 @@ export default function Home() {
           <PressRow
             date="Dec 2025 · Business Insider"
             href="https://www.businessinsider.com/student-advice-writing-cold-emails-mark-cuban-paul-graham-2025-12"
-            text="I'm a 15-year-old who got advice from Mark Cuban and Paul Graham over email."
+            text="I'm a 15-year-old who got advice from Mark Cuban and Paul Graham over email. Here's how I craft my cold reach-outs."
           />
         </div>
       </div>

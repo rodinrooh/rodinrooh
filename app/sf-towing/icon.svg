@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 72">
+  <!-- Car body -->
+  <path d="M5 36 L5 52 Q5 60 13 60 L87 60 Q95 60 95 52 L95 36 L87 22 Q81 10 68 10 L32 10 Q19 10 13 22 Z" fill="#1e293b"/>
+  <!-- Window -->
+  <path d="M32 11 L24 34 L76 34 L68 11 Z" fill="#7dd3fc" opacity="0.88"/>
+  <!-- Left wheel -->
+  <circle cx="24" cy="62" r="12" fill="#0f172a"/>
+  <circle cx="24" cy="62" r="5" fill="#475569"/>
+  <!-- Right wheel -->
+  <circle cx="76" cy="62" r="12" fill="#0f172a"/>
+  <circle cx="76" cy="62" r="5" fill="#475569"/>
+  <!-- Headlight -->
+  <ellipse cx="93" cy="44" rx="4" ry="7" fill="#fde68a"/>
+  <!-- Taillight -->
+  <ellipse cx="7" cy="44" rx="4" ry="7" fill="#fca5a5"/>
+</svg>

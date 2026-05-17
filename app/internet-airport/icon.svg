@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Plane arriving: nose pointing lower-right, tail upper-left -->
+  <!-- Fuselage -->
+  <path d="M20 20 Q50 50 78 78" stroke="#1e293b" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <!-- Wings (perpendicular to fuselage direction, ~135deg) -->
+  <path d="M53 47 L80 18 L62 44" fill="#1e293b"/>
+  <path d="M47 53 L20 82 L38 56" fill="#1e293b"/>
+  <!-- Tail fins -->
+  <path d="M24 24 L10 12 L22 36" fill="#334155"/>
+  <!-- Runway dashes at bottom -->
+  <line x1="8" y1="94" x2="92" y2="94" stroke="#94a3b8" stroke-width="3" stroke-dasharray="10 6"/>
+</svg>
