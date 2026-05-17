@@ -3,11 +3,17 @@ import { ImageResponse } from "next/og"
 export const size = { width: 32, height: 32 }
 export const contentType = "image/png"
 
-export default function Icon() {
+export default async function Icon() {
+  const img = await fetch(
+    "https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f697.png"
+  ).then(r => r.arrayBuffer())
+
   return new ImageResponse(
-    <div style={{ fontSize: 24, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      🚗
-    </div>,
+    <img
+      src={`data:image/png;base64,${Buffer.from(img).toString("base64")}`}
+      width="32"
+      height="32"
+    />,
     { ...size }
   )
 }
