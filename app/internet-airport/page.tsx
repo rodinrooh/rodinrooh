@@ -407,7 +407,7 @@ export default function Page() {
             {/* Section 1 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>✈️ What is this?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 300 }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '"SF Pro Text", "Helvetica Neue", Arial, sans-serif' }}>
                 Every domain name registered on the internet, live, displayed as an{' '}
                 <a href="https://www.google.com/search?q=airport+split+flap+display&sca_esv=99745c67aa04a219&udm=2&biw=1290&bih=924&sxsrf=ANbL-n706ogtdpHtoZWWST9sh0MmPSMT9A:1779056850237&ei=0kAKar-UDt_JkPIP1KnDoAU&ved=0ahUKEwi_xd-cr8GUAxXfJEQIHdTUEFQQ4dUDCBM&uact=5&oq=airport+split+flap+display&gs_lp=Egtnd3Mtd2l6LWltZyIaYWlycG9ydCBzcGxpdCBmbGFwIGRpc3BsYXkyBxAjGMkCGCcyBxAjGMkCGCcyBhAAGAUYHkjALlDjAljcLXAGeACQAQCYAX2gAd8GqgEEMTUuMbgBA8gBAPgBAZgCCKAC3AHCAgoQABiABBiKBRhDwgIGEAAYCBgewgIIEAAYgAQYsQPCAgUQABiABJgDAIgGAZIHATigB-oVsgcBNLgH0wHCBwMxLjfIBw2ACAE&sclient=gws-wiz-img" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>airport split flap board</a>.{' '}
                 Domains arriving into the internet, just like flights arriving at an airport.
@@ -417,7 +417,7 @@ export default function Page() {
             {/* Section 2 */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>📡 Where&apos;s the data from?</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 300 }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '"SF Pro Text", "Helvetica Neue", Arial, sans-serif' }}>
                 A public database of newly registered domains on{' '}
                 <a href="https://www.whoisds.com" target="_blank" rel="noopener noreferrer" style={{ color: '#888', fontWeight: 400, textDecoration: 'underline', textUnderlineOffset: 3 }}>whoisds.com</a>.
               </div>
@@ -426,7 +426,7 @@ export default function Page() {
             {/* Section 3 */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ color: '#ddd', fontSize: 13, fontWeight: 600, marginBottom: 5 }}>🏆 Top Arrivals</div>
-              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 300 }}>
+              <div style={{ color: '#888', fontSize: 13, lineHeight: 1.75, fontWeight: 400, fontFamily: '"SF Pro Text", "Helvetica Neue", Arial, sans-serif' }}>
                 Every domain gets scored 0 to 100 on quality. GREAT, MID, or TRASH tells you where it landed.
               </div>
             </div>
