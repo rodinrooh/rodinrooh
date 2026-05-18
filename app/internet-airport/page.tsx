@@ -605,7 +605,7 @@ export default function Page() {
         </div>
         </div>
         {/* This gap is INSIDE the fixed header so it never moves */}
-        <div style={{ height: 42, background: PAGE_BG, borderBottom: '2px solid #1c1c1c' }} />
+        <div style={{ height: 42, background: PAGE_BG }} />
       </div>
 
       {/* ── Board ── */}
@@ -616,8 +616,8 @@ export default function Page() {
           <div style={{
             position: 'sticky', top: hdrH, zIndex: 10,
             background: BOARD_BG,
-            borderLeft: '2px solid #1c1c1c',
-            borderRight: '2px solid #1c1c1c',
+            border: '2px solid #1c1c1c',
+            borderBottom: 'none',
           }}>
             {tab === 'top' && (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: isMobile ? '10px 12px' : '10px 20px', borderBottom: '2px solid #1c1c1c' }}>
@@ -630,7 +630,7 @@ export default function Page() {
               display: 'grid',
               gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
               gap: isMobile ? '0 8px' : '0 16px',
-              padding: isMobile ? '10px 12px' : '10px 20px',
+              padding: isMobile ? '6px 12px 10px' : '6px 20px 10px',
               borderBottom: '2px solid #1c1c1c',
             }}>
               {tab === 'live' ? (
