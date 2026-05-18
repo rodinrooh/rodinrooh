@@ -148,10 +148,10 @@ function BigClock({ now, w = CW, h = CH, fs = CFS }: {
     <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
       <Tile ch={hr[0]} w={w} h={h} fs={fs} color={LETTER} />
       <Tile ch={hr[1]} w={w} h={h} fs={fs} color={LETTER} />
-      <Colon fs={cfs} color="#3a3a3a" />
+      <Colon fs={cfs} color="#666" />
       <Tile ch={m[0]} w={w} h={h} fs={fs} color={LETTER} />
       <Tile ch={m[1]} w={w} h={h} fs={fs} color={LETTER} />
-      <Colon fs={cfs} color="#3a3a3a" />
+      <Colon fs={cfs} color="#666" />
       <Tile ch={s[0]} w={w} h={h} fs={fs} color={LETTER} />
       <Tile ch={s[1]} w={w} h={h} fs={fs} color={LETTER} />
     </div>
@@ -558,7 +558,7 @@ export default function Page() {
                   <BigClock now={now} w={20} h={30} fs={13} />
                 </div>
               )}
-              <div style={{ color: '#555', fontSize: 9, letterSpacing: '0.22em' }}>
+              <div style={{ color: '#888', fontSize: 9, letterSpacing: '0.22em' }}>
                 {countLabel}
               </div>
             </div>
@@ -580,14 +580,17 @@ export default function Page() {
               }}
             />
 
-            <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               {(['live', 'top'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: tab === t ? '#f0b020' : '#3a3a3a',
+                  background: tab === t ? '#1a1200' : 'transparent',
+                  border: `1px solid ${tab === t ? '#f0b020' : '#2a2a2a'}`,
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  color: tab === t ? '#f0b020' : '#555',
                   fontFamily: 'inherit', fontSize: 10, letterSpacing: '0.22em',
                   fontWeight: tab === t ? 700 : 400,
-                  padding: '6px 12px 6px 0',
+                  padding: '6px 18px',
                 }}>
                   {t === 'live' ? 'LIVE' : 'TOP'}
                 </button>
