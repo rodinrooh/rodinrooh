@@ -356,6 +356,12 @@ export default function Page() {
     return () => ro.disconnect()
   }, [])
 
+  useEffect(() => {
+    const block = (e: WheelEvent) => { if (window.scrollY <= 0 && e.deltaY < 0) e.preventDefault() }
+    window.addEventListener('wheel', block, { passive: false })
+    return () => window.removeEventListener('wheel', block)
+  }, [])
+
   const liveVirtualizer = useWindowVirtualizer({
     count: liveRows.length,
     estimateSize: () => isMobile ? 60 : 70,

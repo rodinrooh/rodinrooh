@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 * { box-sizing: border-box; }
+html, body { overscroll-behavior: none; }
 
 /* Landing page responsive styles */
 .home-header-pad {
