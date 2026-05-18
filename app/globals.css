@@ -25,7 +25,7 @@
   display: flex;
   flex-direction: row;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   align-items: baseline;
 }
 .home-press-date {
