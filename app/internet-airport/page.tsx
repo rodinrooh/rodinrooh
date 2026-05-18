@@ -50,8 +50,8 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H_DESK = 188
-const HDR_H_MOB  = 138
+const HDR_H_DESK = 220
+const HDR_H_MOB  = 170
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -509,9 +509,8 @@ export default function Page() {
       {/* ── Header ── */}
       <div style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 20,
-        background: HDR_BG,
-        borderBottom: '2px solid #181818',
       }}>
+        <div style={{ background: HDR_BG }}>
         <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 16px' : '14px 40px 16px', position: 'relative' }}>
 
           {/* Info button — top right */}
@@ -604,10 +603,13 @@ export default function Page() {
 
           </div>
         </div>
+        </div>
+        {/* This gap is INSIDE the fixed header so it never moves */}
+        <div style={{ height: 32, background: PAGE_BG }} />
       </div>
 
       {/* ── Board ── */}
-      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: hdrH + 32, paddingBottom: 80 }}>
+      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: hdrH, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
 
           {/* Sticky column header — sibling of rows card so sticky works cleanly */}
