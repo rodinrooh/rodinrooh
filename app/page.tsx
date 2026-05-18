@@ -37,16 +37,16 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
-            href="/sf-towing"
-            date="May 2026"
-            title="Find My Towed Car"
-            desc="Live map of every car being towed in San Francisco"
-          />
-          <ProjectRow
             href="/internet-airport"
             date="May 2026"
             title="Internet Airport"
             desc="Live board for every domain registered today"
+          />
+          <ProjectRow
+            href="/sf-towing"
+            date="May 2026"
+            title="Find My Towed Car"
+            desc="Live map of every car being towed in San Francisco"
           />
         </div>
 
