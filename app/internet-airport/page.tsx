@@ -467,7 +467,7 @@ export default function Page() {
             {/* Header */}
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: 36, marginBottom: 10 }}>✈️</div>
-              <div style={{ color: '#f0b020', fontSize: 22, letterSpacing: '0.05em', fontWeight: 600, lineHeight: 1 }}>INTERNET AIRPORT</div>
+              <div style={{ color: '#f0b020', fontSize: 22, letterSpacing: '0.04em', fontWeight: 600, lineHeight: 1 }}>INTERNET AIRPORT</div>
             </div>
 
             {/* Divider */}
@@ -578,7 +578,7 @@ export default function Page() {
             <div style={{ textAlign: isMobile ? 'left' : 'center', marginBottom: 10 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <PlaneIcon />
-                <span style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.06em', fontWeight: 600, lineHeight: 1 }}>
+                <span style={{ color: '#f0b020', fontSize: 26, letterSpacing: '0.05em', fontWeight: 600, lineHeight: 1 }}>
                   INTERNET AIRPORT
                 </span>
               </div>
