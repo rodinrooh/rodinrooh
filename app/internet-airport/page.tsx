@@ -611,14 +611,9 @@ export default function Page() {
         </div>
         {/* This gap is INSIDE the fixed header so it never moves */}
         <div style={{ height: 42, background: PAGE_BG }} />
-      </div>
-
-      {/* ── Board ── */}
-      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: siteHdrH, paddingBottom: 80 }}>
-        <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
-
-          {/* Sticky column header — BOARD_BG background masks rows scrolling behind it */}
-          <div style={{ position: 'sticky', top: siteHdrH, zIndex: 10, background: BOARD_BG }}>
+        {/* Column header — inside fixed div so it is truly fixed and rows can never peek above it */}
+        <div style={{ background: PAGE_BG }}>
+          <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '0 8px' : '0 40px' }}>
             {tab === 'top' && (
               <div style={{
                 background: BOARD_BG,
@@ -660,8 +655,14 @@ export default function Page() {
               )}
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Rows card — no top border/radius, connects flush to sticky header above */}
+      {/* ── Board ── */}
+      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: siteHdrH, paddingBottom: 80 }}>
+        <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
+
+          {/* Rows card — connects flush to column header (now in fixed div above) */}
           <div style={{
             background: BOARD_BG,
             borderRadius: '0 0 8px 8px',
