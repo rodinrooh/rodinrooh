@@ -50,8 +50,8 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H_DESK = 172
-const HDR_H_MOB  = 122
+const HDR_H_DESK = 188
+const HDR_H_MOB  = 138
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -507,7 +507,7 @@ export default function Page() {
         borderBottom: '2px solid #181818',
         boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
       }}>
-        <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 0' : '14px 40px 0', position: 'relative' }}>
+        <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 16px' : '14px 40px 16px', position: 'relative' }}>
 
           {/* Info button — top right */}
           {!isMobile && (
@@ -583,13 +583,13 @@ export default function Page() {
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               {(['live', 'top'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{
-                  background: tab === t ? '#1a1200' : 'transparent',
-                  border: `1px solid ${tab === t ? '#f0b020' : '#2a2a2a'}`,
+                  background: tab === t ? '#222' : 'transparent',
+                  border: `1px solid ${tab === t ? '#666' : '#1e1e1e'}`,
                   borderRadius: 4,
                   cursor: 'pointer',
-                  color: tab === t ? '#f0b020' : '#555',
+                  color: tab === t ? '#ccc' : '#3a3a3a',
                   fontFamily: 'inherit', fontSize: 10, letterSpacing: '0.22em',
-                  fontWeight: tab === t ? 700 : 400,
+                  fontWeight: tab === t ? 600 : 400,
                   padding: '6px 18px',
                 }}>
                   {t === 'live' ? 'LIVE' : 'TOP'}
