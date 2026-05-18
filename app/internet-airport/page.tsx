@@ -619,6 +619,7 @@ export default function Page() {
                 background: BOARD_BG,
                 borderTop: '2px solid #1c1c1c', borderLeft: '2px solid #1c1c1c',
                 borderRight: '2px solid #1c1c1c', borderBottom: '2px solid #1c1c1c',
+                borderRadius: '8px 8px 0 0',
                 display: 'flex', gap: 10, alignItems: 'center',
                 padding: isMobile ? '10px 12px' : '10px 20px',
               }}>
@@ -631,6 +632,7 @@ export default function Page() {
               background: BOARD_BG,
               borderTop: tab === 'top' ? 'none' : '2px solid #1c1c1c',
               borderLeft: '2px solid #1c1c1c', borderRight: '2px solid #1c1c1c',
+              borderRadius: tab === 'live' ? '8px 8px 0 0' : 0,
               display: 'grid',
               gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
               gap: isMobile ? '0 8px' : '0 16px',
