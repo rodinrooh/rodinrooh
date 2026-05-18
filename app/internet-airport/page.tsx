@@ -137,12 +137,19 @@ function TimeTiles({ ts }: { ts: string | null }) {
   )
 }
 
+const PT_FMT = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hour12: false, timeZone: 'America/Los_Angeles',
+})
+
 function BigClock({ now, w = CW, h = CH, fs = CFS }: {
   now: Date | null; w?: number; h?: number; fs?: number
 }) {
   if (!now) return <div style={{ height: h }} />
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const [hr, m, s] = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())]
+  const parts = PT_FMT.formatToParts(now)
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00'
+  const hr = get('hour') === '24' ? '00' : get('hour')
+  const m = get('minute'), s = get('second')
   const cfs = Math.round(fs * 0.8)
   return (
     <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
@@ -215,6 +222,7 @@ export default function Page() {
   const [search,   setSearch]   = useState('')
   const [now,      setNow]      = useState<Date | null>(null)
   const lastIdRef               = useRef(0)
+  const pollInFlight            = useRef(false)
   const [newIds,   setNewIds]   = useState<Set<number>>(new Set())
   const timerRef                = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -272,20 +280,26 @@ export default function Page() {
     fetchAll()
 
     const iv = setInterval(async () => {
-      const { data } = await supabase.from('domains').select('id, domain, shown_at, score')
-        .eq('shown', true).gt('id', lastIdRef.current).order('id', { ascending: true })
-      if (data?.length) {
-        lastIdRef.current = data[data.length - 1].id
-        const incoming = [...data].reverse() as DomainRow[]
-        const prevScrollY = window.scrollY
-        flushSync(() => {
-          setDomains(prev => [...incoming, ...prev])
-          setTotal(prev => prev + data.length)
-        })
-        if (prevScrollY > 10) window.scrollBy(0, incoming.length * (isMobile ? 60 : 70))
-        setNewIds(new Set(incoming.map(r => r.id)))
-        if (timerRef.current) clearTimeout(timerRef.current)
-        timerRef.current = setTimeout(() => setNewIds(new Set()), 400)
+      if (pollInFlight.current) return
+      pollInFlight.current = true
+      try {
+        const { data } = await supabase.from('domains').select('id, domain, shown_at, score')
+          .eq('shown', true).gt('id', lastIdRef.current).order('id', { ascending: true })
+        if (data?.length) {
+          lastIdRef.current = data[data.length - 1].id
+          const incoming = [...data].reverse() as DomainRow[]
+          const prevScrollY = window.scrollY
+          flushSync(() => {
+            setDomains(prev => [...incoming, ...prev])
+            setTotal(prev => prev + data.length)
+          })
+          if (prevScrollY > 10) window.scrollBy(0, incoming.length * (isMobile ? 60 : 70))
+          setNewIds(new Set(incoming.map(r => r.id)))
+          if (timerRef.current) clearTimeout(timerRef.current)
+          timerRef.current = setTimeout(() => setNewIds(new Set()), 400)
+        }
+      } finally {
+        pollInFlight.current = false
       }
     }, 1000)
     return () => { clearInterval(iv); if (timerRef.current) clearTimeout(timerRef.current) }
