@@ -617,8 +617,8 @@ export default function Page() {
       <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: siteHdrH, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
 
-          {/* Sticky column header — transparent outer div, borders on inner content only */}
-          <div style={{ position: 'sticky', top: siteHdrH, zIndex: 10 }}>
+          {/* Sticky column header — BOARD_BG background masks rows scrolling behind it */}
+          <div style={{ position: 'sticky', top: siteHdrH, zIndex: 10, background: BOARD_BG }}>
             {tab === 'top' && (
               <div style={{
                 background: BOARD_BG,
