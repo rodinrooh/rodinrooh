@@ -40,7 +40,7 @@ export default function Home() {
             href="/internet-airport"
             date="May 2026"
             title="Internet Airport"
-            desc="Live board for every domain registered today"
+            desc="Live board showing every domain registered in real time"
           />
           <ProjectRow
             href="/sf-towing"
