@@ -82,4 +82,4 @@
 .board-row { content-visibility: auto; contain-intrinsic-size: 0 70px; }
 .board-row:hover { background: #252525 !important; }
 input::placeholder { color: #333; letter-spacing: 0.14em; }
-.modal-body { font-weight: 300 !important; -webkit-font-smoothing: auto; font-size: 13px !important; line-height: 1.5 !important; color: #888 !important; }
+.modal-body { font: 300 13px/1.5 "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; color: #888 !important; }

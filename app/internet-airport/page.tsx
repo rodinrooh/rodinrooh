@@ -604,54 +604,51 @@ export default function Page() {
       <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: hdrH + 32, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
 
-          {/* Sticky board header — filter bar (top tab) + column labels */}
+          {/* Single board card — no overflow set so position:sticky children work */}
           <div style={{
-            position: 'sticky', top: hdrH, zIndex: 10,
             background: BOARD_BG,
-            borderRadius: '8px 8px 0 0',
+            borderRadius: 8,
             border: '2px solid #1c1c1c',
-            borderBottom: 'none',
           }}>
-            {tab === 'top' && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: isMobile ? '10px 12px' : '10px 20px', borderBottom: '2px solid #1c1c1c' }}>
-                {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
-                  <FilterTiles key={f} label={TOP_FILTER_LABELS[f]} active={topFilter === f} onClick={() => setTopFilter(f)} />
-                ))}
-              </div>
-            )}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
-              gap: isMobile ? '0 8px' : '0 16px',
-              padding: isMobile ? '10px 12px' : '10px 20px',
-              borderBottom: '2px solid #1c1c1c',
-            }}>
-              {tab === 'live' ? (
-                <>
-                  {!isMobile && <CH2>TIME</CH2>}
-                  <CH2>ARRIVALS</CH2>
-                  <CH2>GATE</CH2>
-                  <CH2 right>STATUS</CH2>
-                </>
-              ) : (
-                <>
-                  <CH2>#</CH2>
-                  <CH2>ARRIVALS</CH2>
-                  <CH2>GATE</CH2>
-                  {!isMobile && <CH2 right>SCORE</CH2>}
-                  <CH2 right>STATUS</CH2>
-                </>
-              )}
-            </div>
-          </div>
 
-          {/* Rows — no overflow clip so sticky above works */}
-          <div style={{
-            background: BOARD_BG,
-            borderRadius: '0 0 8px 8px',
-            border: '2px solid #1c1c1c',
-            borderTop: 'none',
-          }}>
+            {/* Sticky filter + column headers */}
+            <div style={{
+              position: 'sticky', top: hdrH, zIndex: 10,
+              background: BOARD_BG,
+              borderRadius: '8px 8px 0 0',
+            }}>
+              {tab === 'top' && (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: isMobile ? '10px 12px' : '10px 20px', borderBottom: '2px solid #1c1c1c' }}>
+                  {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
+                    <FilterTiles key={f} label={TOP_FILTER_LABELS[f]} active={topFilter === f} onClick={() => setTopFilter(f)} />
+                  ))}
+                </div>
+              )}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
+                gap: isMobile ? '0 8px' : '0 16px',
+                padding: isMobile ? '10px 12px' : '10px 20px',
+                borderBottom: '2px solid #1c1c1c',
+              }}>
+                {tab === 'live' ? (
+                  <>
+                    {!isMobile && <CH2>TIME</CH2>}
+                    <CH2>ARRIVALS</CH2>
+                    <CH2>GATE</CH2>
+                    <CH2 right>STATUS</CH2>
+                  </>
+                ) : (
+                  <>
+                    <CH2>#</CH2>
+                    <CH2>ARRIVALS</CH2>
+                    <CH2>GATE</CH2>
+                    {!isMobile && <CH2 right>SCORE</CH2>}
+                    <CH2 right>STATUS</CH2>
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* Live rows */}
             {tab === 'live' && (
