@@ -70,18 +70,18 @@ export default function Home() {
 
 function ProjectRow({ href, date, title, desc }: { href: string; date: string; title: string; desc: string }) {
   return (
-    <div className="home-press-row">
-      <div className="home-press-date">{date} · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }}>{title}</a></div>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-row" style={{ textDecoration: "none", color: "inherit" }}>
+      <div className="home-press-date">{date} · {title}</div>
       <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{desc}</div>
-    </div>
+    </a>
   )
 }
 
 function PressRow({ date, href, text }: { date: string; href: string; text: string }) {
   return (
-    <div className="home-press-row">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-row" style={{ textDecoration: "none", color: "inherit" }}>
       <div className="home-press-date">{date}</div>
-      <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{text}</a>
-    </div>
+      <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{text}</div>
+    </a>
   )
 }
