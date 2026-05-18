@@ -345,11 +345,16 @@ export default function Page() {
   )
 
   const liveListRef = useRef<HTMLDivElement>(null)
-  const colHdrRef = useRef<HTMLDivElement>(null)
-  const [colHdrH, setColHdrH] = useState(42)
+  const siteHdrRef = useRef<HTMLDivElement>(null)
+  const [siteHdrH, setSiteHdrH] = useState(isMobile ? HDR_H_MOB : HDR_H_DESK)
   useEffect(() => {
-    if (colHdrRef.current) setColHdrH(colHdrRef.current.offsetHeight)
-  }, [tab, isMobile])
+    const el = siteHdrRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setSiteHdrH(el.offsetHeight))
+    ro.observe(el)
+    setSiteHdrH(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [])
 
   const liveVirtualizer = useWindowVirtualizer({
     count: liveRows.length,
@@ -507,7 +512,7 @@ export default function Page() {
       )}
 
       {/* ── Header ── */}
-      <div style={{
+      <div ref={siteHdrRef} style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 20,
       }}>
         <div style={{ background: HDR_BG }}>
@@ -609,28 +614,32 @@ export default function Page() {
       </div>
 
       {/* ── Board ── */}
-      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: hdrH, paddingBottom: 80 }}>
+      <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', paddingTop: siteHdrH, paddingBottom: 80 }}>
         <div style={{ margin: isMobile ? '0 8px' : '0 40px' }}>
 
-          {/* Sticky column header — sibling of rows card so sticky works cleanly */}
-          <div style={{
-            position: 'sticky', top: hdrH, zIndex: 10,
-            background: BOARD_BG,
-            border: '2px solid #1c1c1c',
-            borderBottom: 'none',
-          }}>
+          {/* Sticky column header — transparent outer div, borders on inner content only */}
+          <div style={{ position: 'sticky', top: siteHdrH, zIndex: 10 }}>
             {tab === 'top' && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: isMobile ? '10px 12px' : '10px 20px', borderBottom: '2px solid #1c1c1c' }}>
+              <div style={{
+                background: BOARD_BG,
+                borderTop: '2px solid #1c1c1c', borderLeft: '2px solid #1c1c1c',
+                borderRight: '2px solid #1c1c1c', borderBottom: '2px solid #1c1c1c',
+                display: 'flex', gap: 10, alignItems: 'center',
+                padding: isMobile ? '10px 12px' : '10px 20px',
+              }}>
                 {(['day', 'week', 'month', 'all'] as TopFilter[]).map(f => (
                   <FilterTiles key={f} label={TOP_FILTER_LABELS[f]} active={topFilter === f} onClick={() => setTopFilter(f)} />
                 ))}
               </div>
             )}
             <div style={{
+              background: BOARD_BG,
+              borderTop: tab === 'top' ? 'none' : '2px solid #1c1c1c',
+              borderLeft: '2px solid #1c1c1c', borderRight: '2px solid #1c1c1c',
               display: 'grid',
               gridTemplateColumns: tab === 'live' ? LIVE_GRID : TOP_GRID,
               gap: isMobile ? '0 8px' : '0 16px',
-              padding: isMobile ? '6px 12px 10px' : '6px 20px 10px',
+              padding: isMobile ? '8px 12px' : '8px 20px',
               borderBottom: '2px solid #1c1c1c',
             }}>
               {tab === 'live' ? (
