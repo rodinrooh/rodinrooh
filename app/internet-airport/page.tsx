@@ -50,8 +50,8 @@ const LETTER   = '#eeeeee'
 const CREASE   = '#0d0d0d'
 
 const MAX_W     = 1020
-const HDR_H_DESK = 220
-const HDR_H_MOB  = 170
+const HDR_H_DESK = 230
+const HDR_H_MOB  = 180
 const DOM_SLOTS = 17
 const TLD_SLOTS = 8
 
@@ -414,7 +414,7 @@ export default function Page() {
     : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px ${statusColW}px`
 
   return (
-    <main style={{ background: PAGE_BG, minHeight: '100vh' }}>
+    <main style={{ background: PAGE_BG, minHeight: '100vh', overscrollBehaviorY: 'none' }}>
 
       {/* ── Intro Modal ── */}
       {showIntro && (
@@ -605,7 +605,7 @@ export default function Page() {
         </div>
         </div>
         {/* This gap is INSIDE the fixed header so it never moves */}
-        <div style={{ height: 32, background: PAGE_BG }} />
+        <div style={{ height: 42, background: PAGE_BG }} />
       </div>
 
       {/* ── Board ── */}
