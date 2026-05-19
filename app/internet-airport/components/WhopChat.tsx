@@ -1,6 +1,10 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo } from 'react'
+import { ChatElement, ChatSession, Elements } from '@whop/embedded-components-react-js'
+import { loadWhopElements } from '@whop/embedded-components-vanilla-js'
+
+const elements = loadWhopElements()
 
 async function getToken(): Promise<string> {
   const res = await fetch('/internet-airport/api/chat-token', { method: 'POST' })
@@ -11,23 +15,6 @@ async function getToken(): Promise<string> {
 
 export function WhopChat({ onClose }: { onClose: () => void }) {
   const channelId = process.env.NEXT_PUBLIC_WHOP_CHANNEL_ID ?? ''
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [components, setComponents] = useState<{ ChatElement: any; ChatSession: any; Elements: any; elements: any } | null>(null)
-
-  useEffect(() => {
-    Promise.all([
-      import('@whop/embedded-components-react-js'),
-      import('@whop/embedded-components-vanilla-js'),
-    ]).then(([react, vanilla]) => {
-      setComponents({
-        ChatElement: react.ChatElement,
-        ChatSession: react.ChatSession,
-        Elements: react.Elements,
-        elements: vanilla.loadWhopElements(),
-      })
-    })
-  }, [])
-
   const chatOptions = useMemo(() => ({ channelId }), [channelId])
 
   return (
@@ -47,22 +34,15 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#555' }}
         >×</button>
       </div>
-
       <div style={{ flex: 1, minHeight: 0 }}>
-        {components ? (
-          <components.Elements elements={components.elements}>
-            <components.ChatSession token={getToken}>
-              <components.ChatElement
-                options={chatOptions}
-                style={{ height: '100%', width: '100%' }}
-              />
-            </components.ChatSession>
-          </components.Elements>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444', fontSize: 10, letterSpacing: '0.15em' }}>
-            LOADING...
-          </div>
-        )}
+        <Elements elements={elements}>
+          <ChatSession token={getToken}>
+            <ChatElement
+              options={chatOptions}
+              style={{ height: '100%', width: '100%' }}
+            />
+          </ChatSession>
+        </Elements>
       </div>
     </div>
   )
