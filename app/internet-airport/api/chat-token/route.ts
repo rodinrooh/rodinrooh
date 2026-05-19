@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-const USER_ID = 'user_rjXQOO6LeegHA'
+const COMPANY_ID = 'biz_FGJZvCRb7pQmXP'
+const USER_ID    = 'user_rjXQOO6LeegHA'
 
 export async function POST() {
   const response = await fetch('https://api.whop.com/api/v1/access_tokens', {
@@ -10,16 +11,9 @@ export async function POST() {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      company_id: COMPANY_ID,
       user_id: USER_ID,
-      scoped_actions: [
-        'chat:read',
-        'chat:message:create',
-        'dms:read',
-        'dms:message:manage',
-        'dms:channel:manage',
-        'support_chat:read',
-        'support_chat:message:create',
-      ],
+      scoped_actions: ['chat:read', 'chat:message:create'],
     }),
   })
 
