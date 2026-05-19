@@ -676,7 +676,7 @@ export default function Page() {
                 </div>
               )}
               <div style={{ color: '#888', fontSize: 9, letterSpacing: '0.22em' }}>
-                {countLabel}
+                {countLabel}{' '}<span style={{ color: '#444' }}>· EST. 3/15/26</span>
               </div>
             </div>
 
