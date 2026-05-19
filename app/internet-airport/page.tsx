@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { flushSync } from 'react-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { supabase } from '@/lib/supabase-airport'
-import { WhopChat } from './components/WhopChat'
+import dynamic from 'next/dynamic'
+const WhopChat = dynamic(() => import('./components/WhopChat').then(m => ({ default: m.WhopChat })), { ssr: false })
 
 type DomainRow = { id: number; domain: string; shown_at: string | null; score: number | null }
 type LeaderRow = { id: number; domain: string; score: number; shown_at: string | null }

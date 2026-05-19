@@ -1,10 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
-import { ChatElement, ChatSession, Elements } from '@whop/embedded-components-react-js'
-import { loadWhopElements } from '@whop/embedded-components-vanilla-js'
-
-const elements = loadWhopElements()
+import { useMemo, useState, useEffect } from 'react'
 
 async function getToken(): Promise<string> {
   const res = await fetch('/internet-airport/api/chat-token', { method: 'POST' })
@@ -15,6 +11,23 @@ async function getToken(): Promise<string> {
 
 export function WhopChat({ onClose }: { onClose: () => void }) {
   const channelId = process.env.NEXT_PUBLIC_WHOP_CHANNEL_ID ?? ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [components, setComponents] = useState<{ ChatElement: any; ChatSession: any; Elements: any; elements: any } | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      import('@whop/embedded-components-react-js'),
+      import('@whop/embedded-components-vanilla-js'),
+    ]).then(([react, vanilla]) => {
+      setComponents({
+        ChatElement: react.ChatElement,
+        ChatSession: react.ChatSession,
+        Elements: react.Elements,
+        elements: vanilla.loadWhopElements(),
+      })
+    })
+  }, [])
+
   const chatOptions = useMemo(() => ({ channelId }), [channelId])
 
   return (
@@ -26,29 +39,30 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
         background: '#141414',
         flexShrink: 0,
       }}>
-        <span style={{ color: '#888', fontSize: 9, letterSpacing: '0.22em', fontWeight: 700 }}>
-          CHAT
-        </span>
+        <span style={{ color: '#888', fontSize: 9, letterSpacing: '0.22em', fontWeight: 700 }}>CHAT</span>
         <button
           onClick={onClose}
-          style={{
-            background: 'transparent', border: 'none',
-            color: '#555', fontSize: 18, cursor: 'pointer',
-            padding: '0 2px', lineHeight: 1, fontFamily: 'inherit',
-          }}
+          style={{ background: 'transparent', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1, fontFamily: 'inherit' }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#aaa' }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#555' }}
         >×</button>
       </div>
+
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Elements elements={elements}>
-          <ChatSession token={getToken}>
-            <ChatElement
-              options={chatOptions}
-              style={{ height: '100%', width: '100%' }}
-            />
-          </ChatSession>
-        </Elements>
+        {components ? (
+          <components.Elements elements={components.elements}>
+            <components.ChatSession token={getToken}>
+              <components.ChatElement
+                options={chatOptions}
+                style={{ height: '100%', width: '100%' }}
+              />
+            </components.ChatSession>
+          </components.Elements>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444', fontSize: 10, letterSpacing: '0.15em' }}>
+            LOADING...
+          </div>
+        )}
       </div>
     </div>
   )
