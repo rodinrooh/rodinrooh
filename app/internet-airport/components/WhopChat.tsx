@@ -60,9 +60,9 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
             href="https://whop.com"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#f0b020', textDecoration: 'none', letterSpacing: '0.16em' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#f8d060' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#f0b020' }}
+            style={{ color: '#ff6600', textDecoration: 'none', letterSpacing: '0.16em' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#ff8833' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#ff6600' }}
           >WHOP</a>
         </span>
       </div>
