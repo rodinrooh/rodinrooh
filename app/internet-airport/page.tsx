@@ -551,6 +551,7 @@ export default function Page() {
           transform: showChat ? 'translateX(0)' : 'translateX(100%)',
           transition: 'transform 0.25s ease',
           display: 'flex', flexDirection: 'column',
+          pointerEvents: showChat ? 'auto' : 'none',
         }}>
           <WhopChat onClose={() => setShowChat(false)} />
         </div>
