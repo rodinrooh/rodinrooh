@@ -13,7 +13,15 @@ export async function POST() {
     body: JSON.stringify({
       company_id: COMPANY_ID,
       user_id: USER_ID,
-      scoped_actions: ['chat:read', 'chat:message:create'],
+      scoped_actions: [
+        'chat:read',
+        'chat:message:create',
+        'dms:read',
+        'dms:message:manage',
+        'dms:channel:manage',
+        'support_chat:read',
+        'support_chat:message:create',
+      ],
     }),
   })
 

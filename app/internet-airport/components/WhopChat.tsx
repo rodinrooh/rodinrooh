@@ -14,7 +14,7 @@ async function getToken(): Promise<string> {
 }
 
 export function WhopChat({ onClose }: { onClose: () => void }) {
-  const channelId = 'feed_1CbB1T6C6r2YHPK8WFsKco'
+  const channelId = 'chat_feed_1CbB1T6C6r2YHPK8WFsKco'
   const chatOptions = useMemo(() => ({ channelId }), [channelId])
 
   return (
