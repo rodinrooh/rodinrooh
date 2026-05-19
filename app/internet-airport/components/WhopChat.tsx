@@ -4,7 +4,9 @@ import { useMemo } from 'react'
 import { ChatElement, ChatSession, Elements } from '@whop/embedded-components-react-js'
 import { loadWhopElements } from '@whop/embedded-components-vanilla-js'
 
-const elements = loadWhopElements()
+const elements = loadWhopElements({
+  appearance: { theme: { appearance: 'dark' } },
+})
 
 async function getToken(): Promise<string> {
   const res = await fetch('/internet-airport/api/chat-token', { method: 'POST' })
@@ -44,6 +46,25 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
             />
           </ChatSession>
         </Elements>
+      </div>
+      <div style={{
+        flexShrink: 0,
+        padding: '8px 14px',
+        borderTop: '1px solid #1e1e1e',
+        background: '#111',
+        textAlign: 'center',
+      }}>
+        <span style={{ color: '#444', fontSize: 9, letterSpacing: '0.16em' }}>
+          POWERED BY{' '}
+          <a
+            href="https://whop.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#555', textDecoration: 'none', letterSpacing: '0.16em' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#888' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#555' }}
+          >WHOP</a>
+        </span>
       </div>
     </div>
   )
