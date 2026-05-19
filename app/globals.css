@@ -84,3 +84,11 @@ html, body { overscroll-behavior: none; }
 .board-row:hover { background: #252525 !important; }
 input::placeholder { color: #333; letter-spacing: 0.14em; }
 .modal-body { font: 400 13px/1.5 "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; color: #888 !important; }
+
+/* Force Whop chat iframe to always be interactive regardless of parent visibility state */
+.whop-el,
+.whop-el > *,
+.whop-el iframe {
+  visibility: visible !important;
+  pointer-events: auto !important;
+}

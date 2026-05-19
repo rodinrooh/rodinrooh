@@ -39,6 +39,7 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
           <ChatSession token={getToken}>
             <ChatElement
               options={chatOptions}
+              className="whop-el"
               style={{ height: '100%', width: '100%' }}
             />
           </ChatSession>
