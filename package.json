@@ -13,6 +13,8 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@types/jsonwebtoken": "^9.0.10",
     "@vercel/analytics": "^2.0.1",
+    "@whop/embedded-components-react-js": "^1.0.0",
+    "@whop/embedded-components-vanilla-js": "^1.0.0",
     "jsonwebtoken": "^9.0.3",
     "next": "16.2.6",
     "react": "19.2.4",

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { flushSync } from 'react-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { supabase } from '@/lib/supabase-airport'
+import { WhopChat } from './components/WhopChat'
 
 type DomainRow = { id: number; domain: string; shown_at: string | null; score: number | null }
 type LeaderRow = { id: number; domain: string; score: number; shown_at: string | null }
@@ -237,7 +238,15 @@ export default function Page() {
   const searchTimer               = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [showIntro, setShowIntro] = useState(false)
+  const [showChat,  setShowChat]  = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+
+  // Mobile sheet drag state
+  const sheetHRef    = useRef(55)
+  const [sheetH,   setSheetH]   = useState(55)
+  const dragActive   = useRef(false)
+  const dragStartY   = useRef(0)
+  const dragStartH   = useRef(55)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -531,6 +540,83 @@ export default function Page() {
         </div>
       )}
 
+      {/* ── Desktop chat overlay ── */}
+      {!isMobile && (
+        <div style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0,
+          width: 380, zIndex: 30,
+          background: '#141414',
+          borderLeft: '1px solid #2a2a2a',
+          transform: showChat ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.25s ease',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <WhopChat onClose={() => setShowChat(false)} />
+        </div>
+      )}
+
+      {/* ── Mobile chat bottom sheet ── */}
+      {isMobile && (
+        <div style={{
+          position: 'fixed', left: 0, right: 0, bottom: 0,
+          height: `${sheetH}dvh`,
+          zIndex: 30,
+          background: '#141414',
+          borderTop: '1px solid #2a2a2a',
+          borderRadius: '12px 12px 0 0',
+          transform: showChat ? 'translateY(0)' : 'translateY(100%)',
+          transition: dragActive.current ? 'none' : 'transform 0.25s ease, height 0.15s ease',
+          display: 'flex', flexDirection: 'column',
+          touchAction: 'none',
+        }}>
+          {/* Drag handle */}
+          <div
+            style={{
+              flexShrink: 0, height: 40,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'grab', touchAction: 'none',
+            }}
+            onPointerDown={e => {
+              dragActive.current = true
+              dragStartY.current = e.clientY
+              dragStartH.current = sheetHRef.current
+              ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={e => {
+              if (!dragActive.current) return
+              const dy = dragStartY.current - e.clientY
+              const dh = (dy / window.innerHeight) * 100
+              const next = Math.min(92, Math.max(15, dragStartH.current + dh))
+              sheetHRef.current = next
+              setSheetH(next)
+            }}
+            onPointerUp={() => {
+              dragActive.current = false
+              const h = sheetHRef.current
+              if (h < 25) {
+                setShowChat(false)
+                setSheetH(55)
+                sheetHRef.current = 55
+              } else {
+                const snapped = h > 73 ? 92 : 55
+                setSheetH(snapped)
+                sheetHRef.current = snapped
+              }
+            }}
+            onPointerCancel={() => { dragActive.current = false }}
+          >
+            <div style={{
+              width: 36, height: 4,
+              background: '#333', borderRadius: 2,
+            }} />
+          </div>
+          {/* Chat header + content */}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <WhopChat onClose={() => { setShowChat(false); setSheetH(55); sheetHRef.current = 55 }} />
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div ref={siteHdrRef} style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 20,
@@ -538,7 +624,7 @@ export default function Page() {
         <div style={{ background: HDR_BG }}>
         <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 16px' : '14px 40px 16px', position: 'relative' }}>
 
-          {/* Info button — top right */}
+          {/* Info button — desktop */}
           {!isMobile && (
             <button
               onClick={() => setShowIntro(true)}
@@ -555,7 +641,30 @@ export default function Page() {
             >i</button>
           )}
 
-          {/* Info button — mobile only */}
+          {/* Chat button — desktop */}
+          {!isMobile && (
+            <button
+              onClick={() => setShowChat(s => !s)}
+              title="Chat"
+              style={{
+                position: 'absolute', top: 14, right: 70,
+                width: 22, height: 22, borderRadius: 4,
+                background: showChat ? '#1a2a1a' : 'transparent',
+                border: `1px solid ${showChat ? '#3a6a3a' : '#3a3a3a'}`,
+                color: showChat ? '#60b878' : '#555',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0, padding: 0,
+              }}
+              onMouseEnter={e => { if (!showChat) { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' } }}
+              onMouseLeave={e => { if (!showChat) { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' } }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+              </svg>
+            </button>
+          )}
+
+          {/* Info button — mobile */}
           {isMobile && (
             <button
               onClick={() => setShowIntro(true)}
@@ -570,6 +679,27 @@ export default function Page() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
             >i</button>
+          )}
+
+          {/* Chat button — mobile */}
+          {isMobile && (
+            <button
+              onClick={() => { setShowChat(s => !s); setSheetH(55); sheetHRef.current = 55 }}
+              title="Chat"
+              style={{
+                position: 'absolute', top: 14, right: 46,
+                width: 22, height: 22, borderRadius: 4,
+                background: showChat ? '#1a2a1a' : 'transparent',
+                border: `1px solid ${showChat ? '#3a6a3a' : '#3a3a3a'}`,
+                color: showChat ? '#60b878' : '#555',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0, padding: 0,
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+              </svg>
+            </button>
           )}
 
           {/* Title + search + tabs */}
