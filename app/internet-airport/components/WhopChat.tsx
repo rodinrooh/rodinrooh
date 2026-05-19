@@ -4,9 +4,7 @@ import { useMemo } from 'react'
 import { ChatElement, ChatSession, Elements } from '@whop/embedded-components-react-js'
 import { loadWhopElements } from '@whop/embedded-components-vanilla-js'
 
-const elements = loadWhopElements({
-  appearance: { theme: { appearance: 'dark' } },
-})
+const elements = loadWhopElements()
 
 async function getToken(): Promise<string> {
   const res = await fetch('/internet-airport/api/chat-token', { method: 'POST' })
@@ -15,9 +13,11 @@ async function getToken(): Promise<string> {
   return data.token
 }
 
+const DARK: { theme: { appearance: 'dark' } } = { theme: { appearance: 'dark' } }
+
 export function WhopChat({ onClose }: { onClose: () => void }) {
   const channelId = 'chat_feed_1CbB1T6C6r2YHPK8WFsKco'
-  const chatOptions = useMemo(() => ({ channelId }), [channelId])
+  const chatOptions = useMemo(() => ({ channelId, style: 'discord' as const }), [channelId])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -37,7 +37,7 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
         >×</button>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Elements elements={elements}>
+        <Elements elements={elements} appearance={DARK}>
           <ChatSession token={getToken}>
             <ChatElement
               options={chatOptions}
@@ -60,9 +60,9 @@ export function WhopChat({ onClose }: { onClose: () => void }) {
             href="https://whop.com"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#555', textDecoration: 'none', letterSpacing: '0.16em' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#888' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#555' }}
+            style={{ color: '#f0b020', textDecoration: 'none', letterSpacing: '0.16em' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#f8d060' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = '#f0b020' }}
           >WHOP</a>
         </span>
       </div>
