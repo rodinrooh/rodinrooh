@@ -449,7 +449,7 @@ export default function Page() {
     : `${2 * RW + 3}px ${topDomColW}px ${topTldColW}px ${3 * RW + 6}px ${statusColW}px`
 
   return (
-    <main style={{ background: PAGE_BG, minHeight: '100vh', overscrollBehaviorY: 'none' }}>
+    <main style={{ background: PAGE_BG, minHeight: '100vh', overscrollBehaviorY: 'none', marginRight: (!isMobile && showChat) ? 380 : 0, transition: 'margin-right 0.25s ease' }}>
 
       {/* ── Intro Modal ── */}
       {showIntro && (
@@ -621,7 +621,7 @@ export default function Page() {
 
       {/* ── Header ── */}
       <div ref={siteHdrRef} style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 20,
+        position: 'fixed', top: 0, left: 0, right: (!isMobile && showChat) ? 380 : 0, zIndex: 20, transition: 'right 0.25s ease',
       }}>
         <div style={{ background: HDR_BG }}>
         <div style={{ maxWidth: isMobile ? '100%' : MAX_W, margin: '0 auto', padding: isMobile ? '12px 16px 16px' : '14px 40px 16px', position: 'relative' }}>
