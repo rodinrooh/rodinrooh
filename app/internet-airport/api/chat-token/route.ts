@@ -9,6 +9,7 @@ export async function POST() {
     },
     body: JSON.stringify({
       company_id: process.env.WHOP_COMPANY_ID,
+      user_id: process.env.WHOP_USER_ID,
       scoped_actions: ['chat:read', 'chat:message:create'],
     }),
   })
