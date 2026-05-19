@@ -641,29 +641,6 @@ export default function Page() {
             >i</button>
           )}
 
-          {/* Chat button — desktop */}
-          {!isMobile && (
-            <button
-              onClick={() => setShowChat(s => !s)}
-              title="Chat"
-              style={{
-                position: 'absolute', top: 14, right: 70,
-                width: 22, height: 22, borderRadius: 4,
-                background: showChat ? '#1a2a1a' : 'transparent',
-                border: `1px solid ${showChat ? '#3a6a3a' : '#3a3a3a'}`,
-                color: showChat ? '#60b878' : '#555',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0, padding: 0,
-              }}
-              onMouseEnter={e => { if (!showChat) { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' } }}
-              onMouseLeave={e => { if (!showChat) { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' } }}
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
-              </svg>
-            </button>
-          )}
-
           {/* Info button — mobile */}
           {isMobile && (
             <button
@@ -679,27 +656,6 @@ export default function Page() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#666'; e.currentTarget.style.color = '#aaa' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = '#3a3a3a'; e.currentTarget.style.color = '#555' }}
             >i</button>
-          )}
-
-          {/* Chat button — mobile */}
-          {isMobile && (
-            <button
-              onClick={() => { setShowChat(s => !s); setSheetH(55); sheetHRef.current = 55 }}
-              title="Chat"
-              style={{
-                position: 'absolute', top: 14, right: 46,
-                width: 22, height: 22, borderRadius: 4,
-                background: showChat ? '#1a2a1a' : 'transparent',
-                border: `1px solid ${showChat ? '#3a6a3a' : '#3a3a3a'}`,
-                color: showChat ? '#60b878' : '#555',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                lineHeight: 1, fontFamily: 'inherit', flexShrink: 0, padding: 0,
-              }}
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
-              </svg>
-            </button>
           )}
 
           {/* Title + search + tabs */}
@@ -739,7 +695,7 @@ export default function Page() {
               }}
             />
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
               {(['live', 'top'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{
                   background: tab === t ? '#222' : 'transparent',
@@ -754,6 +710,26 @@ export default function Page() {
                   {t === 'live' ? 'LIVE' : 'TOP'}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  setShowChat(s => !s)
+                  if (isMobile) { setSheetH(55); sheetHRef.current = 55 }
+                }}
+                style={{
+                  background: showChat ? '#222' : 'transparent',
+                  border: `1px solid ${showChat ? '#666' : '#333'}`,
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  color: showChat ? '#ccc' : '#3a3a3a',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '6px',
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+                </svg>
+              </button>
             </div>
 
           </div>
