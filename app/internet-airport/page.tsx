@@ -701,10 +701,10 @@ export default function Page() {
               {(['live', 'top'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)} style={{
                   background: tab === t ? '#222' : 'transparent',
-                  border: `1px solid ${tab === t ? '#666' : '#333'}`,
+                  border: `1px solid ${tab === t ? '#888' : '#555'}`,
                   borderRadius: 4,
                   cursor: 'pointer',
-                  color: tab === t ? '#ccc' : '#3a3a3a',
+                  color: tab === t ? '#eee' : '#777',
                   fontFamily: 'inherit', fontSize: 10, letterSpacing: '0.22em',
                   fontWeight: tab === t ? 600 : 400,
                   padding: '6px 18px',
@@ -719,10 +719,10 @@ export default function Page() {
                 }}
                 style={{
                   background: showChat ? '#222' : 'transparent',
-                  border: `1px solid ${showChat ? '#666' : '#333'}`,
+                  border: `1px solid ${showChat ? '#888' : '#555'}`,
                   borderRadius: 4,
                   cursor: 'pointer',
-                  color: showChat ? '#ccc' : '#3a3a3a',
+                  color: showChat ? '#eee' : '#777',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   padding: '6px',
                   flexShrink: 0,
