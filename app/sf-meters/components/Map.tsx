@@ -131,16 +131,16 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
         () => {
           const el = document.createElement("div")
           el.style.cssText = `
-            width: 10px;
-            height: 10px;
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
             background: ${color};
-            border: 1.5px solid rgba(0,0,0,0.25);
-            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+            border: 3px solid #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.55), 0 0 0 1.5px rgba(0,0,0,0.12);
             cursor: pointer;
-            transition: transform 0.1s;
+            transition: transform 0.12s;
           `
-          el.addEventListener("mouseenter", () => { el.style.transform = "scale(1.6)" })
+          el.addEventListener("mouseenter", () => { el.style.transform = "scale(1.4)" })
           el.addEventListener("mouseleave", () => { el.style.transform = "scale(1)" })
           el.addEventListener("click", (e) => {
             e.stopPropagation()
