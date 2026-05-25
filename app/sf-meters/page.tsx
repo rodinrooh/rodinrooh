@@ -205,7 +205,7 @@ export default function SFMetersPage() {
     if (tx.lat && tx.lng) mapRef.current?.flyTo(tx.lat, tx.lng)
   }, [])
 
-  const P = 27
+  const P = 34
 
   const tabBar = (
     <div style={{ display: "flex", gap: 20, padding: "12px 0", borderBottom: "1px solid #eee", alignItems: "center", flexShrink: 0 }}>
@@ -230,19 +230,18 @@ export default function SFMetersPage() {
       <div style={{
         display: "flex", flexDirection: "column",
         height: "100svh", background: "#fff", overflow: "hidden",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
         boxSizing: "border-box",
       }}>
         {/* Title */}
-        <div style={{ padding: "20px 20px 16px" }}>
-          <h1 style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
+        <div style={{ padding: "22px 20px 16px" }}>
+          <h1 style={{ fontSize: 27, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
             SF has collected <span style={{ color: "#16a34a" }}>{loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span><br />
             from parking meters today.
           </h1>
         </div>
 
         {/* Map */}
-        <div style={{ margin: "0 20px", borderRadius: 18, overflow: "hidden", position: "relative", height: "40svh", flexShrink: 0, background: "#d4d4d4" }}>
+        <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "50svh", flexShrink: 0, background: "#d4d4d4" }}>
           <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
           {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
         </div>
@@ -269,7 +268,6 @@ export default function SFMetersPage() {
       padding: P,
       gap: P,
       boxSizing: "border-box",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       overflow: "hidden",
     }}>
       {/* Left column */}
@@ -316,7 +314,7 @@ export default function SFMetersPage() {
       {/* Right column — map */}
       <div style={{
         flex: 1,
-        borderRadius: 23,
+        borderRadius: 15,
         overflow: "hidden",
         position: "relative",
         background: "#d4d4d4",
