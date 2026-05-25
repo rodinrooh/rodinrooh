@@ -8,7 +8,6 @@ import Leaderboard from "./components/Leaderboard"
 import { supabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
-interface DailyStat { date: string; total_sessions: number; total_revenue: number }
 
 function shiftedDate(dt: string): Date {
   const raw = new Date(dt)
@@ -70,16 +69,12 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
   setLoading(false)
 }
 
-function StatBox({ label, revenue, sessions }: { label: string; revenue: number | null; sessions: number | null }) {
+function StatBox({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div style={{ background: "#f5f5f5", borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 10, fontWeight: 600, color: "#aaa", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 17, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2 }}>
-        {revenue == null ? "—" : `$${revenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-      </div>
-      <div style={{ fontSize: 11, color: "#aaa", letterSpacing: "-0.01em", marginTop: 2 }}>
-        {sessions == null ? "" : `${sessions.toLocaleString()} sessions`}
-      </div>
+      <div style={{ fontSize: 17, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 11, color: "#aaa", letterSpacing: "-0.01em", marginTop: 2 }}>{sub}</div>
     </div>
   )
 }
@@ -153,7 +148,6 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
 
 export default function SFMetersPage() {
   const [transactions, setTransactions] = useState<MeterTransaction[]>([])
-  const [dailyStats, setDailyStats] = useState<DailyStat[]>([])
   const [now, setNow] = useState(() => new Date())
   const [selected, setSelected] = useState<MeterTransaction | null>(null)
   const [loading, setLoading] = useState(true)
@@ -171,21 +165,15 @@ export default function SFMetersPage() {
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    supabaseMeters
-      .from("sf_meter_daily_stats")
-      .select("*")
-      .order("date", { ascending: false })
-      .limit(30)
-      .then(({ data }) => { if (data) setDailyStats(data as DailyStat[]) })
-  }, [])
 
   const visibleTransactions = transactions.filter((tx) => shiftedDate(tx.session_start_dt) <= now)
   const mappableTransactions = visibleTransactions.filter((tx) => tx.lat && tx.lng && tx.geocoded)
   const totalRevenue = visibleTransactions.reduce((sum, tx) => sum + Number(tx.gross_paid_amt), 0)
 
-  const stats7d = dailyStats.slice(0, 7).reduce((acc, s) => ({ sessions: acc.sessions + s.total_sessions, revenue: acc.revenue + Number(s.total_revenue) }), { sessions: 0, revenue: 0 })
-  const stats30d = dailyStats.reduce((acc, s) => ({ sessions: acc.sessions + s.total_sessions, revenue: acc.revenue + Number(s.total_revenue) }), { sessions: 0, revenue: 0 })
+  const avgPerSession = visibleTransactions.length > 0 ? totalRevenue / visibleTransactions.length : 0
+  const biggestPayment = visibleTransactions.length > 0
+    ? Math.max(...visibleTransactions.map((tx) => Number(tx.gross_paid_amt)))
+    : 0
 
   const handleSelect = useCallback((tx: MeterTransaction) => {
     setSelected(tx)
@@ -250,18 +238,9 @@ export default function SFMetersPage() {
             <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
           ) : (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
-                <StatBox label="Today" revenue={totalRevenue} sessions={visibleTransactions.length} />
-                <StatBox
-                  label="Last 7 days"
-                  revenue={dailyStats.length > 0 ? stats7d.revenue : null}
-                  sessions={dailyStats.length > 0 ? stats7d.sessions : null}
-                />
-                <StatBox
-                  label="Last 30 days"
-                  revenue={dailyStats.length > 0 ? stats30d.revenue : null}
-                  sessions={dailyStats.length > 0 ? stats30d.sessions : null}
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+                <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
+                <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
               </div>
               <Leaderboard transactions={visibleTransactions} />
             </>
