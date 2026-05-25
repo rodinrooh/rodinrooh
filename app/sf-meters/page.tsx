@@ -122,7 +122,7 @@ function TransactionList({ transactions }: { transactions: MeterTransaction[] })
 }
 
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
-  // Load all transactions — shiftedDate maps each one's time-of-day to today
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
   let all: MeterTransaction[] = []
   let from = 0
   const pageSize = 1000
@@ -134,6 +134,7 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
       .eq("meter_event_type", "NS")
       .not("street_block", "ilike", "%Garage%")
       .not("street_block", "ilike", "%Lot%")
+      .gte("session_start_dt", cutoff)
       .order("session_start_dt", { ascending: true })
       .range(from, from + pageSize - 1)
 

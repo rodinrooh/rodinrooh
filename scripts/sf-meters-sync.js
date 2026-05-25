@@ -23,24 +23,27 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function getLastTransmission() {
-  const { data, error } = await supabase
-    .from("sf_meter_meta")
-    .select("value")
-    .eq("key", "last_transmission_datetime")
-    .single()
+async function purgeStaleRows() {
+  // Delete anything older than 48h — keeps the DB to yesterday's data only
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const { error, count } = await supabase
+    .from("sf_meter_transactions")
+    .delete({ count: "exact" })
+    .lt("session_start_dt", cutoff)
 
-  if (error || !data) {
-    // Default to 48 hours ago — gives a full day of "yesterday" data that shifts to today
-    return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  if (error) {
+    console.warn("Purge failed:", error.message)
+  } else if (count) {
+    console.log(`Purged ${count} stale rows`)
   }
-  return data.value
 }
 
-async function fetchDataSF(lastDt) {
-  // SoQL filter: new sessions only, no garages/lots, after last_dt
+async function fetchDataSF() {
+  // Always pull the last 48h of real session data, ordered by session_start_dt
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+
   const where = [
-    `transmission_datetime > '${lastDt}'`,
+    `session_start_dt > '${cutoff}'`,
     `meter_event_type='NS'`,
     `street_block NOT LIKE '%Garage%'`,
     `street_block NOT LIKE '%Lot%'`,
@@ -49,8 +52,8 @@ async function fetchDataSF(lastDt) {
   const url =
     `https://data.sfgov.org/resource/imvp-dq3v.json` +
     `?$where=${encodeURIComponent(where)}` +
-    `&$order=transmission_datetime%20ASC` +
-    `&$limit=1000`
+    `&$order=session_start_dt%20ASC` +
+    `&$limit=10000`
 
   const headers = { "Accept": "application/json" }
   if (DATASF_APP_TOKEN) {
@@ -83,14 +86,6 @@ async function upsertTransactions(rows) {
   return records.length
 }
 
-async function updateLastTransmission(maxDt) {
-  const { error } = await supabase
-    .from("sf_meter_meta")
-    .upsert({ key: "last_transmission_datetime", value: maxDt }, { onConflict: "key" })
-
-  if (error) throw new Error(`Meta update failed: ${error.message}`)
-}
-
 async function geocodePending() {
   if (!MAPBOX_TOKEN) return
 
@@ -113,7 +108,7 @@ async function geocodePending() {
     return
   }
 
-  // Sort by UTC hour+minute (== stored PT time-of-day) so early-day rows get dots first
+  // Sort by time-of-day so early-morning rows (currently visible) get dots first
   const data = raw
     .slice()
     .sort((a, b) => {
@@ -122,11 +117,6 @@ async function geocodePending() {
       return (da.getUTCHours() * 60 + da.getUTCMinutes()) - (db.getUTCHours() * 60 + db.getUTCMinutes())
     })
     .slice(0, 100)
-
-  if (!data || data.length === 0) {
-    console.log("No rows to geocode")
-    return
-  }
 
   console.log(`Geocoding ${data.length} rows…`)
   let geocoded = 0
@@ -146,7 +136,7 @@ async function geocodePending() {
       const feature = json.features?.[0]
 
       if (!feature) {
-        // Mark as geocoded=true with null lat/lng so we don't retry indefinitely
+        // Mark geocoded=true with null lat/lng so we don't retry indefinitely
         await supabase
           .from("sf_meter_transactions")
           .update({ geocoded: true })
@@ -179,10 +169,9 @@ async function geocodePending() {
 async function main() {
   console.log("SF Meters sync starting…")
 
-  const lastDt = await getLastTransmission()
-  console.log(`Fetching transactions after: ${lastDt}`)
+  await purgeStaleRows()
 
-  const rows = await fetchDataSF(lastDt)
+  const rows = await fetchDataSF()
   console.log(`Fetched ${rows.length} rows from DataSF`)
 
   if (rows.length === 0) {
@@ -194,14 +183,6 @@ async function main() {
 
   const count = await upsertTransactions(rows)
   console.log(`Upserted ${count} rows`)
-
-  // Find max transmission_datetime from the batch
-  const maxDt = rows.reduce((max, row) => {
-    return row.transmission_datetime > max ? row.transmission_datetime : max
-  }, rows[0].transmission_datetime)
-
-  await updateLastTransmission(maxDt)
-  console.log(`Updated last_transmission_datetime to: ${maxDt}`)
 
   await geocodePending()
   console.log("Sync complete")
