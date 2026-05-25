@@ -17,6 +17,14 @@ function shiftedDate(dt: string): Date {
   return today
 }
 
+function dotColor(amount: number): string {
+  if (amount < 1) return "#FFF9C4"
+  if (amount < 2) return "#FFCC80"
+  if (amount < 3) return "#FFA726"
+  if (amount < 5) return "#EF6C00"
+  return "#BF360C"
+}
+
 function formatTime(dt: string): string {
   try {
     return shiftedDate(dt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
@@ -99,19 +107,29 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
         return (
           <div key={tx.id} style={{
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            padding: "10px 0",
+            alignItems: "flex-start",
+            padding: "13px 0",
             borderBottom: "1px solid #f0f0f0",
+            gap: 11,
           }}>
-            <div>
-              <div style={{ fontSize: 13, color: "#000", fontWeight: 500, letterSpacing: "-0.02em" }}>{tx.street_block}</div>
-              <div style={{ fontSize: 11, color: "#999", marginTop: 2, letterSpacing: "-0.01em" }}>
+            <div style={{
+              width: 9, height: 9,
+              borderRadius: "50%",
+              background: dotColor(Number(tx.gross_paid_amt)),
+              border: "1.5px solid rgba(0,0,0,0.1)",
+              flexShrink: 0,
+              marginTop: 5,
+            }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {tx.street_block}
+              </div>
+              <div style={{ fontSize: 11, color: "#aaa", marginTop: 3, letterSpacing: "-0.01em" }}>
                 {formatTime(tx.session_start_dt)} · {tx.payment_type?.toLowerCase()}
                 {dateLabel && <span style={{ color: "#ccc" }}> · {dateLabel}</span>}
               </div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 12, letterSpacing: "-0.025em" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.03em", paddingTop: 1 }}>
               ${Number(tx.gross_paid_amt).toFixed(2)}
             </div>
           </div>
