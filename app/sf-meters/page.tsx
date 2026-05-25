@@ -107,7 +107,7 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
         return (
           <div key={tx.id} style={{
             display: "flex",
-            alignItems: "flex-start",
+            alignItems: "center",
             padding: "14px 0",
             borderBottom: "1px solid #f0f0f0",
             gap: 16,
@@ -117,10 +117,9 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
               borderRadius: "50%",
               background: dotColor(Number(tx.gross_paid_amt)),
               flexShrink: 0,
-              marginTop: 1,
             }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textTransform: "lowercase" }}>
                 {tx.street_block}
               </div>
               <div style={{ fontSize: 11, color: "#aaa", marginTop: 3, letterSpacing: "-0.01em" }}>
