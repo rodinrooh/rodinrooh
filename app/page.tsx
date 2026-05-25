@@ -37,6 +37,12 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
+            href="/sf-meters"
+            date="May 2026"
+            title="SF Meter Revenues"
+            desc="Live tracker of how much money SF collects from parking meters"
+          />
+          <ProjectRow
             href="/internet-airport"
             date="May 2026"
             title="Internet Airport"
@@ -47,12 +53,6 @@ export default function Home() {
             date="May 2026"
             title="Find My Towed Car"
             desc="Live map of every car being towed in San Francisco"
-          />
-          <ProjectRow
-            href="/sf-meters"
-            date="May 2026"
-            title="SF Meter Revenues"
-            desc="Live tracker of how much money SF collects from parking meters"
           />
         </div>
 

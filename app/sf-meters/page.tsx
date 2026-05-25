@@ -8,27 +8,15 @@ import Leaderboard from "./components/Leaderboard"
 import { supabaseMeters, getSupabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
-function getTodayMidnightPT(): string {
-  // Get current date in Pacific time, floor to midnight, return as ISO string
-  const now = new Date()
-  const ptFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-  const parts = ptFormatter.formatToParts(now)
-  const year = parts.find((p) => p.type === "year")!.value
-  const month = parts.find((p) => p.type === "month")!.value
-  const day = parts.find((p) => p.type === "day")!.value
-  // Midnight PT as ISO string (with timezone offset, converted to UTC)
-  const midnightPT = new Date(`${year}-${month}-${day}T00:00:00-08:00`)
-  return midnightPT.toISOString()
+const SHIFT_MS = 24 * 60 * 60 * 1000
+
+function shiftedDate(dt: string): Date {
+  return new Date(new Date(dt).getTime() + SHIFT_MS)
 }
 
 function formatTime(dt: string): string {
   try {
-    return new Date(dt).toLocaleTimeString("en-US", {
+    return shiftedDate(dt).toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
       timeZone: "America/Los_Angeles",
@@ -96,19 +84,35 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
 
 export default function SFMetersPage() {
   const [transactions, setTransactions] = useState<MeterTransaction[]>([])
-  const [totalRevenue, setTotalRevenue] = useState(0)
+  const [now, setNow] = useState(() => new Date())
   const [selected, setSelected] = useState<MeterTransaction | null>(null)
   const [loading, setLoading] = useState(true)
   const mapRef = useRef<MapHandle>(null)
 
+  // Tick every 30s so newly-unblocked transactions appear automatically
   useEffect(() => {
-    const todayMidnight = getTodayMidnightPT()
+    const interval = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Shift raw timestamps +24h, only show ones where shifted time <= now
+  const visibleTransactions = transactions.filter(
+    (tx) => shiftedDate(tx.session_start_dt) <= now
+  )
+  const totalRevenue = visibleTransactions.reduce(
+    (sum, tx) => sum + Number(tx.gross_paid_amt),
+    0
+  )
+
+  useEffect(() => {
+    // Fetch last 48h of data — the +24h shift maps them to today
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
 
     async function loadInitial() {
       const { data, error } = await supabaseMeters
         .from("sf_meter_transactions")
         .select("*")
-        .gte("session_start_dt", todayMidnight)
+        .gte("session_start_dt", cutoff)
         .eq("meter_event_type", "NS")
         .eq("geocoded", true)
         .not("street_block", "ilike", "%Garage%")
@@ -118,16 +122,12 @@ export default function SFMetersPage() {
 
       if (!error && data) {
         setTransactions(data as MeterTransaction[])
-        setTotalRevenue(
-          (data as MeterTransaction[]).reduce((sum, tx) => sum + Number(tx.gross_paid_amt), 0)
-        )
       }
       setLoading(false)
     }
 
     loadInitial()
 
-    // Realtime subscription
     const client = getSupabaseMeters()
     const channel = client
       .channel("sf_meter_transactions_insert")
@@ -139,10 +139,7 @@ export default function SFMetersPage() {
           if (tx.meter_event_type !== "NS") return
           if (!tx.street_block || tx.street_block.includes("Garage") || tx.street_block.includes("Lot")) return
           if (!tx.lat || !tx.lng || !tx.geocoded) return
-          const txDate = new Date(tx.session_start_dt)
-          if (txDate < new Date(todayMidnight)) return
           setTransactions((prev) => [...prev, tx])
-          setTotalRevenue((prev) => prev + Number(tx.gross_paid_amt))
         }
       )
       .subscribe()
@@ -161,11 +158,10 @@ export default function SFMetersPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", background: "#0a0a0a" }}>
-      {/* Map section */}
       <div className="relative" style={{ height: "100svh", minHeight: 500 }}>
-        <Map ref={mapRef} transactions={transactions} onSelectTransaction={handleSelect} />
+        <Map ref={mapRef} transactions={visibleTransactions} onSelectTransaction={handleSelect} />
 
-        {/* Revenue counter overlay */}
+        {/* Revenue counter */}
         <div
           className="absolute z-20"
           style={{
@@ -202,11 +198,11 @@ export default function SFMetersPage() {
             ${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
-            {loading ? "Loading…" : `${transactions.length.toLocaleString()} meter sessions today`}
+            {loading ? "Loading…" : `${visibleTransactions.length.toLocaleString()} meter sessions today`}
           </div>
         </div>
 
-        {/* Dot color legend */}
+        {/* Legend */}
         <div
           className="absolute z-20"
           style={{
@@ -238,7 +234,6 @@ export default function SFMetersPage() {
           ))}
         </div>
 
-        {/* Scroll hint */}
         <div
           className="absolute z-20"
           style={{
@@ -248,21 +243,16 @@ export default function SFMetersPage() {
             fontSize: 11,
             color: "rgba(255,255,255,0.3)",
             fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
             pointerEvents: "none",
           }}
         >
           Scroll for leaderboard ↓
         </div>
 
-        {/* Transaction tooltip */}
         {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
       </div>
 
-      {/* Leaderboard */}
-      <Leaderboard transactions={transactions} />
+      <Leaderboard transactions={visibleTransactions} />
     </div>
   )
 }
