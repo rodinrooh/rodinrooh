@@ -23,65 +23,33 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
     .sort((a, b) => b.total - a.total)
     .slice(0, 25)
 
+  if (rows.length === 0) {
+    return <p style={{ fontSize: 13, color: "#999", margin: 0 }}>No data yet — check back soon.</p>
+  }
+
   return (
-    <div style={{ background: "#0a0a0a", padding: "40px 24px 80px" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
-        <h2 style={{
-          fontSize: 13,
-          fontWeight: 600,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.4)",
-          marginBottom: 20,
-          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    <div>
+      {rows.map((row, i) => (
+        <div key={row.block} style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          padding: "10px 0",
+          borderBottom: "1px solid #f0f0f0",
+          gap: 12,
         }}>
-          Top Blocks Today
-        </h2>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              {["#", "Street Block", "Sessions", "Total Collected"].map((h) => (
-                <th key={h} style={{
-                  textAlign: h === "#" || h === "Sessions" || h === "Total Collected" ? "right" : "left",
-                  padding: "8px 12px",
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: "rgba(255,255,255,0.3)",
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={row.block} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, color: "rgba(255,255,255,0.25)", width: 36 }}>
-                  {i + 1}
-                </td>
-                <td style={{ padding: "12px 12px", fontSize: 14, color: "rgba(255,255,255,0.85)", fontWeight: 400 }}>
-                  {row.block}
-                </td>
-                <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 14, color: "rgba(255,255,255,0.55)", fontVariantNumeric: "tabular-nums" }}>
-                  {row.count.toLocaleString()}
-                </td>
-                <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 14, color: "#FFA726", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                  ${row.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={4} style={{ padding: "40px 12px", textAlign: "center", fontSize: 13, color: "rgba(255,255,255,0.2)" }}>
-                  No data yet — check back soon.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          <span style={{ fontSize: 12, color: "#ccc", width: 20, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{i + 1}</span>
+          <span style={{ flex: 1, fontSize: 13, color: "#000", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.block}
+          </span>
+          <span style={{ fontSize: 12, color: "#999", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+            {row.count} sessions
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+            ${row.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
