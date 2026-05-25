@@ -17,10 +17,10 @@ const SF_CENTER = { latitude: 37.762, longitude: -122.438 }
 const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 
 function dotColor(amount: number): string {
-  if (amount < 1) return "#FFF9C4"
-  if (amount < 2) return "#FFCC80"
-  if (amount < 3) return "#FFA726"
-  if (amount < 5) return "#EF6C00"
+  if (amount < 3) return "#FFF9C4"
+  if (amount < 8) return "#FFCC80"
+  if (amount < 14) return "#FFA726"
+  if (amount < 24) return "#EF6C00"
   return "#BF360C"
 }
 

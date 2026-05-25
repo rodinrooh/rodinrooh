@@ -18,10 +18,10 @@ function shiftedDate(dt: string): Date {
 }
 
 function dotColor(amount: number): string {
-  if (amount < 1) return "#FFF9C4"
-  if (amount < 2) return "#FFCC80"
-  if (amount < 3) return "#FFA726"
-  if (amount < 5) return "#EF6C00"
+  if (amount < 3) return "#FFF9C4"
+  if (amount < 8) return "#FFCC80"
+  if (amount < 14) return "#FFA726"
+  if (amount < 24) return "#EF6C00"
   return "#BF360C"
 }
 
@@ -333,11 +333,11 @@ export default function SFMetersPage() {
         }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Session cost</div>
           {[
-            { color: "#FFF9C4", label: "< $1" },
-            { color: "#FFCC80", label: "$1–$2" },
-            { color: "#FFA726", label: "$2–$3" },
-            { color: "#EF6C00", label: "$3–$5" },
-            { color: "#BF360C", label: "$5+" },
+            { color: "#FFF9C4", label: "< $3" },
+            { color: "#FFCC80", label: "$3–$8" },
+            { color: "#FFA726", label: "$8–$14" },
+            { color: "#EF6C00", label: "$14–$24" },
+            { color: "#BF360C", label: "$24+" },
           ].map(({ color, label }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
               <div style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0, border: "1px solid rgba(0,0,0,0.15)" }} />
