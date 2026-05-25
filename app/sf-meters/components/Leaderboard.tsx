@@ -21,7 +21,7 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
   const rows = [...grouped.entries()]
     .map(([block, stats]) => ({ block, ...stats }))
     .sort((a, b) => b.total - a.total)
-    .slice(0, 10)
+    .slice(0, 20)
 
   if (rows.length === 0) {
     return <p style={{ fontSize: 13, color: "#999", margin: 0 }}>No data yet — check back soon.</p>
