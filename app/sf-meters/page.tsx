@@ -80,7 +80,7 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
 
 function StatBox({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div style={{ background: "#f5f5f5", borderRadius: 10, padding: "12px 14px" }}>
+    <div style={{ background: "#fff", borderRadius: 10, padding: "12px 14px" }}>
       <div style={{ fontSize: 10, fontWeight: 600, color: "#aaa", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 17, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2 }}>{value}</div>
       <div style={{ fontSize: 11, color: "#aaa", letterSpacing: "-0.01em", marginTop: 2 }}>{sub}</div>
