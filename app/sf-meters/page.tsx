@@ -169,7 +169,15 @@ export default function SFMetersPage() {
   const [selected, setSelected] = useState<MeterTransaction | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>("feed")
+  const [isMobile, setIsMobile] = useState(false)
   const mapRef = useRef<MapHandle>(null)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
+  }, [])
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 30000)
@@ -199,6 +207,60 @@ export default function SFMetersPage() {
 
   const P = 27
 
+  const tabBar = (
+    <div style={{ display: "flex", gap: 20, padding: "12px 0", borderBottom: "1px solid #eee", alignItems: "center", flexShrink: 0 }}>
+      {(["feed", "leaderboard"] as Tab[]).map((t) => (
+        <button key={t} onClick={() => setTab(t)} style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontSize: 13, fontWeight: tab === t ? 700 : 400,
+          color: tab === t ? "#000" : "#999", padding: 0,
+          letterSpacing: tab === t ? "-0.025em" : "-0.01em",
+        }}>
+          {t.charAt(0).toUpperCase() + t.slice(1)}
+        </button>
+      ))}
+      <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>
+        {loading ? "Loading…" : `${visibleTransactions.length.toLocaleString()} sessions`}
+      </span>
+    </div>
+  )
+
+  if (isMobile) {
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column",
+        height: "100svh", background: "#fff", overflow: "hidden",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
+        boxSizing: "border-box",
+      }}>
+        {/* Title */}
+        <div style={{ padding: "20px 20px 16px" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
+            SF has collected <span style={{ color: "#16a34a" }}>{loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span><br />
+            from parking meters today.
+          </h1>
+        </div>
+
+        {/* Map */}
+        <div style={{ margin: "0 20px", borderRadius: 18, overflow: "hidden", position: "relative", height: "40svh", flexShrink: 0, background: "#d4d4d4" }}>
+          <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
+          {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
+        </div>
+
+        {/* Tabs */}
+        <div style={{ padding: "0 20px" }}>{tabBar}</div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 24px" }}>
+          {tab === "feed"
+            ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
+            : <Leaderboard transactions={visibleTransactions} />
+          }
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{
       display: "flex",
@@ -226,28 +288,7 @@ export default function SFMetersPage() {
         </h1>
 
         {/* Switcher */}
-        <div style={{ display: "flex", gap: 20, marginBottom: 16, borderBottom: "1px solid #eee", paddingBottom: 12, alignItems: "center" }}>
-          {(["feed", "leaderboard"] as Tab[]).map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: tab === t ? 700 : 400,
-              color: tab === t ? "#000" : "#999",
-              padding: 0,
-              letterSpacing: tab === t ? "-0.025em" : "-0.01em",
-            }}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-          {loading && <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>Loading…</span>}
-          {!loading && (
-            <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>
-              {visibleTransactions.length.toLocaleString()} sessions
-            </span>
-          )}
-        </div>
+        <div style={{ marginBottom: 16 }}>{tabBar}</div>
 
         {/* Scrollable list area */}
         <div style={{ flex: 1, overflowY: "auto" }}>
