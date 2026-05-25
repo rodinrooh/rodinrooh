@@ -108,7 +108,7 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
           <div key={tx.id} style={{
             display: "flex",
             alignItems: "center",
-            padding: "14px 0",
+            padding: "19px 0",
             borderBottom: "1px solid #f0f0f0",
             gap: 16,
           }}>
@@ -119,15 +119,15 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
               flexShrink: 0,
             }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textTransform: "lowercase" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textTransform: "lowercase" }}>
                 {tx.street_block}
               </div>
-              <div style={{ fontSize: 11, color: "#aaa", marginTop: 3, letterSpacing: "-0.01em" }}>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4, letterSpacing: "-0.01em" }}>
                 {formatTime(tx.session_start_dt)} · {tx.payment_type?.toLowerCase()}
                 {dateLabel && <span style={{ color: "#ccc" }}> · {dateLabel}</span>}
               </div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.03em", paddingTop: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.03em" }}>
               ${Number(tx.gross_paid_amt).toFixed(2)}
             </div>
           </div>
@@ -214,7 +214,7 @@ export default function SFMetersPage() {
       <div style={{ flex: "0 0 36%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Headline */}
         <h1 style={{
-          fontSize: 30,
+          fontSize: 34,
           fontWeight: 800,
           lineHeight: 1.12,
           color: "#000",
