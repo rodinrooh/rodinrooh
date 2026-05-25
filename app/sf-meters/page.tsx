@@ -205,7 +205,7 @@ export default function SFMetersPage() {
     if (tx.lat && tx.lng) mapRef.current?.flyTo(tx.lat, tx.lng)
   }, [])
 
-  const P = 34
+  const P = 27
 
   const tabBar = (
     <div style={{ display: "flex", gap: 20, padding: "12px 0", borderBottom: "1px solid #eee", alignItems: "center", flexShrink: 0 }}>
@@ -241,13 +241,13 @@ export default function SFMetersPage() {
         </div>
 
         {/* Map */}
-        <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "50svh", flexShrink: 0, background: "#d4d4d4" }}>
+        <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "75svh", flexShrink: 0, background: "#d4d4d4" }}>
           <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
           {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
         </div>
 
         {/* Tabs */}
-        <div style={{ padding: "0 20px" }}>{tabBar}</div>
+        <div style={{ padding: "0 20px", marginTop: 16 }}>{tabBar}</div>
 
         {/* List */}
         <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 24px" }}>
@@ -266,7 +266,7 @@ export default function SFMetersPage() {
       height: "100svh",
       background: "#fff",
       padding: P,
-      gap: P,
+      gap: 48,
       boxSizing: "border-box",
       overflow: "hidden",
     }}>
