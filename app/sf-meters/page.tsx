@@ -172,6 +172,7 @@ export default function SFMetersPage() {
   const [tab, setTab] = useState<Tab>("feed")
   const [isMobile, setIsMobile] = useState(false)
   const mapRef = useRef<MapHandle>(null)
+  const headlineRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -205,6 +206,27 @@ export default function SFMetersPage() {
     setSelected(tx)
     if (tx.lat && tx.lng) mapRef.current?.flyTo(tx.lat, tx.lng)
   }, [])
+
+  useEffect(() => {
+    const el = headlineRef.current
+    if (!el) return
+    const fit = () => {
+      let lo = 14, hi = 80
+      while (hi - lo > 0.4) {
+        const mid = (lo + hi) / 2
+        el.style.fontSize = mid + "px"
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        const tops = new Set([...range.getClientRects()].map(r => Math.round(r.top)))
+        if (tops.size <= 2) lo = mid; else hi = mid
+      }
+      el.style.fontSize = Math.floor(lo) + "px"
+    }
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    fit()
+    return () => ro.disconnect()
+  }, [totalRevenue, loading])
 
   const P = 40
 
@@ -270,8 +292,7 @@ export default function SFMetersPage() {
       {/* Left column */}
       <div style={{ flex: "0 0 39%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
-        <h1 style={{
-          fontSize: "clamp(20px, 2.2vw, 33px)",
+        <h1 ref={headlineRef} style={{
           fontWeight: 800,
           lineHeight: 1.12,
           color: "#000",
