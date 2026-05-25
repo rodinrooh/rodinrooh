@@ -267,7 +267,7 @@ export default function SFMetersPage() {
       overflow: "hidden",
     }}>
       {/* Left column */}
-      <div style={{ flex: "0 0 44%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
+      <div style={{ flex: "0 0 39%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
         <h1 style={{
           fontSize: 34,
