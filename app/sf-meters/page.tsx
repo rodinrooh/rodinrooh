@@ -227,11 +227,7 @@ export default function SFMetersPage() {
 
   if (isMobile) {
     return (
-      <div style={{
-        display: "flex", flexDirection: "column",
-        height: "100svh", background: "#fff", overflow: "hidden",
-        boxSizing: "border-box",
-      }}>
+      <div style={{ background: "#fff", minHeight: "100svh" }}>
         {/* Title */}
         <div style={{ padding: "22px 20px 16px" }}>
           <h1 style={{ fontSize: 27, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
@@ -241,16 +237,16 @@ export default function SFMetersPage() {
         </div>
 
         {/* Map */}
-        <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "60svh", flexShrink: 0, background: "#d4d4d4" }}>
+        <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "60svh", background: "#d4d4d4" }}>
           <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
           {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
         </div>
 
         {/* Tabs */}
-        <div style={{ padding: "0 20px", marginTop: 16 }}>{tabBar}</div>
+        <div style={{ padding: "0 20px", marginTop: 20 }}>{tabBar}</div>
 
         {/* List */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 24px" }}>
+        <div style={{ padding: "0 20px 40px" }}>
           {tab === "feed"
             ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
             : <Leaderboard transactions={visibleTransactions} />
@@ -271,7 +267,7 @@ export default function SFMetersPage() {
       overflow: "hidden",
     }}>
       {/* Left column */}
-      <div style={{ flex: "0 0 36%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
+      <div style={{ flex: "0 0 44%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
         <h1 style={{
           fontSize: 34,
