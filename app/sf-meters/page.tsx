@@ -8,6 +8,8 @@ import Leaderboard from "./components/Leaderboard"
 import { supabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
+interface DailyStat { date: string; total_sessions: number; total_revenue: number }
+
 
 function shiftedDate(dt: string): Date {
   const raw = new Date(dt)
@@ -148,6 +150,7 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
 
 export default function SFMetersPage() {
   const [transactions, setTransactions] = useState<MeterTransaction[]>([])
+  const [dailyStats, setDailyStats] = useState<DailyStat[]>([])
   const [now, setNow] = useState(() => new Date())
   const [selected, setSelected] = useState<MeterTransaction | null>(null)
   const [loading, setLoading] = useState(true)
@@ -165,6 +168,11 @@ export default function SFMetersPage() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    supabaseMeters.from("sf_meter_daily_stats").select("*").order("date", { ascending: false }).limit(30)
+      .then(({ data }) => { if (data) setDailyStats(data as DailyStat[]) })
+  }, [])
+
 
   const visibleTransactions = transactions.filter((tx) => shiftedDate(tx.session_start_dt) <= now)
   const mappableTransactions = visibleTransactions.filter((tx) => tx.lat && tx.lng && tx.geocoded)
@@ -174,6 +182,8 @@ export default function SFMetersPage() {
   const biggestPayment = visibleTransactions.length > 0
     ? Math.max(...visibleTransactions.map((tx) => Number(tx.gross_paid_amt)))
     : 0
+  const stats7d = dailyStats.slice(0, 7).reduce((acc, s) => ({ sessions: acc.sessions + s.total_sessions, revenue: acc.revenue + Number(s.total_revenue) }), { sessions: 0, revenue: 0 })
+  const stats30d = dailyStats.reduce((acc, s) => ({ sessions: acc.sessions + s.total_sessions, revenue: acc.revenue + Number(s.total_revenue) }), { sessions: 0, revenue: 0 })
 
   const handleSelect = useCallback((tx: MeterTransaction) => {
     setSelected(tx)
@@ -239,7 +249,10 @@ export default function SFMetersPage() {
           ) : (
             <>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-                <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
+                <StatBox label="Today" value={`$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
+                <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub="today" />
+                <StatBox label="Last 7 days" value={dailyStats.length ? `$${stats7d.revenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—"} sub={dailyStats.length ? `${stats7d.sessions.toLocaleString()} sessions` : "building…"} />
+                <StatBox label="Last 30 days" value={dailyStats.length ? `$${stats30d.revenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "—"} sub={dailyStats.length ? `${stats30d.sessions.toLocaleString()} sessions` : "building…"} />
                 <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
               </div>
               <Leaderboard transactions={visibleTransactions} />
