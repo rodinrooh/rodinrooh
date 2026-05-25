@@ -271,7 +271,7 @@ export default function SFMetersPage() {
       overflow: "hidden",
     }}>
       {/* Left column */}
-      <div style={{ flex: "0 0 36%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div style={{ flex: "0 0 36%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
         <h1 style={{
           fontSize: 34,
@@ -319,6 +319,7 @@ export default function SFMetersPage() {
         position: "relative",
         background: "#d4d4d4",
         minWidth: 0,
+        margin: "28px 0",
       }}>
         <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
 
