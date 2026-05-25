@@ -25,7 +25,7 @@ function sleep(ms) {
 
 async function purgeStaleRows() {
   // Delete anything older than 48h — keeps the DB to yesterday's data only
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "")
   const { error, count } = await supabase
     .from("sf_meter_transactions")
     .delete({ count: "exact" })
@@ -40,7 +40,8 @@ async function purgeStaleRows() {
 
 async function fetchDataSF() {
   // Always pull the last 48h of real session data, ordered by session_start_dt
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  // Strip ms+Z — DataSF's SoQL rejects the ISO Z suffix on text comparison
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "")
 
   const where = [
     `session_start_dt > '${cutoff}'`,
