@@ -173,6 +173,14 @@ async function geocodePending() {
   console.log(`Geocoded ${geocoded}/${data.length} rows`)
 }
 
+async function upsertDailyStats(dateStr, totalSessions, totalRevenue) {
+  const { error } = await supabase
+    .from("sf_meter_daily_stats")
+    .upsert({ date: dateStr, total_sessions: totalSessions, total_revenue: totalRevenue }, { onConflict: "date" })
+  if (error) console.warn("Daily stats upsert failed:", error.message)
+  else console.log(`Daily stats saved: ${dateStr} — ${totalSessions} sessions, $${totalRevenue.toFixed(2)}`)
+}
+
 async function main() {
   console.log("SF Meters sync starting…")
 
@@ -193,6 +201,10 @@ async function main() {
 
   const count = await upsertTransactions(rows)
   console.log(`Upserted ${count} rows`)
+
+  // Save full-day totals for historical stats (uses all rows from DataSF, not time-filtered)
+  const totalRevenue = rows.reduce((sum, r) => sum + (parseFloat(r.gross_paid_amt) || 0), 0)
+  await upsertDailyStats(targetDateStr, rows.length, totalRevenue)
 
   await geocodePending()
   console.log("Sync complete")
