@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Map, { type MapHandle } from "./components/Map"
 import Leaderboard from "./components/Leaderboard"
-import { supabaseMeters, getSupabaseMeters } from "@/lib/supabase-meters"
+import { supabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
 function shiftedDate(dt: string): Date {
@@ -174,23 +174,9 @@ export default function SFMetersPage() {
 
   useEffect(() => {
     loadPage(setTransactions, setLoading)
-
-    const client = getSupabaseMeters()
-    const channel = client
-      .channel("sf_meter_transactions_insert")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "sf_meter_transactions" },
-        (payload) => {
-          const tx = payload.new as MeterTransaction
-          if (tx.meter_event_type !== "NS") return
-          if (!tx.street_block || tx.street_block.includes("Garage") || tx.street_block.includes("Lot")) return
-          setTransactions((prev) => [...prev, tx])
-        }
-      )
-      .subscribe()
-
-    return () => { client.removeChannel(channel) }
+    // Refetch every 60s — picks up new transactions AND newly geocoded dots
+    const interval = setInterval(() => loadPage(setTransactions, setLoading), 60000)
+    return () => clearInterval(interval)
   }, [])
 
   const handleSelect = useCallback((tx: MeterTransaction) => {
