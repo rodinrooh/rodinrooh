@@ -209,7 +209,7 @@ export default function SFMetersPage() {
         {/* Scrollable list area */}
         <div style={{ flex: 1, overflowY: "auto" }}>
           {tab === "feed"
-            ? <Feed transactions={transactions} targetDate={yesterdayDateStr()} />
+            ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
             : <Leaderboard transactions={visibleTransactions} />
           }
         </div>
