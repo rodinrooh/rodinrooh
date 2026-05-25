@@ -90,7 +90,7 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub: str
 
 type Tab = "feed" | "leaderboard"
 
-function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; targetDate: string }) {
+function Feed({ transactions, targetDate, onSelect }: { transactions: MeterTransaction[]; targetDate: string; onSelect?: (tx: MeterTransaction) => void }) {
   const sorted = [...transactions]
     .sort((a, b) => shiftedDate(b.session_start_dt).getTime() - shiftedDate(a.session_start_dt).getTime())
     .slice(0, 500)
@@ -105,12 +105,13 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
           ? new Date(txDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
           : null
         return (
-          <div key={tx.id} style={{
+          <div key={tx.id} onClick={() => onSelect?.(tx)} style={{
             display: "flex",
             alignItems: "center",
             padding: "19px 0",
             borderBottom: "1px solid #f0f0f0",
             gap: 16,
+            cursor: onSelect ? "pointer" : "default",
           }}>
             <div style={{
               width: 18, height: 18,
@@ -248,7 +249,7 @@ export default function SFMetersPage() {
         {/* List */}
         <div style={{ padding: "0 20px 40px" }}>
           {tab === "feed"
-            ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
+            ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
             : <Leaderboard transactions={visibleTransactions} />
           }
         </div>
@@ -287,7 +288,7 @@ export default function SFMetersPage() {
         {/* Scrollable list area */}
         <div style={{ flex: 1, overflowY: "auto" }}>
           {tab === "feed" ? (
-            <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} />
+            <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
           ) : (
             <>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
