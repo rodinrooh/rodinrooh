@@ -33,28 +33,37 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
   const dateStr = yesterdayDateStr()
   const start = `${dateStr}T00:00:00`
   const end = `${dateStr}T23:59:59`
-  let all: MeterTransaction[] = []
-  let from = 0
   const pageSize = 1000
 
-  while (true) {
-    const { data, error } = await supabaseMeters
-      .from("sf_meter_transactions")
-      .select("*")
-      .eq("meter_event_type", "NS")
-      .not("street_block", "ilike", "%Garage%")
-      .not("street_block", "ilike", "%Lot%")
-      .gte("session_start_dt", start)
-      .lte("session_start_dt", end)
-      .order("session_start_dt", { ascending: true })
-      .range(from, from + pageSize - 1)
+  const baseQuery = () => supabaseMeters
+    .from("sf_meter_transactions")
+    .select("*")
+    .eq("meter_event_type", "NS")
+    .not("street_block", "ilike", "%Garage%")
+    .not("street_block", "ilike", "%Lot%")
+    .gte("session_start_dt", start)
+    .lte("session_start_dt", end)
+    .order("session_start_dt", { ascending: true })
 
-    if (error || !data) break
-    all = all.concat(data as MeterTransaction[])
-    if (data.length < pageSize) break
-    from += pageSize
-  }
+  // Get total count first, then fetch all pages in parallel
+  const { count } = await supabaseMeters
+    .from("sf_meter_transactions")
+    .select("*", { count: "exact", head: true })
+    .eq("meter_event_type", "NS")
+    .not("street_block", "ilike", "%Garage%")
+    .not("street_block", "ilike", "%Lot%")
+    .gte("session_start_dt", start)
+    .lte("session_start_dt", end)
 
+  if (!count) { setLoading(false); return }
+
+  const pages = await Promise.all(
+    Array.from({ length: Math.ceil(count / pageSize) }, (_, i) =>
+      baseQuery().range(i * pageSize, (i + 1) * pageSize - 1)
+    )
+  )
+
+  const all = pages.flatMap(({ data }) => (data ?? []) as MeterTransaction[])
   setTransactions(all)
   setLoading(false)
 }
@@ -178,7 +187,7 @@ export default function SFMetersPage() {
           margin: "0 0 32px 0",
           letterSpacing: "-0.04em",
         }}>
-          San Francisco has collected ${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br />
+          San Francisco has collected {loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}<br />
           from parking meters today.
         </h1>
 
