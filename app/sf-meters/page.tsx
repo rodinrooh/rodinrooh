@@ -214,7 +214,7 @@ export default function SFMetersPage() {
       <div style={{ flex: "0 0 36%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Headline */}
         <h1 style={{
-          fontSize: 24,
+          fontSize: 30,
           fontWeight: 800,
           lineHeight: 1.12,
           color: "#000",
