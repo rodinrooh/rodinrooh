@@ -29,19 +29,6 @@ function yesterdayDateStr() {
   return d.toISOString().split("T")[0]
 }
 
-async function purgeStaleRows(targetDateStr) {
-  // Delete anything not from the target day
-  const { error, count } = await supabase
-    .from("sf_meter_transactions")
-    .delete({ count: "exact" })
-    .not("session_start_dt", "gte", `${targetDateStr}T00:00:00`)
-
-  if (error) {
-    console.warn("Purge failed:", error.message)
-  } else if (count) {
-    console.log(`Purged ${count} stale rows`)
-  }
-}
 
 async function fetchDataSF(targetDateStr) {
   const start = `${targetDateStr}T00:00:00`
@@ -186,8 +173,6 @@ async function main() {
 
   const targetDateStr = yesterdayDateStr()
   console.log(`Target date: ${targetDateStr}`)
-
-  await purgeStaleRows(targetDateStr)
 
   const rows = await fetchDataSF(targetDateStr)
   console.log(`Fetched ${rows.length} rows from DataSF`)
