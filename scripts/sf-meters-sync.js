@@ -83,9 +83,7 @@ async function upsertTransactions(rows) {
 async function geocodePending() {
   if (!MAPBOX_TOKEN) return
 
-  // Fetch ALL ungeocoded rows so we can sort by time-of-day globally,
-  // guaranteeing currently-visible rows get geocoded first
-  const { data: raw, error } = await supabase
+  const { data, error } = await supabase
     .from("sf_meter_transactions")
     .select("id, street_block, session_start_dt")
     .eq("geocoded", false)
@@ -97,20 +95,10 @@ async function geocodePending() {
     return
   }
 
-  if (!raw || raw.length === 0) {
+  if (!data || data.length === 0) {
     console.log("No rows to geocode")
     return
   }
-
-  // Sort by time-of-day so early-morning rows (currently visible) get dots first
-  const data = raw
-    .slice()
-    .sort((a, b) => {
-      const da = new Date(a.session_start_dt)
-      const db = new Date(b.session_start_dt)
-      return (da.getUTCHours() * 60 + da.getUTCMinutes()) - (db.getUTCHours() * 60 + db.getUTCMinutes())
-    })
-    .slice(0, 100)
 
   console.log(`Geocoding ${data.length} rows…`)
   let geocoded = 0
