@@ -23,15 +23,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// Returns the date string (YYYY-MM-DD) for the most recent weekday.
-// Skips Saturday and Sunday so we never show dead weekend data.
-function lastWeekdayDateStr() {
-  const now = new Date()
-  const day = now.getDay() // 0=Sun,1=Mon,...,6=Sat
-  const daysBack = day === 0 ? 2 : day === 1 ? 3 : day === 6 ? 1 : 1
-  const target = new Date(now)
-  target.setDate(target.getDate() - daysBack)
-  return target.toISOString().split("T")[0] // e.g. "2026-05-22"
+function yesterdayDateStr() {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  return d.toISOString().split("T")[0]
 }
 
 async function purgeStaleRows(targetDateStr) {
@@ -181,7 +176,7 @@ async function geocodePending() {
 async function main() {
   console.log("SF Meters sync starting…")
 
-  const targetDateStr = lastWeekdayDateStr()
+  const targetDateStr = yesterdayDateStr()
   console.log(`Target date: ${targetDateStr}`)
 
   await purgeStaleRows(targetDateStr)

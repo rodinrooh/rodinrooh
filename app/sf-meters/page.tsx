@@ -23,17 +23,14 @@ function formatTime(dt: string): string {
   }
 }
 
-function lastWeekdayDateStr(): string {
-  const now = new Date()
-  const day = now.getDay()
-  const daysBack = day === 0 ? 2 : day === 1 ? 3 : day === 6 ? 1 : 1
-  const target = new Date(now)
-  target.setDate(target.getDate() - daysBack)
-  return target.toISOString().split("T")[0]
+function yesterdayDateStr(): string {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  return d.toISOString().split("T")[0]
 }
 
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
-  const dateStr = lastWeekdayDateStr()
+  const dateStr = yesterdayDateStr()
   const start = `${dateStr}T00:00:00`
   const end = `${dateStr}T23:59:59`
   let all: MeterTransaction[] = []
@@ -212,7 +209,7 @@ export default function SFMetersPage() {
         {/* Scrollable list area */}
         <div style={{ flex: 1, overflowY: "auto" }}>
           {tab === "feed"
-            ? <Feed transactions={transactions} targetDate={lastWeekdayDateStr()} />
+            ? <Feed transactions={transactions} targetDate={yesterdayDateStr()} />
             : <Leaderboard transactions={visibleTransactions} />
           }
         </div>
