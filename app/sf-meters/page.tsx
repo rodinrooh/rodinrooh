@@ -240,8 +240,8 @@ export default function SFMetersPage() {
         {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
       </div>
 
-      <Leaderboard transactions={visibleTransactions} />
       <TransactionList transactions={visibleTransactions} />
+      <Leaderboard transactions={visibleTransactions} />
     </div>
   )
 }

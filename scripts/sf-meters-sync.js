@@ -94,17 +94,34 @@ async function updateLastTransmission(maxDt) {
 async function geocodePending() {
   if (!MAPBOX_TOKEN) return
 
-  const { data, error } = await supabase
+  // Fetch a large batch, then sort by time-of-day so we prioritize rows
+  // whose shifted display time is soonest (matches what's visible on screen now)
+  const { data: raw, error } = await supabase
     .from("sf_meter_transactions")
-    .select("id, street_block")
+    .select("id, street_block, session_start_dt")
     .eq("geocoded", false)
     .is("lat", null)
-    .limit(50)
+    .limit(500)
 
   if (error) {
-    console.error("Error fetching ungeooded rows:", error.message)
+    console.error("Error fetching ungeocoded rows:", error.message)
     return
   }
+
+  if (!raw || raw.length === 0) {
+    console.log("No rows to geocode")
+    return
+  }
+
+  // Sort by UTC hour+minute (== stored PT time-of-day) so early-day rows get dots first
+  const data = raw
+    .slice()
+    .sort((a, b) => {
+      const da = new Date(a.session_start_dt)
+      const db = new Date(b.session_start_dt)
+      return (da.getUTCHours() * 60 + da.getUTCMinutes()) - (db.getUTCHours() * 60 + db.getUTCMinutes())
+    })
+    .slice(0, 100)
 
   if (!data || data.length === 0) {
     console.log("No rows to geocode")
