@@ -8,10 +8,14 @@ import Leaderboard from "./components/Leaderboard"
 import { supabaseMeters, getSupabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
-const SHIFT_MS = 24 * 60 * 60 * 1000
-
 function shiftedDate(dt: string): Date {
-  return new Date(new Date(dt).getTime() + SHIFT_MS)
+  // DataSF stores times in PT without timezone — Postgres tagged them UTC.
+  // Extract the UTC hour/min/sec (which == the original PT hour/min/sec)
+  // and apply them to today, so historical data looks like today's live feed.
+  const raw = new Date(dt)
+  const today = new Date()
+  today.setHours(raw.getUTCHours(), raw.getUTCMinutes(), raw.getUTCSeconds(), 0)
+  return today
 }
 
 function formatTime(dt: string): string {
@@ -19,7 +23,6 @@ function formatTime(dt: string): string {
     return shiftedDate(dt).toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
-      timeZone: "America/Los_Angeles",
     })
   } catch {
     return dt
@@ -119,10 +122,7 @@ function TransactionList({ transactions }: { transactions: MeterTransaction[] })
 }
 
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
-  // Fetch last 48h — with +24h shift this maps to a full "today" view
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
-
-  // Paginate in case there are more than 1000 rows
+  // Load all transactions — shiftedDate maps each one's time-of-day to today
   let all: MeterTransaction[] = []
   let from = 0
   const pageSize = 1000
@@ -131,7 +131,6 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
     const { data, error } = await supabaseMeters
       .from("sf_meter_transactions")
       .select("*")
-      .gte("session_start_dt", cutoff)
       .eq("meter_event_type", "NS")
       .not("street_block", "ilike", "%Garage%")
       .not("street_block", "ilike", "%Lot%")
