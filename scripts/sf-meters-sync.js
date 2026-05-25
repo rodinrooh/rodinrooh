@@ -31,8 +31,8 @@ async function getLastTransmission() {
     .single()
 
   if (error || !data) {
-    // Default to 24 hours ago
-    return new Date(Date.now() - 86400000).toISOString()
+    // Default to 48 hours ago — gives a full day of "yesterday" data that shifts to today
+    return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
   }
   return data.value
 }
