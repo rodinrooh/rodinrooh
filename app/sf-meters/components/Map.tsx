@@ -13,7 +13,7 @@ interface MapProps {
   onSelectTransaction: (tx: MeterTransaction) => void
 }
 
-const SF_CENTER = { latitude: 37.7749, longitude: -122.455 }
+const SF_CENTER = { latitude: 37.7749, longitude: -122.438 }
 const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 
 function dotColor(amount: number): string {
@@ -131,12 +131,11 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
         () => {
           const el = document.createElement("div")
           el.style.cssText = `
-            width: 18px;
-            height: 18px;
+            width: 14px;
+            height: 14px;
             border-radius: 50%;
             background: ${color};
-            border: 3px solid #fff;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.55), 0 0 0 1.5px rgba(0,0,0,0.12);
+            border: 2px solid #fff;
             cursor: pointer;
             transition: transform 0.12s;
           `

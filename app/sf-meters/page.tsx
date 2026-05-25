@@ -23,8 +23,19 @@ function formatTime(dt: string): string {
   }
 }
 
+function lastWeekdayDateStr(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const daysBack = day === 0 ? 2 : day === 1 ? 3 : day === 6 ? 1 : 1
+  const target = new Date(now)
+  target.setDate(target.getDate() - daysBack)
+  return target.toISOString().split("T")[0]
+}
+
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const dateStr = lastWeekdayDateStr()
+  const start = `${dateStr}T00:00:00`
+  const end = `${dateStr}T23:59:59`
   let all: MeterTransaction[] = []
   let from = 0
   const pageSize = 1000
@@ -36,7 +47,8 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
       .eq("meter_event_type", "NS")
       .not("street_block", "ilike", "%Garage%")
       .not("street_block", "ilike", "%Lot%")
-      .gte("session_start_dt", cutoff)
+      .gte("session_start_dt", start)
+      .lte("session_start_dt", end)
       .order("session_start_dt", { ascending: true })
       .range(from, from + pageSize - 1)
 

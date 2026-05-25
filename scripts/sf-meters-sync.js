@@ -23,13 +23,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function purgeStaleRows() {
-  // Delete anything older than 48h — keeps the DB to yesterday's data only
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "")
+// Returns the date string (YYYY-MM-DD) for the most recent weekday.
+// Skips Saturday and Sunday so we never show dead weekend data.
+function lastWeekdayDateStr() {
+  const now = new Date()
+  const day = now.getDay() // 0=Sun,1=Mon,...,6=Sat
+  const daysBack = day === 0 ? 2 : day === 1 ? 3 : day === 6 ? 1 : 1
+  const target = new Date(now)
+  target.setDate(target.getDate() - daysBack)
+  return target.toISOString().split("T")[0] // e.g. "2026-05-22"
+}
+
+async function purgeStaleRows(targetDateStr) {
+  // Delete anything not from the target day
   const { error, count } = await supabase
     .from("sf_meter_transactions")
     .delete({ count: "exact" })
-    .lt("session_start_dt", cutoff)
+    .not("session_start_dt", "gte", `${targetDateStr}T00:00:00`)
 
   if (error) {
     console.warn("Purge failed:", error.message)
@@ -38,13 +48,14 @@ async function purgeStaleRows() {
   }
 }
 
-async function fetchDataSF() {
-  // Always pull the last 48h of real session data, ordered by session_start_dt
-  // Strip ms+Z — DataSF's SoQL rejects the ISO Z suffix on text comparison
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "")
+async function fetchDataSF(targetDateStr) {
+  const start = `${targetDateStr}T00:00:00`
+  const end = `${targetDateStr}T23:59:59`
+  console.log(`Fetching data for ${targetDateStr}`)
 
   const where = [
-    `session_start_dt > '${cutoff}'`,
+    `session_start_dt >= '${start}'`,
+    `session_start_dt <= '${end}'`,
     `meter_event_type='NS'`,
     `street_block NOT LIKE '%Garage%'`,
     `street_block NOT LIKE '%Lot%'`,
@@ -170,9 +181,12 @@ async function geocodePending() {
 async function main() {
   console.log("SF Meters sync starting…")
 
-  await purgeStaleRows()
+  const targetDateStr = lastWeekdayDateStr()
+  console.log(`Target date: ${targetDateStr}`)
 
-  const rows = await fetchDataSF()
+  await purgeStaleRows(targetDateStr)
+
+  const rows = await fetchDataSF(targetDateStr)
   console.log(`Fetched ${rows.length} rows from DataSF`)
 
   if (rows.length === 0) {
