@@ -64,34 +64,41 @@ async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoa
 
 type Tab = "feed" | "leaderboard"
 
-function Feed({ transactions }: { transactions: MeterTransaction[] }) {
-  const sorted = [...transactions].sort(
-    (a, b) => shiftedDate(b.session_start_dt).getTime() - shiftedDate(a.session_start_dt).getTime()
-  )
+function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; targetDate: string }) {
+  const sorted = [...transactions]
+    .sort((a, b) => shiftedDate(b.session_start_dt).getTime() - shiftedDate(a.session_start_dt).getTime())
+    .slice(0, 500)
+
+  if (sorted.length === 0) return <p style={{ fontSize: 13, color: "#999", margin: 0 }}>No sessions yet — check back soon.</p>
+
   return (
     <div>
-      {sorted.length === 0 && (
-        <p style={{ fontSize: 13, color: "#999", margin: 0 }}>No sessions yet — check back soon.</p>
-      )}
-      {sorted.map((tx) => (
-        <div key={tx.id} style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          padding: "10px 0",
-          borderBottom: "1px solid #f0f0f0",
-        }}>
-          <div>
-            <div style={{ fontSize: 13, color: "#000", fontWeight: 500, letterSpacing: "-0.02em" }}>{tx.street_block}</div>
-            <div style={{ fontSize: 11, color: "#999", marginTop: 2, letterSpacing: "-0.01em" }}>
-              {formatTime(tx.session_start_dt)} · {tx.payment_type?.toLowerCase()}
+      {sorted.map((tx) => {
+        const txDate = tx.session_start_dt.split("T")[0]
+        const dateLabel = txDate !== targetDate
+          ? new Date(txDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          : null
+        return (
+          <div key={tx.id} style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            padding: "10px 0",
+            borderBottom: "1px solid #f0f0f0",
+          }}>
+            <div>
+              <div style={{ fontSize: 13, color: "#000", fontWeight: 500, letterSpacing: "-0.02em" }}>{tx.street_block}</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2, letterSpacing: "-0.01em" }}>
+                {formatTime(tx.session_start_dt)} · {tx.payment_type?.toLowerCase()}
+                {dateLabel && <span style={{ color: "#ccc" }}> · {dateLabel}</span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 12, letterSpacing: "-0.025em" }}>
+              ${Number(tx.gross_paid_amt).toFixed(2)}
             </div>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 12, letterSpacing: "-0.025em" }}>
-            ${Number(tx.gross_paid_amt).toFixed(2)}
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -205,7 +212,7 @@ export default function SFMetersPage() {
         {/* Scrollable list area */}
         <div style={{ flex: 1, overflowY: "auto" }}>
           {tab === "feed"
-            ? <Feed transactions={visibleTransactions} />
+            ? <Feed transactions={transactions} targetDate={lastWeekdayDateStr()} />
             : <Leaderboard transactions={visibleTransactions} />
           }
         </div>
