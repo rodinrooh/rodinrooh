@@ -65,7 +65,7 @@ async function fetchDataSF(targetDateStr) {
     `https://data.sfgov.org/resource/imvp-dq3v.json` +
     `?$where=${encodeURIComponent(where)}` +
     `&$order=session_start_dt%20ASC` +
-    `&$limit=10000`
+    `&$limit=50000`
 
   const headers = { "Accept": "application/json" }
   if (DATASF_APP_TOKEN) {
