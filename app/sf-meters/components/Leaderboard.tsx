@@ -32,21 +32,21 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
       {rows.map((row, i) => (
         <div key={row.block} style={{
           display: "flex",
-          alignItems: "flex-start",
-          padding: "13px 0",
+          alignItems: "center",
+          padding: "14px 0",
           borderBottom: "1px solid #f0f0f0",
-          gap: 11,
+          gap: 16,
         }}>
-          <span style={{ fontSize: 11, color: "#ccc", width: 18, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em", paddingTop: 3 }}>{i + 1}</span>
+          <span style={{ fontSize: 11, color: "#ccc", width: 18, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{i + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textTransform: "lowercase" }}>
               {row.block}
             </div>
             <div style={{ fontSize: 11, color: "#aaa", marginTop: 3, letterSpacing: "-0.01em" }}>
               {row.count} sessions
             </div>
           </div>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.03em", paddingTop: 1 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.03em" }}>
             ${row.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
