@@ -227,7 +227,7 @@ export default function SFMetersPage() {
 
   if (isMobile) {
     return (
-      <div style={{ background: "#fff", minHeight: "100svh" }}>
+      <div style={{ background: "#faf9f7", minHeight: "100svh" }}>
         {/* Title */}
         <div style={{ padding: "22px 20px 16px" }}>
           <h1 style={{ fontSize: 27, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
@@ -260,7 +260,7 @@ export default function SFMetersPage() {
     <div style={{
       display: "flex",
       height: "100svh",
-      background: "#fff",
+      background: "#faf9f7",
       padding: P,
       gap: P,
       boxSizing: "border-box",
@@ -270,7 +270,7 @@ export default function SFMetersPage() {
       <div style={{ flex: "0 0 39%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
         <h1 style={{
-          fontSize: 38,
+          fontSize: 36,
           fontWeight: 800,
           lineHeight: 1.12,
           color: "#000",
