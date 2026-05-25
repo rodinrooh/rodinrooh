@@ -108,17 +108,16 @@ function Feed({ transactions, targetDate }: { transactions: MeterTransaction[]; 
           <div key={tx.id} style={{
             display: "flex",
             alignItems: "flex-start",
-            padding: "13px 0",
+            padding: "14px 0",
             borderBottom: "1px solid #f0f0f0",
-            gap: 11,
+            gap: 16,
           }}>
             <div style={{
-              width: 9, height: 9,
+              width: 18, height: 18,
               borderRadius: "50%",
               background: dotColor(Number(tx.gross_paid_amt)),
-              border: "1.5px solid rgba(0,0,0,0.1)",
               flexShrink: 0,
-              marginTop: 5,
+              marginTop: 1,
             }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#000", letterSpacing: "-0.03em", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
