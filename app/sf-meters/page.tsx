@@ -221,8 +221,8 @@ export default function SFMetersPage() {
           margin: "0 0 32px 0",
           letterSpacing: "-0.04em",
         }}>
-          San Francisco has collected {loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}<br />
-          from parking meters today.
+          San Francisco has collected<br />
+          {loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} from parking meters today.
         </h1>
 
         {/* Switcher */}
