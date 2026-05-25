@@ -13,7 +13,7 @@ interface MapProps {
   onSelectTransaction: (tx: MeterTransaction) => void
 }
 
-const SF_CENTER = { latitude: 37.7749, longitude: -122.4194 }
+const SF_CENTER = { latitude: 37.7749, longitude: -122.455 }
 const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 
 function dotColor(amount: number): string {

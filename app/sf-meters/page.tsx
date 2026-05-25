@@ -70,12 +70,12 @@ function Feed({ transactions }: { transactions: MeterTransaction[] }) {
           borderBottom: "1px solid #f0f0f0",
         }}>
           <div>
-            <div style={{ fontSize: 13, color: "#000", fontWeight: 500 }}>{tx.street_block}</div>
-            <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: "#000", fontWeight: 500, letterSpacing: "-0.02em" }}>{tx.street_block}</div>
+            <div style={{ fontSize: 11, color: "#999", marginTop: 2, letterSpacing: "-0.01em" }}>
               {formatTime(tx.session_start_dt)} · {tx.payment_type?.toLowerCase()}
             </div>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 12, letterSpacing: "-0.025em" }}>
             ${Number(tx.gross_paid_amt).toFixed(2)}
           </div>
         </div>
@@ -98,10 +98,10 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
       border: "1px solid rgba(255,255,255,0.12)",
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", lineHeight: 1.3, maxWidth: 150 }}>{tx.street_block}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", lineHeight: 1.3, maxWidth: 150, letterSpacing: "-0.025em" }}>{tx.street_block}</div>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 0 0 8px" }}>×</button>
       </div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: "#FFA726", fontVariantNumeric: "tabular-nums", marginBottom: 8 }}>
+      <div style={{ fontSize: 24, fontWeight: 700, color: "#FFA726", fontVariantNumeric: "tabular-nums", marginBottom: 8, letterSpacing: "-0.03em" }}>
         ${Number(tx.gross_paid_amt).toFixed(2)}
       </div>
       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>{formatTime(tx.session_start_dt)}</div>
@@ -157,17 +157,17 @@ export default function SFMetersPage() {
         <h1 style={{
           fontSize: "clamp(20px, 2vw, 32px)",
           fontWeight: 800,
-          lineHeight: 1.1,
+          lineHeight: 1.12,
           color: "#000",
           margin: "0 0 32px 0",
+          letterSpacing: "-0.04em",
         }}>
-          San Francisco has collected{" "}
-          ${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+          San Francisco has collected ${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br />
           from parking meters today.
         </h1>
 
         {/* Switcher */}
-        <div style={{ display: "flex", gap: 20, marginBottom: 16, borderBottom: "1px solid #eee", paddingBottom: 12 }}>
+        <div style={{ display: "flex", gap: 20, marginBottom: 16, borderBottom: "1px solid #eee", paddingBottom: 12, alignItems: "center" }}>
           {(["feed", "leaderboard"] as Tab[]).map((t) => (
             <button key={t} onClick={() => setTab(t)} style={{
               background: "none",
@@ -177,14 +177,14 @@ export default function SFMetersPage() {
               fontWeight: tab === t ? 700 : 400,
               color: tab === t ? "#000" : "#999",
               padding: 0,
-              textTransform: "capitalize",
+              letterSpacing: tab === t ? "-0.025em" : "-0.01em",
             }}>
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
-          {loading && <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", alignSelf: "center" }}>Loading…</span>}
+          {loading && <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>Loading…</span>}
           {!loading && (
-            <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", alignSelf: "center" }}>
+            <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>
               {visibleTransactions.length.toLocaleString()} sessions
             </span>
           )}

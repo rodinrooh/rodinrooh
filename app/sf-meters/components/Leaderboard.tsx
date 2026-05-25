@@ -38,14 +38,14 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
           borderBottom: "1px solid #f0f0f0",
           gap: 12,
         }}>
-          <span style={{ fontSize: 12, color: "#ccc", width: 20, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{i + 1}</span>
-          <span style={{ flex: 1, fontSize: 13, color: "#000", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 12, color: "#ccc", width: 20, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{i + 1}</span>
+          <span style={{ flex: 1, fontSize: 13, color: "#000", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.02em" }}>
             {row.block}
           </span>
-          <span style={{ fontSize: 12, color: "#999", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: "#999", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.01em" }}>
             {row.count} sessions
           </span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#000", fontVariantNumeric: "tabular-nums", flexShrink: 0, letterSpacing: "-0.025em" }}>
             ${row.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
