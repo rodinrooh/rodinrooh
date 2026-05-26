@@ -33,7 +33,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(8px)" }}
+      style={{ background: "rgba(0,0,0,0.4)" }}
     >
       <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: "#ffffff", boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}>
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
@@ -46,12 +46,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
         <div style={{ height: 1, background: "#f2f2f7" }} />
         <div className="px-6 py-5 space-y-4">
           <Row icon="💰" title="What is this?" body="Every parking meter session paid in SF, on a live map. See how much the city collects in real time." />
-          <Row icon="🤫" title="Where's the data from?" body="The City of SF publishes parking meter transactions via DataSF, their open data portal. We sync it every minute." />
-          <Row
-            icon="🫡"
-            title="Inspired by"
-            body={<><a href="https://walzr.com/" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#007aff]">Riley Walz</a>{" and his "}<a href="https://walzr.com/sf-parking/" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#007aff]">Find My Parking Cops</a>{"."}</>}
-          />
+          <Row icon="🗂️" title="Data" body="Sourced from DataSF, SF's open data portal. There may be a short delay before new sessions appear." />
         </div>
         <div style={{ height: 1, background: "#f2f2f7" }} />
         <div className="px-6 py-4">
