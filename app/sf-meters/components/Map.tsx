@@ -111,13 +111,19 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
       transactions.filter((t) => t.lat && t.lng).map((t) => t.transmission_datetime)
     )
 
+    // Batch remove stale annotations
+    const toRemove = []
     for (const [key, annotation] of existing.entries()) {
       if (!currentKeys.has(key)) {
-        map.removeAnnotation(annotation)
+        toRemove.push(annotation)
         existing.delete(key)
       }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (toRemove.length > 0) (map as any).removeAnnotations(toRemove)
 
+    // Batch add new annotations
+    const toAdd = []
     for (const tx of transactions) {
       if (!tx.lat || !tx.lng) continue
       if (existing.has(tx.transmission_datetime)) continue
@@ -130,28 +136,20 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
         new mk.Coordinate(tx.lat, tx.lng),
         () => {
           const el = document.createElement("div")
-          el.style.cssText = `
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: ${color};
-            border: 2px solid #fff;
-            cursor: pointer;
-            transition: transform 0.12s;
-          `
-          el.addEventListener("mouseenter", () => { el.style.transform = "scale(1.4)" })
-          el.addEventListener("mouseleave", () => { el.style.transform = "scale(1)" })
+          el.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;cursor:pointer;`
           el.addEventListener("click", (e) => {
             e.stopPropagation()
             onSelectTransaction(txCapture)
           })
           return el
         },
-        { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false }
+        { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false, clusteringIdentifier: "meters" }
       )
-      map.addAnnotation(annotation)
+      toAdd.push(annotation)
       existing.set(tx.transmission_datetime, annotation)
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (toAdd.length > 0) (map as any).addAnnotations(toAdd)
   }, [transactions, onSelectTransaction])
 
   return <div ref={containerRef} className="absolute inset-0" />
