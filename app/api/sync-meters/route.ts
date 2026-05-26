@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       if (pending && pending.length > 0) {
         log.push(`geocoding ${pending.length} rows`)
         let geocoded = 0
-        const deadline = Date.now() + 45000 // stop with 15s to spare
+        const deadline = Date.now() + 20000 // stop with ~10s spare (cron-job.org 30s timeout)
         for (const row of pending) {
           if (Date.now() > deadline) break
           const q = encodeURIComponent(`${row.street_block}, San Francisco, CA`)
