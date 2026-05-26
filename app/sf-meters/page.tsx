@@ -266,6 +266,16 @@ export default function SFMetersPage() {
     })
   }, [leaderboardPeriod])
 
+  useEffect(() => {
+    if (tab !== "leaderboard") return
+    for (const period of ["7d", "30d"] as const) {
+      if (historicalTxs[period]) continue
+      loadHistorical(period).then((data) => {
+        setHistoricalTxs((prev) => ({ ...prev, [period]: data }))
+      })
+    }
+  }, [tab])
+
 
 
   const visibleTransactions = transactions.filter((tx) => shiftedDate(tx.session_start_dt) <= now)
@@ -446,8 +456,8 @@ export default function SFMetersPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   <StatBox label="Today" value={`$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
-                  <StatBox label="Last 7 days" value={`$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
-                  <StatBox label="Last 30 days" value={`$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
+                  <StatBox label="Last 7 days" value={historicalTxs["7d"] ? `$${historicalTxs["7d"]!.reduce((s, t) => s + Number(t.gross_paid_amt), 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "…"} sub={historicalTxs["7d"] ? `${historicalTxs["7d"]!.length.toLocaleString()} sessions` : "loading"} />
+                  <StatBox label="Last 30 days" value={historicalTxs["30d"] ? `$${historicalTxs["30d"]!.reduce((s, t) => s + Number(t.gross_paid_amt), 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "…"} sub={historicalTxs["30d"] ? `${historicalTxs["30d"]!.length.toLocaleString()} sessions` : "loading"} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub="today" />
