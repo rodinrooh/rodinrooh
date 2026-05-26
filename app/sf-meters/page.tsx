@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Map, { type MapHandle } from "./components/Map"
 import Leaderboard from "./components/Leaderboard"
+import WelcomeModal from "./components/WelcomeModal"
 import { supabaseMeters } from "@/lib/supabase-meters"
 import type { MeterTransaction } from "@/lib/types-meters"
 
@@ -224,6 +225,12 @@ export default function SFMetersPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>("feed")
   const [isMobile, setIsMobile] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("meters-welcome-seen")) setShowInfo(true)
+  }, [])
+
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("24h")
   const [historicalTxs, setHistoricalTxs] = useState<Partial<Record<LeaderboardPeriod, MeterTransaction[]>>>({})
   const [historicalLoading, setHistoricalLoading] = useState(false)
@@ -322,12 +329,33 @@ export default function SFMetersPage() {
   if (isMobile) {
     return (
       <div style={{ background: "#faf9f7", minHeight: "100svh" }}>
+        <WelcomeModal open={showInfo} onClose={() => { sessionStorage.setItem("meters-welcome-seen", "1"); setShowInfo(false) }} />
         {/* Title */}
-        <div style={{ padding: "22px 20px 16px" }}>
+        <div style={{ padding: "22px 20px 16px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <h1 style={{ fontSize: 27, fontWeight: 800, lineHeight: 1.12, color: "#000", margin: 0, letterSpacing: "-0.04em" }}>
             SF has collected <span style={{ color: "#16a34a" }}>{loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span><br />
             from parking meters today.
           </h1>
+          <button
+            onClick={() => setShowInfo(true)}
+            style={{
+              flexShrink: 0,
+              marginTop: 4,
+              width: 24, height: 24,
+              borderRadius: "50%",
+              background: "rgba(0,0,0,0.07)",
+              border: "none",
+              color: "#8e8e93",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            i
+          </button>
         </div>
 
         {/* Map */}
@@ -367,19 +395,43 @@ export default function SFMetersPage() {
       boxSizing: "border-box",
       overflow: "hidden",
     }}>
+      <WelcomeModal open={showInfo} onClose={() => { sessionStorage.setItem("meters-welcome-seen", "1"); setShowInfo(false) }} />
       {/* Left column */}
       <div style={{ flex: "0 0 39%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, padding: "28px 0" }}>
         {/* Headline */}
-        <h1 ref={headlineRef} style={{
-          fontWeight: 800,
-          lineHeight: 1.12,
-          color: "#000",
-          margin: "0 0 32px 0",
-          letterSpacing: "-0.04em",
-        }}>
-          SF has collected <span style={{ color: "#16a34a" }}>{loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span><br />
-          from parking meters today.
-        </h1>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 32 }}>
+          <h1 ref={headlineRef} style={{
+            fontWeight: 800,
+            lineHeight: 1.12,
+            color: "#000",
+            margin: 0,
+            letterSpacing: "-0.04em",
+            flex: 1,
+          }}>
+            SF has collected <span style={{ color: "#16a34a" }}>{loading ? "…" : `$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span><br />
+            from parking meters today.
+          </h1>
+          <button
+            onClick={() => setShowInfo(true)}
+            style={{
+              flexShrink: 0,
+              marginTop: 4,
+              width: 24, height: 24,
+              borderRadius: "50%",
+              background: "rgba(0,0,0,0.07)",
+              border: "none",
+              color: "#8e8e93",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            i
+          </button>
+        </div>
 
         {/* Switcher */}
         <div style={{ marginBottom: 16 }}>{tabBar}</div>
