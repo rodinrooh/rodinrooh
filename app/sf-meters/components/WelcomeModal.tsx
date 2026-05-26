@@ -46,11 +46,12 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
         <div style={{ height: 1, background: "#f2f2f7" }} />
         <div className="px-6 py-5 space-y-4">
           <Row icon="💰" title="What is this?" body="Every parking meter session paid in SF, on a live map. See how much the city collects in real time." />
-          <Row icon="🗂️" title="Data" body="Sourced from DataSF, SF's open data portal. There may be a short delay before new sessions appear." />
+          <Row icon="📡" title="Data" body="Sourced from DataSF, SF's open data portal. There may be a short delay before new sessions appear." />
+          <Row icon="🗺️" title="The map" body="Dots are color-coded by session cost — pale yellow is cheap, deep red is expensive." />
         </div>
         <div style={{ height: 1, background: "#f2f2f7" }} />
         <div className="px-6 py-4">
-          <button onClick={dismiss} className="w-full py-3 rounded-xl text-white text-[15px] font-semibold transition-opacity active:opacity-75" style={{ background: "#16a34a" }}>
+          <button onClick={dismiss} className="w-full py-3 rounded-xl text-white text-[15px] font-extrabold transition-opacity active:opacity-75" style={{ background: "#16a34a" }}>
             Show me the money
           </button>
         </div>
