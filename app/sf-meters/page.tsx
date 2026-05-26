@@ -34,9 +34,10 @@ function formatTime(dt: string): string {
 }
 
 function yesterdayDateStr(): string {
-  const d = new Date()
+  const ptToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
+  const d = new Date(ptToday + "T12:00:00")
   d.setDate(d.getDate() - 1)
-  return d.toISOString().split("T")[0]
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
 }
 
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
