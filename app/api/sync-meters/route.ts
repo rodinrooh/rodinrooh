@@ -83,40 +83,80 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // --- Geocode ---
+    // --- Geocode by block (cached) ---
     if (MAPBOX_TOKEN) {
+      // Step 1: instantly apply any already-cached block coordinates to ungeocoded transactions
+      const { data: cachedBlocks } = await supabase.from("sf_meter_blocks").select("street_block, lat, lng")
+      if (cachedBlocks && cachedBlocks.length > 0) {
+        for (const b of cachedBlocks) {
+          if (b.lat !== null && b.lng !== null) {
+            await supabase.from("sf_meter_transactions")
+              .update({ lat: b.lat, lng: b.lng, geocoded: true })
+              .eq("street_block", b.street_block)
+              .eq("geocoded", false)
+          } else {
+            await supabase.from("sf_meter_transactions")
+              .update({ geocoded: true })
+              .eq("street_block", b.street_block)
+              .eq("geocoded", false)
+          }
+        }
+        log.push(`applied ${cachedBlocks.length} cached blocks`)
+      }
+
+      // Step 2: find remaining unique blocks that still need geocoding
       const { data: pending } = await supabase
         .from("sf_meter_transactions")
-        .select("id, street_block")
+        .select("street_block")
         .eq("geocoded", false)
         .is("lat", null)
-        .range(0, 9999)
+        .limit(2000)
 
-      if (pending && pending.length > 0) {
-        log.push(`geocoding ${pending.length} rows`)
-        let geocoded = 0
-        const deadline = Date.now() + 20000 // stop with ~10s spare (cron-job.org 30s timeout)
-        for (const row of pending) {
+      const uniqueBlocks = [...new Set((pending ?? []).map((r) => r.street_block).filter(Boolean))]
+
+      if (uniqueBlocks.length > 0) {
+        log.push(`geocoding ${uniqueBlocks.length} new blocks`)
+        let geocodedBlocks = 0
+        const deadline = Date.now() + 20000
+
+        for (const block of uniqueBlocks) {
           if (Date.now() > deadline) break
-          const q = encodeURIComponent(`${row.street_block}, San Francisco, CA`)
+
+          const q = encodeURIComponent(`${block}, San Francisco, CA`)
           const gres = await fetch(
             `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=US`
           )
           if (!gres.ok) { await sleep(100); continue }
+
           const json = await gres.json()
           const feature = json.features?.[0]
-          if (!feature) {
-            await supabase.from("sf_meter_transactions").update({ geocoded: true }).eq("id", row.id)
+          const lat: number | null = feature ? feature.center[1] : null
+          const lng: number | null = feature ? feature.center[0] : null
+
+          // Cache the block result so future runs skip Mapbox entirely
+          await supabase.from("sf_meter_blocks")
+            .upsert({ street_block: block, lat, lng }, { onConflict: "street_block" })
+
+          // Update every transaction for this block in one query
+          if (lat !== null && lng !== null) {
+            await supabase.from("sf_meter_transactions")
+              .update({ lat, lng, geocoded: true })
+              .eq("street_block", block)
+              .eq("geocoded", false)
+            geocodedBlocks++
           } else {
-            const [lng, lat] = feature.center
-            const { error } = await supabase.from("sf_meter_transactions").update({ lat, lng, geocoded: true }).eq("id", row.id)
-            if (!error) geocoded++
+            await supabase.from("sf_meter_transactions")
+              .update({ geocoded: true })
+              .eq("street_block", block)
+              .eq("geocoded", false)
           }
+
           await sleep(100)
         }
-        log.push(`geocoded ${geocoded} rows this run`)
+
+        log.push(`geocoded ${geocodedBlocks} new blocks this run`)
       } else {
-        log.push("nothing to geocode")
+        log.push("all blocks geocoded")
       }
     }
 

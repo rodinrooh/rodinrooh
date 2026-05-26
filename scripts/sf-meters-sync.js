@@ -30,7 +30,6 @@ function yesterdayDateStr() {
   return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
 }
 
-
 async function fetchDataSF(targetDateStr) {
   const start = `${targetDateStr}T00:00:00`
   const end = `${targetDateStr}T23:59:59`
@@ -51,14 +50,10 @@ async function fetchDataSF(targetDateStr) {
     `&$limit=50000`
 
   const headers = { "Accept": "application/json" }
-  if (DATASF_APP_TOKEN) {
-    headers["X-App-Token"] = DATASF_APP_TOKEN
-  }
+  if (DATASF_APP_TOKEN) headers["X-App-Token"] = DATASF_APP_TOKEN
 
   const res = await fetch(url, { headers })
-  if (!res.ok) {
-    throw new Error(`DataSF fetch failed: ${res.status} ${await res.text()}`)
-  }
+  if (!res.ok) throw new Error(`DataSF fetch failed: ${res.status} ${await res.text()}`)
   return res.json()
 }
 
@@ -81,72 +76,81 @@ async function upsertTransactions(rows) {
   return records.length
 }
 
-async function geocodePending() {
+async function geocodeAll() {
   if (!MAPBOX_TOKEN) return
 
-  const { data, error } = await supabase
+  // Step 1: apply cached block coordinates instantly
+  const { data: cachedBlocks } = await supabase.from("sf_meter_blocks").select("street_block, lat, lng")
+  if (cachedBlocks && cachedBlocks.length > 0) {
+    console.log(`Applying ${cachedBlocks.length} cached blocks…`)
+    for (const b of cachedBlocks) {
+      if (b.lat !== null && b.lng !== null) {
+        await supabase.from("sf_meter_transactions")
+          .update({ lat: b.lat, lng: b.lng, geocoded: true })
+          .eq("street_block", b.street_block)
+          .eq("geocoded", false)
+      } else {
+        await supabase.from("sf_meter_transactions")
+          .update({ geocoded: true })
+          .eq("street_block", b.street_block)
+          .eq("geocoded", false)
+      }
+    }
+  }
+
+  // Step 2: find remaining unique blocks that need geocoding
+  const { data: pending, error } = await supabase
     .from("sf_meter_transactions")
-    .select("id, street_block, session_start_dt")
+    .select("street_block")
     .eq("geocoded", false)
     .is("lat", null)
-    .range(0, 9999)
+    .limit(5000)
 
-  if (error) {
-    console.error("Error fetching ungeocoded rows:", error.message)
-    return
-  }
+  if (error) { console.error("Error fetching ungeocoded rows:", error.message); return }
+  if (!pending || pending.length === 0) { console.log("All blocks geocoded"); return }
 
-  if (!data || data.length === 0) {
-    console.log("No rows to geocode")
-    return
-  }
+  const uniqueBlocks = [...new Set(pending.map(r => r.street_block).filter(Boolean))]
+  console.log(`Geocoding ${uniqueBlocks.length} new blocks…`)
+  let geocodedBlocks = 0
 
-  console.log(`Geocoding ${data.length} rows…`)
-  let geocoded = 0
-
-  for (const row of data) {
-    const query = encodeURIComponent(`${row.street_block}, San Francisco, CA`)
+  for (const block of uniqueBlocks) {
+    const query = encodeURIComponent(`${block}, San Francisco, CA`)
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=US`
 
     try {
       const res = await fetch(url)
-      if (!res.ok) {
-        console.warn(`Geocode HTTP ${res.status} for "${row.street_block}"`)
-        await sleep(100)
-        continue
-      }
+      if (!res.ok) { console.warn(`Geocode HTTP ${res.status} for "${block}"`); await sleep(100); continue }
+
       const json = await res.json()
       const feature = json.features?.[0]
+      const lat = feature ? feature.center[1] : null
+      const lng = feature ? feature.center[0] : null
 
-      if (!feature) {
-        // Mark geocoded=true with null lat/lng so we don't retry indefinitely
-        await supabase
-          .from("sf_meter_transactions")
-          .update({ geocoded: true })
-          .eq("id", row.id)
-        await sleep(100)
-        continue
-      }
+      // Cache block
+      await supabase.from("sf_meter_blocks")
+        .upsert({ street_block: block, lat, lng }, { onConflict: "street_block" })
 
-      const [lng, lat] = feature.center
-      const { error: updateError } = await supabase
-        .from("sf_meter_transactions")
-        .update({ lat, lng, geocoded: true })
-        .eq("id", row.id)
-
-      if (updateError) {
-        console.warn(`Failed to update lat/lng for ${row.id}: ${updateError.message}`)
+      // Update all transactions for this block at once
+      if (lat !== null && lng !== null) {
+        await supabase.from("sf_meter_transactions")
+          .update({ lat, lng, geocoded: true })
+          .eq("street_block", block)
+          .eq("geocoded", false)
+        geocodedBlocks++
       } else {
-        geocoded++
+        await supabase.from("sf_meter_transactions")
+          .update({ geocoded: true })
+          .eq("street_block", block)
+          .eq("geocoded", false)
       }
     } catch (err) {
-      console.warn(`Geocode error for "${row.street_block}":`, err.message)
+      console.warn(`Geocode error for "${block}":`, err.message)
     }
 
     await sleep(100)
   }
 
-  console.log(`Geocoded ${geocoded}/${data.length} rows`)
+  console.log(`Geocoded ${geocodedBlocks}/${uniqueBlocks.length} blocks`)
 }
 
 async function upsertDailyStats(dateStr, totalSessions, totalRevenue) {
@@ -166,21 +170,15 @@ async function main() {
   const rows = await fetchDataSF(targetDateStr)
   console.log(`Fetched ${rows.length} rows from DataSF`)
 
-  if (rows.length === 0) {
-    console.log("No new data — running geocoding pass")
-    await geocodePending()
-    console.log("Done")
-    return
+  if (rows.length > 0) {
+    const count = await upsertTransactions(rows)
+    console.log(`Upserted ${count} rows`)
+
+    const totalRevenue = rows.reduce((sum, r) => sum + (parseFloat(r.gross_paid_amt) || 0), 0)
+    await upsertDailyStats(targetDateStr, rows.length, totalRevenue)
   }
 
-  const count = await upsertTransactions(rows)
-  console.log(`Upserted ${count} rows`)
-
-  // Save full-day totals for historical stats (uses all rows from DataSF, not time-filtered)
-  const totalRevenue = rows.reduce((sum, r) => sum + (parseFloat(r.gross_paid_amt) || 0), 0)
-  await upsertDailyStats(targetDateStr, rows.length, totalRevenue)
-
-  await geocodePending()
+  await geocodeAll()
   console.log("Sync complete")
 }
 
