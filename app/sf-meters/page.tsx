@@ -385,7 +385,7 @@ export default function SFMetersPage() {
             : <>
                 <PeriodPills period={leaderboardPeriod} onChange={setLeaderboardPeriod} />
                 <Leaderboard
-                  transactions={leaderboardPeriod === "24h" ? visibleTransactions : (historicalTxs[leaderboardPeriod] ?? [])}
+                  transactions={leaderboardPeriod === "24h" ? visibleTransactions : [...visibleTransactions, ...(historicalTxs[leaderboardPeriod] ?? [])]}
                   onSelectBlock={handleSelectBlock}
                 />
                 {historicalLoading && <p style={{ fontSize: 12, color: "#bbb", margin: "12px 0 0" }}>Loading…</p>}
@@ -453,20 +453,9 @@ export default function SFMetersPage() {
             <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
           ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                  <StatBox label="Today" value={`$${totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} sub={`${visibleTransactions.length.toLocaleString()} sessions`} />
-                  <StatBox label="Last 7 days" value={historicalTxs["7d"] ? `$${historicalTxs["7d"]!.reduce((s, t) => s + Number(t.gross_paid_amt), 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "…"} sub={historicalTxs["7d"] ? `${historicalTxs["7d"]!.length.toLocaleString()} sessions` : "loading"} />
-                  <StatBox label="Last 30 days" value={historicalTxs["30d"] ? `$${historicalTxs["30d"]!.reduce((s, t) => s + Number(t.gross_paid_amt), 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : "…"} sub={historicalTxs["30d"] ? `${historicalTxs["30d"]!.length.toLocaleString()} sessions` : "loading"} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub="today" />
-                  <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
-                </div>
-              </div>
               <PeriodPills period={leaderboardPeriod} onChange={setLeaderboardPeriod} />
               <Leaderboard
-                transactions={leaderboardPeriod === "24h" ? visibleTransactions : (historicalTxs[leaderboardPeriod] ?? [])}
+                transactions={leaderboardPeriod === "24h" ? visibleTransactions : [...visibleTransactions, ...(historicalTxs[leaderboardPeriod] ?? [])]}
                 onSelectBlock={handleSelectBlock}
               />
               {historicalLoading && <p style={{ fontSize: 12, color: "#bbb", margin: "12px 0 0" }}>Loading…</p>}
