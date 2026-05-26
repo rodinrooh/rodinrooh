@@ -33,7 +33,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.4)" }}
+      style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(8px)" }}
     >
       <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: "#ffffff", boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}>
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
