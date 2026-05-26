@@ -332,7 +332,7 @@ export default function SFMetersPage() {
         </button>
       ))}
       <span style={{ fontSize: 12, color: "#bbb", marginLeft: "auto", letterSpacing: "-0.01em" }}>
-        {loading ? "Loading…" : `${visibleTransactions.length.toLocaleString()} sessions`}
+        {loading ? "Loading…" : `${visibleTransactions.length.toLocaleString()} sessions · ${new Set(visibleTransactions.map(t => t.street_block)).size.toLocaleString()} blocks`}
       </span>
     </div>
   )
