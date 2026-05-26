@@ -44,21 +44,35 @@ type LeaderboardPeriod = "24h" | "7d" | "30d" | "all"
 
 async function loadHistorical(period: "7d" | "30d" | "all") {
   const ptToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
-  let query = supabaseMeters
-    .from("sf_meter_transactions")
-    .select("street_block, gross_paid_amt")
-    .eq("meter_event_type", "NS")
-    .not("street_block", "ilike", "%Garage%")
-    .not("street_block", "ilike", "%Lot%")
-  if (period !== "all") {
-    const days = period === "7d" ? 7 : 30
-    const d = new Date(ptToday + "T12:00:00")
-    d.setDate(d.getDate() - days)
-    const start = d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
-    query = query.gte("session_start_dt", `${start}T00:00:00`)
+  const pageSize = 1000
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyFilters = (q: any) => {
+    q = q.eq("meter_event_type", "NS")
+      .not("street_block", "ilike", "%Garage%")
+      .not("street_block", "ilike", "%Lot%")
+    if (period !== "all") {
+      const days = period === "7d" ? 7 : 30
+      const d = new Date(ptToday + "T12:00:00")
+      d.setDate(d.getDate() - days)
+      const start = d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
+      q = q.gte("session_start_dt", `${start}T00:00:00`)
+    }
+    return q
   }
-  const { data } = await query.limit(100000)
-  return (data ?? []) as unknown as MeterTransaction[]
+
+  const { count } = await applyFilters(
+    supabaseMeters.from("sf_meter_transactions").select("*", { count: "exact", head: true })
+  )
+  if (!count) return []
+
+  const pages = await Promise.all(
+    Array.from({ length: Math.ceil(count / pageSize) }, (_, i) =>
+      applyFilters(supabaseMeters.from("sf_meter_transactions").select("street_block, gross_paid_amt"))
+        .range(i * pageSize, (i + 1) * pageSize - 1)
+    )
+  )
+  return pages.flatMap(({ data }: { data: unknown[] | null }) => data ?? []) as unknown as MeterTransaction[]
 }
 
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
