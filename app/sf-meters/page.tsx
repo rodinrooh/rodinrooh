@@ -175,8 +175,8 @@ function Feed({ transactions, targetDate, onSelect }: { transactions: MeterTrans
   )
 }
 
-interface TooltipProps { tx: MeterTransaction; onClose: () => void }
-function TransactionTooltip({ tx, onClose }: TooltipProps) {
+interface TooltipProps { tx: MeterTransaction; onClose: () => void; streetCount: number }
+function TransactionTooltip({ tx, onClose, streetCount }: TooltipProps) {
   return (
     <div className="absolute z-30" style={{
       top: 16, right: 16,
@@ -197,6 +197,7 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
       </div>
       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>{formatTime(tx.session_start_dt)}</div>
       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", textTransform: "capitalize" }}>{tx.payment_type?.toLowerCase()}</div>
+      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginTop: 8 }}>{streetCount} session{streetCount !== 1 ? "s" : ""} on this block today</div>
     </div>
   )
 }
@@ -361,7 +362,7 @@ export default function SFMetersPage() {
         {/* Map */}
         <div style={{ margin: "0 20px", borderRadius: 13, overflow: "hidden", position: "relative", height: "60svh", background: "#d4d4d4" }}>
           <Map ref={mapRef} transactions={mappableTransactions} onSelectTransaction={handleSelect} />
-          {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
+          {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} streetCount={visibleTransactions.filter((t) => t.street_block === selected.street_block).length} />}
         </div>
 
         {/* Tabs */}
@@ -503,7 +504,7 @@ export default function SFMetersPage() {
           ))}
         </div>
 
-        {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} />}
+        {selected && <TransactionTooltip tx={selected} onClose={() => setSelected(null)} streetCount={visibleTransactions.filter((t) => t.street_block === selected.street_block).length} />}
       </div>
     </div>
   )
