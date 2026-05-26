@@ -30,7 +30,73 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
   const mapRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const annotationsRef = useRef<globalThis.Map<string, any>>(new globalThis.Map())
+  // Fast lookup map keyed by transmission_datetime for viewport sync
+  const txMapRef = useRef<globalThis.Map<string, MeterTransaction>>(new globalThis.Map())
+  const onSelectRef = useRef(onSelectTransaction)
   const initRef = useRef(false)
+
+  useEffect(() => { onSelectRef.current = onSelectTransaction }, [onSelectTransaction])
+
+  // Sync annotations to only what's in the current viewport + 50% buffer
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const syncToViewport = useRef((mk: any, map: any) => {
+    const txMap = txMapRef.current
+    const existing = annotationsRef.current
+    const region = map.region
+
+    const latBuf = region.span.latitudeDelta * 0.5
+    const lngBuf = region.span.longitudeDelta * 0.5
+    const minLat = region.center.latitude - region.span.latitudeDelta / 2 - latBuf
+    const maxLat = region.center.latitude + region.span.latitudeDelta / 2 + latBuf
+    const minLng = region.center.longitude - region.span.longitudeDelta / 2 - lngBuf
+    const maxLng = region.center.longitude + region.span.longitudeDelta / 2 + lngBuf
+
+    const shouldShow = new Set<string>()
+    for (const [key, tx] of txMap) {
+      if (tx.lat! >= minLat && tx.lat! <= maxLat && tx.lng! >= minLng && tx.lng! <= maxLng) {
+        shouldShow.add(key)
+      }
+    }
+
+    // Batch remove out-of-viewport annotations
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toRemove: any[] = []
+    for (const [key, annotation] of existing.entries()) {
+      if (!shouldShow.has(key)) {
+        toRemove.push(annotation)
+        existing.delete(key)
+      }
+    }
+    if (toRemove.length > 0) map.removeAnnotations(toRemove)
+
+    // Batch add in-viewport annotations not yet rendered
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toAdd: any[] = []
+    for (const key of shouldShow) {
+      if (existing.has(key)) continue
+      const tx = txMap.get(key)!
+      const color = dotColor(Number(tx.gross_paid_amt))
+      const txCapture = tx
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const annotation = new (mk as any).Annotation(
+        new mk.Coordinate(tx.lat, tx.lng),
+        () => {
+          const el = document.createElement("div")
+          el.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;cursor:pointer;`
+          el.addEventListener("click", (e) => {
+            e.stopPropagation()
+            onSelectRef.current(txCapture)
+          })
+          return el
+        },
+        { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false }
+      )
+      toAdd.push(annotation)
+      existing.set(key, annotation)
+    }
+    if (toAdd.length > 0) map.addAnnotations(toAdd)
+  })
 
   useImperativeHandle(ref, () => ({
     flyTo(lat: number, lng: number) {
@@ -76,6 +142,10 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
         showsMapTypeControl: false,
       })
 
+      map.addEventListener("region-change-complete", () => {
+        if (window.mapkit) syncToViewport.current(window.mapkit, map)
+      })
+
       mapRef.current = map
     }
 
@@ -100,57 +170,15 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
     }
   }, [])
 
+  // When transactions change, update the lookup map and re-sync to viewport
   useEffect(() => {
-    if (!mapRef.current) return
-    const mk = window.mapkit
-    if (!mk) return
-
-    const map = mapRef.current
-    const existing = annotationsRef.current
-    const currentKeys = new Set(
-      transactions.filter((t) => t.lat && t.lng).map((t) => t.transmission_datetime)
+    txMapRef.current = new globalThis.Map(
+      transactions.filter(t => t.lat && t.lng).map(t => [t.transmission_datetime, t])
     )
-
-    // Batch remove stale annotations
-    const toRemove = []
-    for (const [key, annotation] of existing.entries()) {
-      if (!currentKeys.has(key)) {
-        toRemove.push(annotation)
-        existing.delete(key)
-      }
+    if (mapRef.current && window.mapkit) {
+      syncToViewport.current(window.mapkit, mapRef.current)
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (toRemove.length > 0) (map as any).removeAnnotations(toRemove)
-
-    // Batch add new annotations
-    const toAdd = []
-    for (const tx of transactions) {
-      if (!tx.lat || !tx.lng) continue
-      if (existing.has(tx.transmission_datetime)) continue
-
-      const color = dotColor(Number(tx.gross_paid_amt))
-      const txCapture = tx
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const annotation = new (mk as any).Annotation(
-        new mk.Coordinate(tx.lat, tx.lng),
-        () => {
-          const el = document.createElement("div")
-          el.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;cursor:pointer;`
-          el.addEventListener("click", (e) => {
-            e.stopPropagation()
-            onSelectTransaction(txCapture)
-          })
-          return el
-        },
-        { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false, clusteringIdentifier: "meters" }
-      )
-      toAdd.push(annotation)
-      existing.set(tx.transmission_datetime, annotation)
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (toAdd.length > 0) (map as any).addAnnotations(toAdd)
-  }, [transactions, onSelectTransaction])
+  }, [transactions])
 
   return <div ref={containerRef} className="absolute inset-0" />
 })
