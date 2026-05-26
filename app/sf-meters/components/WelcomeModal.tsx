@@ -37,7 +37,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
     >
       <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: "#ffffff", boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}>
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mb-4" style={{ background: "linear-gradient(145deg, #16a34a, #4ade80)" }}>
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mb-4" style={{ background: "linear-gradient(to bottom, #22c55e, #15803d)" }}>
             🅿️
           </div>
           <h1 className="text-[19px] font-bold text-[#1c1c1e] text-center tracking-tight">SF Parking Meter Revenue</h1>
@@ -54,12 +54,18 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
             Show me the money
           </button>
         </div>
-        <p className="text-[10px] text-[#aeaeb2] text-center pb-4 px-6 leading-snug font-light">
+        <p className="text-[10px] text-[#8e8e93] text-center pb-4 px-6 leading-snug">
           By{" "}
-          <a href="https://x.com/rodinrooh" target="_blank" rel="noopener noreferrer" className="underline hover:text-[#16a34a] transition-colors">
+          <a href="https://rodinrooh.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-[#16a34a] transition-colors">
             Rodin Roohipour
           </a>
-          . Not affiliated with the City of San Francisco or DataSF.
+          .{" "}
+          Powered by{" "}
+          <a href="https://whop.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-[#16a34a] transition-colors">
+            Whop
+          </a>
+          .{" "}
+          Not affiliated with the City of San Francisco or DataSF.
         </p>
       </div>
     </div>
