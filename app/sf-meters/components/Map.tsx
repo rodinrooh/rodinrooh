@@ -24,23 +24,34 @@ function dotColor(amount: number): string {
   return "#BF360C"
 }
 
+// One dot per block — most recent transaction wins
+function dedupeByBlock(transactions: MeterTransaction[]): MeterTransaction[] {
+  const blockMap = new globalThis.Map<string, MeterTransaction>()
+  for (const tx of transactions) {
+    if (!tx.lat || !tx.lng || !tx.street_block) continue
+    const existing = blockMap.get(tx.street_block)
+    if (!existing || tx.session_start_dt > existing.session_start_dt) {
+      blockMap.set(tx.street_block, tx)
+    }
+  }
+  return [...blockMap.values()]
+}
+
 const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelectTransaction }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mapRef = useRef<any>(null)
+  const mapRef = useRef<mapkit.Map | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const annotationsRef = useRef<globalThis.Map<string, any>>(new globalThis.Map())
-  // Fast lookup map keyed by transmission_datetime for viewport sync
-  const txMapRef = useRef<globalThis.Map<string, MeterTransaction>>(new globalThis.Map())
+  // Deduped by block, keyed by street_block
+  const dedupedRef = useRef<MeterTransaction[]>([])
   const onSelectRef = useRef(onSelectTransaction)
   const initRef = useRef(false)
 
   useEffect(() => { onSelectRef.current = onSelectTransaction }, [onSelectTransaction])
 
-  // Sync annotations to only what's in the current viewport + 50% buffer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const syncToViewport = useRef((mk: any, map: any) => {
-    const txMap = txMapRef.current
+  function syncToViewport(mk: any, map: mapkit.Map) {
+    const deduped = dedupedRef.current
     const existing = annotationsRef.current
     const region = map.region
 
@@ -51,30 +62,38 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
     const minLng = region.center.longitude - region.span.longitudeDelta / 2 - lngBuf
     const maxLng = region.center.longitude + region.span.longitudeDelta / 2 + lngBuf
 
-    const shouldShow = new Set<string>()
-    for (const [key, tx] of txMap) {
+    // Which blocks are in viewport
+    const inView = new globalThis.Map<string, MeterTransaction>()
+    for (const tx of deduped) {
       if (tx.lat! >= minLat && tx.lat! <= maxLat && tx.lng! >= minLng && tx.lng! <= maxLng) {
-        shouldShow.add(key)
+        inView.set(tx.street_block!, tx)
       }
     }
 
-    // Batch remove out-of-viewport annotations
+    // Batch remove blocks no longer in view
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toRemove: any[] = []
-    for (const [key, annotation] of existing.entries()) {
-      if (!shouldShow.has(key)) {
+    for (const [block, annotation] of existing.entries()) {
+      if (!inView.has(block)) {
         toRemove.push(annotation)
-        existing.delete(key)
+        existing.delete(block)
       }
     }
     if (toRemove.length > 0) map.removeAnnotations(toRemove)
 
-    // Batch add in-viewport annotations not yet rendered
+    // Batch add blocks now in view
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toAdd: any[] = []
-    for (const key of shouldShow) {
-      if (existing.has(key)) continue
-      const tx = txMap.get(key)!
+    for (const [block, tx] of inView) {
+      const existingAnnotation = existing.get(block)
+      // If block already has an annotation for the same tx, skip
+      if (existingAnnotation && existingAnnotation._txKey === tx.transmission_datetime) continue
+      // If block has a stale annotation (newer tx came in), remove it
+      if (existingAnnotation) {
+        map.removeAnnotations([existingAnnotation])
+        existing.delete(block)
+      }
+
       const color = dotColor(Number(tx.gross_paid_amt))
       const txCapture = tx
 
@@ -92,11 +111,12 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
         },
         { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false }
       )
+      annotation._txKey = tx.transmission_datetime
       toAdd.push(annotation)
-      existing.set(key, annotation)
+      existing.set(block, annotation)
     }
     if (toAdd.length > 0) map.addAnnotations(toAdd)
-  })
+  }
 
   useImperativeHandle(ref, () => ({
     flyTo(lat: number, lng: number) {
@@ -143,10 +163,12 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
       })
 
       map.addEventListener("region-change-complete", () => {
-        if (window.mapkit) syncToViewport.current(window.mapkit, map)
+        if (window.mapkit) syncToViewport(window.mapkit, map)
       })
 
       mapRef.current = map
+      // Initial sync once map is ready
+      if (dedupedRef.current.length > 0) syncToViewport(mk, map)
     }
 
     if (typeof window !== "undefined" && window.mapkit) {
@@ -170,13 +192,10 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ transactions, onSelec
     }
   }, [])
 
-  // When transactions change, update the lookup map and re-sync to viewport
   useEffect(() => {
-    txMapRef.current = new globalThis.Map(
-      transactions.filter(t => t.lat && t.lng).map(t => [t.transmission_datetime, t])
-    )
+    dedupedRef.current = dedupeByBlock(transactions)
     if (mapRef.current && window.mapkit) {
-      syncToViewport.current(window.mapkit, mapRef.current)
+      syncToViewport(window.mapkit, mapRef.current)
     }
   }, [transactions])
 
