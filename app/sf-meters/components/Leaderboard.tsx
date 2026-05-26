@@ -4,9 +4,10 @@ import type { MeterTransaction } from "@/lib/types-meters"
 
 interface LeaderboardProps {
   transactions: MeterTransaction[]
+  onSelect?: (tx: MeterTransaction) => void
 }
 
-export default function Leaderboard({ transactions }: LeaderboardProps) {
+export default function Leaderboard({ transactions, onSelect }: LeaderboardProps) {
   const grouped = new globalThis.Map<string, { count: number; total: number }>()
   for (const tx of transactions) {
     const existing = grouped.get(tx.street_block)
@@ -29,13 +30,16 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
 
   return (
     <div>
-      {rows.map((row, i) => (
-        <div key={row.block} style={{
+      {rows.map((row, i) => {
+        const representative = transactions.find(tx => tx.street_block === row.block && tx.lat && tx.lng)
+        return (
+        <div key={row.block} onClick={() => representative && onSelect?.(representative)} style={{
           display: "flex",
           alignItems: "center",
           padding: "14px 0",
           borderBottom: "1px solid #f0f0f0",
           gap: 16,
+          cursor: representative && onSelect ? "pointer" : "default",
         }}>
           <span style={{ fontSize: 11, color: "#ccc", width: 18, flexShrink: 0, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>{i + 1}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -50,7 +54,8 @@ export default function Leaderboard({ transactions }: LeaderboardProps) {
             ${row.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

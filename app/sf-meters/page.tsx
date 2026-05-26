@@ -273,7 +273,7 @@ export default function SFMetersPage() {
         <div style={{ padding: "0 20px 40px" }}>
           {tab === "feed"
             ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
-            : <Leaderboard transactions={visibleTransactions} />
+            : <Leaderboard transactions={visibleTransactions} onSelect={handleSelect} />
           }
         </div>
       </div>
@@ -324,7 +324,7 @@ export default function SFMetersPage() {
                   <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
                 </div>
               </div>
-              <Leaderboard transactions={visibleTransactions} />
+              <Leaderboard transactions={visibleTransactions} onSelect={handleSelect} />
             </>
           )}
         </div>
