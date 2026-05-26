@@ -40,6 +40,27 @@ function yesterdayDateStr(): string {
   return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
 }
 
+type LeaderboardPeriod = "24h" | "7d" | "30d" | "all"
+
+async function loadHistorical(period: "7d" | "30d" | "all") {
+  const ptToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
+  let query = supabaseMeters
+    .from("sf_meter_transactions")
+    .select("street_block, gross_paid_amt")
+    .eq("meter_event_type", "NS")
+    .not("street_block", "ilike", "%Garage%")
+    .not("street_block", "ilike", "%Lot%")
+  if (period !== "all") {
+    const days = period === "7d" ? 7 : 30
+    const d = new Date(ptToday + "T12:00:00")
+    d.setDate(d.getDate() - days)
+    const start = d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })
+    query = query.gte("session_start_dt", `${start}T00:00:00`)
+  }
+  const { data } = await query.limit(100000)
+  return (data ?? []) as unknown as MeterTransaction[]
+}
+
 async function loadPage(setTransactions: (t: MeterTransaction[]) => void, setLoading: (b: boolean) => void) {
   const dateStr = yesterdayDateStr()
   const start = `${dateStr}T00:00:00`
@@ -165,6 +186,23 @@ function TransactionTooltip({ tx, onClose }: TooltipProps) {
   )
 }
 
+function PeriodPills({ period, onChange }: { period: LeaderboardPeriod; onChange: (p: LeaderboardPeriod) => void }) {
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 14, marginTop: 2 }}>
+      {(["24h", "7d", "30d", "all"] as LeaderboardPeriod[]).map((p) => (
+        <button key={p} onClick={() => onChange(p)} style={{
+          fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+          border: "none", cursor: "pointer", letterSpacing: "-0.01em",
+          background: period === p ? "#000" : "#efefef",
+          color: period === p ? "#fff" : "#999",
+        }}>
+          {p === "all" ? "All time" : p}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function SFMetersPage() {
   const [transactions, setTransactions] = useState<MeterTransaction[]>([])
   const [now, setNow] = useState(() => new Date())
@@ -172,6 +210,9 @@ export default function SFMetersPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>("feed")
   const [isMobile, setIsMobile] = useState(false)
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("24h")
+  const [historicalTxs, setHistoricalTxs] = useState<Partial<Record<LeaderboardPeriod, MeterTransaction[]>>>({})
+  const [historicalLoading, setHistoricalLoading] = useState(false)
   const mapRef = useRef<MapHandle>(null)
   const headlineRef = useRef<HTMLHeadingElement>(null)
 
@@ -193,6 +234,16 @@ export default function SFMetersPage() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    if (leaderboardPeriod === "24h") return
+    if (historicalTxs[leaderboardPeriod]) return
+    setHistoricalLoading(true)
+    loadHistorical(leaderboardPeriod as "7d" | "30d" | "all").then((data) => {
+      setHistoricalTxs((prev) => ({ ...prev, [leaderboardPeriod]: data }))
+      setHistoricalLoading(false)
+    })
+  }, [leaderboardPeriod])
+
 
 
   const visibleTransactions = transactions.filter((tx) => shiftedDate(tx.session_start_dt) <= now)
@@ -207,6 +258,11 @@ export default function SFMetersPage() {
     setSelected(tx)
     if (tx.lat && tx.lng) mapRef.current?.flyTo(tx.lat, tx.lng)
   }, [])
+
+  const handleSelectBlock = useCallback((block: string) => {
+    const tx = transactions.find((t) => t.street_block === block && t.lat && t.lng)
+    if (tx) handleSelect(tx)
+  }, [transactions, handleSelect])
 
   useEffect(() => {
     const el = headlineRef.current
@@ -273,7 +329,14 @@ export default function SFMetersPage() {
         <div style={{ padding: "0 20px 40px" }}>
           {tab === "feed"
             ? <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
-            : <Leaderboard transactions={visibleTransactions} onSelect={handleSelect} />
+            : <>
+                <PeriodPills period={leaderboardPeriod} onChange={setLeaderboardPeriod} />
+                <Leaderboard
+                  transactions={leaderboardPeriod === "24h" ? visibleTransactions : (historicalTxs[leaderboardPeriod] ?? [])}
+                  onSelectBlock={handleSelectBlock}
+                />
+                {historicalLoading && <p style={{ fontSize: 12, color: "#bbb", margin: "12px 0 0" }}>Loading…</p>}
+              </>
           }
         </div>
       </div>
@@ -324,7 +387,12 @@ export default function SFMetersPage() {
                   <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
                 </div>
               </div>
-              <Leaderboard transactions={visibleTransactions} onSelect={handleSelect} />
+              <PeriodPills period={leaderboardPeriod} onChange={setLeaderboardPeriod} />
+              <Leaderboard
+                transactions={leaderboardPeriod === "24h" ? visibleTransactions : (historicalTxs[leaderboardPeriod] ?? [])}
+                onSelectBlock={handleSelectBlock}
+              />
+              {historicalLoading && <p style={{ fontSize: 12, color: "#bbb", margin: "12px 0 0" }}>Loading…</p>}
             </>
           )}
         </div>
