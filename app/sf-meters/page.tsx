@@ -453,6 +453,10 @@ export default function SFMetersPage() {
             <Feed transactions={visibleTransactions} targetDate={yesterdayDateStr()} onSelect={handleSelect} />
           ) : (
             <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+                <StatBox label="Avg per session" value={`$${avgPerSession.toFixed(2)}`} sub="today" />
+                <StatBox label="Biggest payment" value={`$${biggestPayment.toFixed(2)}`} sub="today" />
+              </div>
               <PeriodPills period={leaderboardPeriod} onChange={setLeaderboardPeriod} />
               <Leaderboard
                 transactions={leaderboardPeriod === "24h" ? visibleTransactions : [...visibleTransactions, ...(historicalTxs[leaderboardPeriod] ?? [])]}
