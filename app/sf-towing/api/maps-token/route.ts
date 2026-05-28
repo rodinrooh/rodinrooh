@@ -12,14 +12,14 @@ export async function GET() {
   }
 
   const normalizedKey = privateKey.replace(/\\n/g, "\n")
-  const windowStart = Math.floor(Date.now() / 1000 / 1800) * 1800
+  const windowStart = Math.floor(Date.now() / 1000 / 14400) * 14400
 
   const token = jwt.sign(
     { iss: teamId, iat: windowStart },
     normalizedKey,
     {
       algorithm: "ES256",
-      expiresIn: "30m",
+      expiresIn: "8h",
       keyid: keyId,
       header: { alg: "ES256", kid: keyId, typ: "JWT" },
     }
@@ -27,6 +27,6 @@ export async function GET() {
 
   return Response.json(
     { token },
-    { headers: { "Cache-Control": "public, s-maxage=1500, stale-while-revalidate=60" } }
+    { headers: { "Cache-Control": "public, s-maxage=14100, stale-while-revalidate=300" } }
   )
 }
