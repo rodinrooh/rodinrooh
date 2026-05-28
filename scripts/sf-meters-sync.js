@@ -68,11 +68,15 @@ async function upsertTransactions(rows) {
     meter_event_type: row.meter_event_type ?? null,
   }))
 
-  const { error } = await supabase
-    .from("sf_meter_transactions")
-    .upsert(records, { onConflict: "transmission_datetime", ignoreDuplicates: true })
+  const BATCH = 500
+  for (let i = 0; i < records.length; i += BATCH) {
+    const chunk = records.slice(i, i + BATCH)
+    const { error } = await supabase
+      .from("sf_meter_transactions")
+      .upsert(chunk, { onConflict: "transmission_datetime", ignoreDuplicates: true })
+    if (error) throw new Error(`Upsert failed: ${error.message}`)
+  }
 
-  if (error) throw new Error(`Upsert failed: ${error.message}`)
   return records.length
 }
 
