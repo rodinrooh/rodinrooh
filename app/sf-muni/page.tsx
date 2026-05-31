@@ -8,7 +8,7 @@ import Map, { lateColor, type MapHandle } from "./components/Map"
 import StatsOverlay from "./components/StatsOverlay"
 import WelcomeModal from "./components/WelcomeModal"
 
-const POLL_VISIBLE = 60_000
+const POLL_VISIBLE = 45_000
 const POLL_HIDDEN = 300_000
 
 export default function SFMuniPage() {
