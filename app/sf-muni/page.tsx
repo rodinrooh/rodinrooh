@@ -79,40 +79,62 @@ export default function SFMuniPage() {
   )
 
   return (
-    <div style={{ position: "relative", height: "100svh", width: "100%", overflow: "hidden", background: "#0a0a0a" }}>
-      <Map ref={mapRef} buses={buses} onSelectBus={handleSelect} selectedId={selectedId} />
-
-      <StatsOverlay latePct={stats.latePct} avgDelayMin={stats.avgDelayMin} total={stats.total} loading={loading} />
-
-      {/* Info button — reopens the welcome modal */}
-      <button
-        onClick={() => setShowInfo(true)}
-        aria-label="About this map"
+    <div
+      style={{
+        position: "relative",
+        height: "100svh",
+        width: "100%",
+        background: "#08080a",
+        padding: "clamp(8px, 1.4vw, 18px)",
+        boxSizing: "border-box",
+      }}
+    >
+      {/* Framed map — inset from the screen edges with a rounded border */}
+      <div
         style={{
-          position: "absolute",
-          top: "max(16px, env(safe-area-inset-top))",
-          right: 16,
-          width: 36,
-          height: 36,
-          borderRadius: "50%",
-          border: "1px solid rgba(255,255,255,0.1)",
-          background: "rgba(18,18,20,0.72)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-          color: "#fff",
-          fontSize: 16,
-          fontWeight: 600,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
+          position: "relative",
+          height: "100%",
+          width: "100%",
+          borderRadius: "clamp(14px, 1.6vw, 22px)",
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: "0 12px 48px rgba(0,0,0,0.55)",
         }}
       >
-        i
-      </button>
+        <Map ref={mapRef} buses={buses} onSelectBus={handleSelect} selectedId={selectedId} />
 
-      {selectedBus && <BusCard bus={selectedBus} onClose={() => setSelectedId(null)} />}
+        <StatsOverlay latePct={stats.latePct} avgDelayMin={stats.avgDelayMin} total={stats.total} loading={loading} />
+
+        {/* Info button — reopens the welcome modal */}
+        <button
+          onClick={() => setShowInfo(true)}
+          aria-label="About this map"
+          style={{
+            position: "absolute",
+            top: "max(16px, env(safe-area-inset-top))",
+            right: 16,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(18,18,20,0.72)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            color: "#fff",
+            fontSize: 16,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
+          }}
+        >
+          i
+        </button>
+
+        {selectedBus && <BusCard bus={selectedBus} onClose={() => setSelectedId(null)} />}
+      </div>
 
       <WelcomeModal />
       {showInfo && <WelcomeModal open onClose={() => setShowInfo(false)} />}

@@ -84,7 +84,6 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
         <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
           <Row icon="📍" title="What is this?" body="Every active Muni bus in San Francisco, right now. One dot per bus, colored by how far behind schedule it is." />
           <Row icon="🎨" title="Reading the map" body="Green is on time. Yellow and orange are slipping. Red is badly late. Tap any bus for its route and minutes behind." />
-          <Row icon="🗳️" title="The 1999 promise" body="Voters mandated 85% on-time performance in 1999. Muni has never hit it. This is what that looks like, live." />
           <Row icon="🛰️" title="Where's the data from?" body="511 SF Bay's live transit feeds, refreshed about once a minute. Nothing is stored." />
         </div>
 
