@@ -11,6 +11,7 @@ Vercel project: `rodinrooh` (rodins-projects-97c1647b)
 | `/sf-towing` | `app/sf-towing/` | SF tow tracker (Apple MapKit, frozen dataset) |
 | `/internet-airport` | `app/internet-airport/` | Live domain arrivals board |
 | `/sf-meters` | `app/sf-meters/` | Live SF parking meter revenue tracker (Apple MapKit, DataSF, Supabase realtime) |
+| `/sf-muni` | `app/sf-muni/` | Live Muni bus latency map (Apple MapKit, 511 GTFS-RT, no storage) |
 
 ## Environment variables (set in Vercel project)
 
@@ -25,6 +26,7 @@ Vercel project: `rodinrooh` (rodins-projects-97c1647b)
 | `APPLE_MAPS_PRIVATE_KEY` | sf-towing + sf-meters map token API |
 | `NEXT_PUBLIC_METERS_SUPABASE_URL` | sf-meters |
 | `NEXT_PUBLIC_METERS_SUPABASE_ANON_KEY` | sf-meters |
+| `API_511_KEYS` | sf-muni (511 SF Bay token(s), comma-separated, server-only) |
 
 ## Key files
 
@@ -39,6 +41,7 @@ Vercel project: `rodinrooh` (rodins-projects-97c1647b)
 - **sf-towing**: Supabase `tows` table, scraper in `rodinrooh/findmycar` repo (GitHub Actions, currently broken — Autura firewalled the source). Dataset is frozen as of May 12, 2026.
 - **internet-airport**: Supabase `domains` table, scraper + reveal workflow in `rodinrooh/domains.today` repo (still active).
 - **sf-meters**: Supabase `sf_meter_transactions` table. GitHub Actions cron (`.github/workflows/sf-meters-sync.yml`) runs every 5 min, pulls from DataSF API (`data.sfgov.org/resource/imvp-dq3v.json`), geocodes via Mapbox. GitHub Actions secrets needed: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `MAPBOX_TOKEN`, `DATASF_APP_TOKEN` (optional).
+- **sf-muni**: No storage. `app/sf-muni/api/buses/route.ts` fetches the 511 SF Bay GTFS-RT VehiclePositions + TripUpdates feeds (agency `SF`), parses the protobuf with `gtfs-realtime-bindings`, joins position+delay, returns a compact JSON array. The upstream fetch and the response are both cached for the refresh window so 511 is hit at most once per window regardless of traffic (511 limit: 60 req/hr per key). Client polls the cached route and computes the stats. Needs `API_511_KEYS`.
 
 ## How to deploy
 

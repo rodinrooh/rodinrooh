@@ -37,6 +37,12 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
+            href="/sf-muni"
+            date="May 2026"
+            title="SF Muni Latency"
+            desc="Live map of every Muni bus in SF, colored by how late it is"
+          />
+          <ProjectRow
             href="/sf-meters"
             date="May 2026"
             title="SF Meter Revenues"
