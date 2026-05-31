@@ -51,24 +51,57 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   const onSelectRef = useRef(onSelectBus)
   const initRef = useRef(false)
   const routesRef = useRef(false)
+  // Route id → its polyline overlays, so we can recolor a whole route at once.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const routeOverlaysRef = useRef<globalThis.Map<string, any[]>>(new globalThis.Map())
 
   useEffect(() => { onSelectRef.current = onSelectBus }, [onSelectBus])
   useEffect(() => { busesRef.current = buses }, [buses])
 
-  // Draw the Muni route shapes once as a faint base layer under the dots.
+  // Median live delay of the buses currently on a route (null if none active).
+  // Median resists the occasional glitched 90-min outlier an average would chase.
+  function routeMedianDelay(route: string): number | null {
+    const ds = busesRef.current.filter((b) => b.route === route).map((b) => b.delay)
+    if (ds.length === 0) return null
+    ds.sort((a, b) => a - b)
+    const m = Math.floor(ds.length / 2)
+    return ds.length % 2 ? ds[m] : (ds[m - 1] + ds[m]) / 2
+  }
+
+  // Color each route line by its live lateness. Routes with no active buses
+  // recede to a barely-there gray so the colored, in-service routes stand out.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function colorRoutes(mk: any) {
+    for (const [route, overlays] of routeOverlaysRef.current) {
+      const d = routeMedianDelay(route)
+      const style =
+        d === null
+          ? new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.06 })
+          : new mk.Style({ lineWidth: 2, strokeColor: lateColor(d), strokeOpacity: 0.65 })
+      for (const o of overlays) o.style = style
+    }
+  }
+
+  // Draw the Muni route shapes once beneath the dots, then color them live.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function loadRoutes(mk: any, map: mapkit.Map) {
     if (routesRef.current) return
     routesRef.current = true
     try {
       const res = await fetch("/sf-muni-shapes.json")
-      const shapes: [number, number][][] = await res.json()
-      const style = new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.13 })
-      const overlays = shapes.map(
-        (line) => new mk.PolylineOverlay(line.map(([lng, lat]) => new mk.Coordinate(lat, lng)), { style })
-      )
+      const shapes: { r: string; p: [number, number][] }[] = await res.json()
+      const grouped = routeOverlaysRef.current
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(map as any).addOverlays(overlays)
+      const all: any[] = []
+      for (const { r, p } of shapes) {
+        const ov = new mk.PolylineOverlay(p.map(([lng, lat]) => new mk.Coordinate(lat, lng)), {})
+        if (!grouped.has(r)) grouped.set(r, [])
+        grouped.get(r)!.push(ov)
+        all.push(ov)
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).addOverlays(all)
+      colorRoutes(mk)
     } catch {
       routesRef.current = false // allow a retry on next sync if it failed
     }
@@ -188,9 +221,12 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
     }
   }, [])
 
-  // Re-sync dots whenever the bus list changes.
+  // Re-sync dots and recolor route lines whenever the bus list changes.
   useEffect(() => {
-    if (mapRef.current && window.mapkit) sync(window.mapkit, mapRef.current)
+    if (mapRef.current && window.mapkit) {
+      sync(window.mapkit, mapRef.current)
+      if (routesRef.current) colorRoutes(window.mapkit)
+    }
   }, [buses])
 
   // Re-style only the affected dots when selection changes.

@@ -4,13 +4,16 @@
 // One-time / occasional regeneration. First fetch the SF GTFS static feed:
 //   curl -o /tmp/gtfs.zip "https://api.511.org/transit/datafeeds?api_key=$KEY&operator_id=SF"
 //   unzip -o /tmp/gtfs.zip -d /tmp/muni-gtfs
-// Then: node scripts/build-muni-shapes.mjs [path-to-shapes.txt]
+// Then: node scripts/build-muni-shapes.mjs [gtfs-dir]
 //
-// Output: [[ [lng,lat], ... ], ...] — one array of [lng,lat] points per shape.
+// Output: [{ r: routeId, p: [[lng,lat], ...] }, ...] — one entry per shape,
+// tagged with its route id so the map can color it by live bus lateness.
 
 import { readFileSync, writeFileSync } from "node:fs"
 
-const SHAPES = process.argv[2] ?? "/tmp/muni-gtfs/shapes.txt"
+const DIR = process.argv[2] ?? "/tmp/muni-gtfs"
+const SHAPES = `${DIR}/shapes.txt`
+const TRIPS = `${DIR}/trips.txt`
 const EPSILON = 0.00012 // ~13m — drops collinear points along straight streets
 
 // Perpendicular distance from point p to the line a→b (in degree space; fine at city scale).
@@ -39,6 +42,18 @@ function douglasPeucker(pts, eps) {
   return [pts[0], pts[pts.length - 1]]
 }
 
+// Map each shape_id to its route_id via trips.txt.
+const tripLines = readFileSync(TRIPS, "utf8").trim().split("\n")
+const tripHeader = tripLines.shift().split(",")
+const routeCol = tripHeader.indexOf("route_id")
+const shapeCol = tripHeader.indexOf("shape_id")
+const shapeToRoute = new Map()
+for (const line of tripLines) {
+  const cols = line.split(",")
+  const shapeId = cols[shapeCol]
+  if (shapeId && !shapeToRoute.has(shapeId)) shapeToRoute.set(shapeId, cols[routeCol])
+}
+
 const lines = readFileSync(SHAPES, "utf8").trim().split("\n")
 lines.shift() // header: shape_id,shape_pt_lon,shape_pt_lat,shape_pt_sequence,...
 
@@ -50,8 +65,8 @@ for (const line of lines) {
 }
 
 const shapes = []
-let rawPts = 0, keptPts = 0
-for (const pts of byShape.values()) {
+let rawPts = 0, keptPts = 0, noRoute = 0
+for (const [id, pts] of byShape) {
   pts.sort((a, b) => a[2] - b[2])
   const coords = pts.map(([lon, lat]) => [lon, lat])
   rawPts += coords.length
@@ -59,7 +74,9 @@ for (const pts of byShape.values()) {
     Number(lon.toFixed(5)),
     Number(lat.toFixed(5)),
   ])
-  if (simplified.length >= 2) { shapes.push(simplified); keptPts += simplified.length }
+  const route = shapeToRoute.get(id) ?? "?"
+  if (route === "?") noRoute++
+  if (simplified.length >= 2) { shapes.push({ r: route, p: simplified }); keptPts += simplified.length }
 }
 
 const out = "public/sf-muni-shapes.json"
@@ -69,6 +86,7 @@ console.log(JSON.stringify({
   shapes: shapes.length,
   rawPts,
   keptPts,
+  noRoute,
   reductionPct: Math.round((1 - keptPts / rawPts) * 100),
   fileKB: Math.round(bytes / 1024),
 }))
