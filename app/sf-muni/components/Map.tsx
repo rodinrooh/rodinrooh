@@ -50,9 +50,29 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   const selectedRef = useRef<string | null>(selectedId)
   const onSelectRef = useRef(onSelectBus)
   const initRef = useRef(false)
+  const routesRef = useRef(false)
 
   useEffect(() => { onSelectRef.current = onSelectBus }, [onSelectBus])
   useEffect(() => { busesRef.current = buses }, [buses])
+
+  // Draw the Muni route shapes once as a faint base layer under the dots.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function loadRoutes(mk: any, map: mapkit.Map) {
+    if (routesRef.current) return
+    routesRef.current = true
+    try {
+      const res = await fetch("/sf-muni-shapes.json")
+      const shapes: [number, number][][] = await res.json()
+      const style = new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.13 })
+      const overlays = shapes.map(
+        (line) => new mk.PolylineOverlay(line.map(([lng, lat]) => new mk.Coordinate(lat, lng)), { style })
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).addOverlays(overlays)
+    } catch {
+      routesRef.current = false // allow a retry on next sync if it failed
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function sync(mk: any, map: mapkit.Map) {
@@ -144,6 +164,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       })
 
       mapRef.current = map
+      loadRoutes(mk, map)
       sync(mk, map)
     }
 
