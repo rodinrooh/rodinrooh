@@ -40,14 +40,15 @@ async function fetchFeed(url: string, key: string, window: number): Promise<Uint
   return new Uint8Array(await res.arrayBuffer())
 }
 
-// Current schedule delay for a trip: prefer the trip-level delay, else the next
-// stop's arrival/departure delay (stop_time_updates are ordered by stop sequence).
+// Current schedule delay for a trip. 511's trip-level `delay` is always 0, so the
+// real signal is the next stop's arrival/departure delay (stop_time_updates are
+// ordered by stop sequence — the first is the next stop the bus will reach).
 function tripDelay(tu: transit_realtime.ITripUpdate): number | null {
-  if (typeof tu.delay === "number") return tu.delay
   for (const stu of tu.stopTimeUpdate ?? []) {
     const d = stu.arrival?.delay ?? stu.departure?.delay
     if (typeof d === "number") return d
   }
+  if (typeof tu.delay === "number") return tu.delay
   return null
 }
 
@@ -75,12 +76,15 @@ export async function GET() {
   const positions = FeedMessage.decode(posBuf)
   const updates = FeedMessage.decode(updBuf)
 
-  // Index delays by trip id (primary) and vehicle id (fallback).
+  // Index delay and route by trip id (the reliable join key for this feed),
+  // with vehicle id as a delay fallback.
   const delayByTrip = new Map<string, number>()
   const delayByVehicle = new Map<string, number>()
+  const routeByTrip = new Map<string, string>()
   for (const e of updates.entity) {
     const tu = e.tripUpdate
     if (!tu) continue
+    if (tu.trip?.tripId && tu.trip.routeId) routeByTrip.set(tu.trip.tripId, tu.trip.routeId)
     const d = tripDelay(tu)
     if (d === null) continue
     if (tu.trip?.tripId) delayByTrip.set(tu.trip.tripId, d)
@@ -93,16 +97,18 @@ export async function GET() {
     const pos = v?.position
     if (!v || !pos || pos.latitude == null || pos.longitude == null) continue
 
+    // Only buses actually running a scheduled trip — out-of-service vehicles
+    // have no route or schedule and would dilute the lateness stats.
     const tripId = v.trip?.tripId
+    if (!tripId) continue
+
     const vehicleId = v.vehicle?.id ?? e.id
-    const delay =
-      (tripId ? delayByTrip.get(tripId) : undefined) ??
-      (vehicleId ? delayByVehicle.get(vehicleId) : undefined) ??
-      0
+    const route = v.trip?.routeId ?? routeByTrip.get(tripId) ?? "?"
+    const delay = delayByTrip.get(tripId) ?? (vehicleId ? delayByVehicle.get(vehicleId) : undefined) ?? 0
 
     buses.push({
       id: vehicleId,
-      route: v.trip?.routeId ?? "?",
+      route,
       lat: Number(pos.latitude.toFixed(5)),
       lng: Number(pos.longitude.toFixed(5)),
       delay,
