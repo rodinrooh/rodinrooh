@@ -26,7 +26,9 @@ export default function SFMuniPage() {
 
     async function load() {
       try {
-        const res = await fetch("/sf-muni/api/buses")
+        // no-store so each poll gets the current CDN copy instead of a stale
+        // browser-cached one — the server/edge cache still shields the 511 API.
+        const res = await fetch("/sf-muni/api/buses", { cache: "no-store" })
         if (!res.ok) return
         const data: BusesResponse = await res.json()
         if (!cancelled) setBuses(data.buses)
