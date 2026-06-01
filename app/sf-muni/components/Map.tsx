@@ -62,14 +62,12 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   useEffect(() => { onSelectRef.current = onSelectBus }, [onSelectBus])
   useEffect(() => { busesRef.current = buses }, [buses])
 
-  // Median live delay of the buses currently on a route (null if none active).
-  // Median resists the occasional glitched 90-min outlier an average would chase.
-  function routeMedianDelay(route: string): number | null {
+  // Worst (most-late) bus currently on a route, so the line matches its reddest
+  // dot — if any bus on a corridor is late, the whole line shows it. Null = none.
+  function routeWorstDelay(route: string): number | null {
     const ds = busesRef.current.filter((b) => b.route === route).map((b) => b.delay)
     if (ds.length === 0) return null
-    ds.sort((a, b) => a - b)
-    const m = Math.floor(ds.length / 2)
-    return ds.length % 2 ? ds[m] : (ds[m - 1] + ds[m]) / 2
+    return Math.max(...ds)
   }
 
   // Worse lateness ranks higher and gets drawn on top, so where corridors
@@ -90,7 +88,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
     if (!map) return
     const rankByRoute = new globalThis.Map<string, number>()
     for (const [route, overlays] of routeOverlaysRef.current) {
-      const d = routeMedianDelay(route)
+      const d = routeWorstDelay(route)
       rankByRoute.set(route, severityRank(d))
       const style =
         d === null
