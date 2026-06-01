@@ -52,68 +52,85 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   const onSelectRef = useRef(onSelectBus)
   const initRef = useRef(false)
   const routesRef = useRef(false)
-  // Route id → its polyline overlays, so we can recolor a whole route at once.
+  // Route id → its raw polylines (arrays of [lng,lat]), for slicing local segments.
+  const routeShapesRef = useRef<globalThis.Map<string, [number, number][][]>>(new globalThis.Map())
+  // The bright colored segments drawn near buses; rebuilt every refresh.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const routeOverlaysRef = useRef<globalThis.Map<string, any[]>>(new globalThis.Map())
-  // Flat list of every route overlay tagged with its route, for severity z-ordering.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const flatOverlaysRef = useRef<{ ov: any; route: string }[]>([])
+  const segmentsRef = useRef<any[]>([])
 
   useEffect(() => { onSelectRef.current = onSelectBus }, [onSelectBus])
   useEffect(() => { busesRef.current = buses }, [buses])
 
-  // Worst (most-late) bus currently on a route, so the line matches its reddest
-  // dot — if any bus on a corridor is late, the whole line shows it. Null = none.
-  function routeWorstDelay(route: string): number | null {
-    const ds = busesRef.current.filter((b) => b.route === route).map((b) => b.delay)
-    if (ds.length === 0) return null
-    return Math.max(...ds)
-  }
-
-  // Worse lateness ranks higher and gets drawn on top, so where corridors
-  // overlap a late (red) route wins over an on-time (green) one. -1 = no buses.
-  function severityRank(d: number | null): number {
-    if (d === null) return -1
-    if (d <= 60) return 0
-    if (d <= 180) return 1
-    if (d <= 300) return 2
+  // Worse lateness ranks higher and is drawn on top, so a red segment beats a
+  // green one where corridors overlap.
+  function severityRank(delay: number): number {
+    if (delay <= 60) return 0
+    if (delay <= 180) return 1
+    if (delay <= 300) return 2
     return 3
   }
 
-  // Color each route by its live lateness, then z-order so the worst sits on
-  // top. Routes with no active buses recede to a barely-there gray.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function colorRoutes(mk: any) {
-    const map = mapRef.current
-    if (!map) return
-    const rankByRoute = new globalThis.Map<string, number>()
-    for (const [route, overlays] of routeOverlaysRef.current) {
-      const d = routeWorstDelay(route)
-      rankByRoute.set(route, severityRank(d))
-      const style =
-        d === null
-          ? new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.07 })
-          : new mk.Style({ lineWidth: 2.2, strokeColor: lateColor(d), strokeOpacity: 0.75 })
-      for (const o of overlays) o.style = style
-    }
-
-    // Re-stack only when the current draw order no longer keeps the worst on top.
-    const flat = flatOverlaysRef.current
-    let ordered = true
-    for (let i = 1; i < flat.length; i++) {
-      if (rankByRoute.get(flat[i].route)! < rankByRoute.get(flat[i - 1].route)!) { ordered = false; break }
-    }
-    if (!ordered) {
-      const sorted = [...flat].sort((a, b) => rankByRoute.get(a.route)! - rankByRoute.get(b.route)!)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(map as any).removeOverlays(flat.map((x) => x.ov))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(map as any).addOverlays(sorted.map((x) => x.ov))
-      flatOverlaysRef.current = sorted
-    }
+  // Rough meters between two [lng,lat] points (fine at city scale).
+  function distM(a: [number, number], b: [number, number]): number {
+    return Math.hypot((a[0] - b[0]) * 88000, (a[1] - b[1]) * 111000)
   }
 
-  // Draw the Muni route shapes once beneath the dots, then color them live.
+  // Lateness is local: color only the stretch of route around each bus by THAT
+  // bus's delay. Avoids painting whole multi-mile routes red off one late bus.
+  const SEG_RADIUS_M = 220 // colored stretch each side of a bus
+  const OFF_ROUTE_M = 150 // beyond this the bus isn't really on its line — skip
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function buildSegments(mk: any) {
+    const map = mapRef.current
+    if (!map) return
+    if (segmentsRef.current.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).removeOverlays(segmentsRef.current)
+      segmentsRef.current = []
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const segs: { ov: any; rank: number }[] = []
+    for (const bus of busesRef.current) {
+      const polylines = routeShapesRef.current.get(bus.route)
+      if (!polylines) continue
+      const pt: [number, number] = [bus.lng, bus.lat]
+
+      // Nearest vertex on any of the route's polylines.
+      let bestLine: [number, number][] | null = null
+      let bestIdx = 0
+      let bestD = Infinity
+      for (const line of polylines) {
+        for (let i = 0; i < line.length; i++) {
+          const d = distM(pt, line[i])
+          if (d < bestD) { bestD = d; bestLine = line; bestIdx = i }
+        }
+      }
+      if (!bestLine || bestD > OFF_ROUTE_M) continue
+
+      // Walk outward along the line ~SEG_RADIUS_M each way.
+      let lo = bestIdx, hi = bestIdx, dl = 0, dr = 0
+      while (lo > 0 && dl < SEG_RADIUS_M) { dl += distM(bestLine[lo], bestLine[lo - 1]); lo-- }
+      while (hi < bestLine.length - 1 && dr < SEG_RADIUS_M) { dr += distM(bestLine[hi], bestLine[hi + 1]); hi++ }
+      const pts = bestLine.slice(lo, hi + 1)
+      if (pts.length < 2) continue
+
+      const ov = new mk.PolylineOverlay(
+        pts.map(([lng, lat]) => new mk.Coordinate(lat, lng)),
+        { style: new mk.Style({ lineWidth: 3, strokeColor: lateColor(bus.delay), strokeOpacity: 0.92, lineCap: "round", lineJoin: "round" }) }
+      )
+      segs.push({ ov, rank: severityRank(bus.delay) })
+    }
+
+    // Red last → on top where stretches overlap.
+    segs.sort((a, b) => a.rank - b.rank)
+    const ovs = segs.map((s) => s.ov)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(map as any).addOverlays(ovs)
+    segmentsRef.current = ovs
+  }
+
+  // Draw the full route network once as a faint base, then the colored segments.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function loadRoutes(mk: any, map: mapkit.Map) {
     if (routesRef.current) return
@@ -121,19 +138,18 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
     try {
       const res = await fetch("/sf-muni-shapes.json")
       const shapes: { r: string; p: [number, number][] }[] = await res.json()
-      const grouped = routeOverlaysRef.current
+      const byRoute = routeShapesRef.current
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const flat: { ov: any; route: string }[] = []
+      const base: any[] = []
+      const baseStyle = new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.08 })
       for (const { r, p } of shapes) {
-        const ov = new mk.PolylineOverlay(p.map(([lng, lat]) => new mk.Coordinate(lat, lng)), {})
-        if (!grouped.has(r)) grouped.set(r, [])
-        grouped.get(r)!.push(ov)
-        flat.push({ ov, route: r })
+        if (!byRoute.has(r)) byRoute.set(r, [])
+        byRoute.get(r)!.push(p)
+        base.push(new mk.PolylineOverlay(p.map(([lng, lat]) => new mk.Coordinate(lat, lng)), { style: baseStyle }))
       }
-      flatOverlaysRef.current = flat
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(map as any).addOverlays(flat.map((x) => x.ov))
-      colorRoutes(mk)
+      ;(map as any).addOverlays(base)
+      buildSegments(mk)
     } catch {
       routesRef.current = false // allow a retry on next sync if it failed
     }
@@ -257,7 +273,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   useEffect(() => {
     if (mapRef.current && window.mapkit) {
       sync(window.mapkit, mapRef.current)
-      if (routesRef.current) colorRoutes(window.mapkit)
+      if (routesRef.current) buildSegments(window.mapkit)
     }
   }, [buses])
 
