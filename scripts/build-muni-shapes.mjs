@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 const DIR = process.argv[2] ?? "/tmp/muni-gtfs"
 const SHAPES = `${DIR}/shapes.txt`
 const TRIPS = `${DIR}/trips.txt`
-const EPSILON = 0.00012 // ~13m — drops collinear points along straight streets
+const EPSILON = 0.00005 // ~5m — tight enough that dots visibly sit on their line
 
 // Perpendicular distance from point p to the line a→b (in degree space; fine at city scale).
 function perpDist(p, a, b) {
