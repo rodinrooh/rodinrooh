@@ -92,20 +92,16 @@ export default function SFMuniPage() {
         height: "100svh",
         width: "100%",
         background: "#08080a",
-        padding: "clamp(8px, 1.4vw, 18px)",
         boxSizing: "border-box",
       }}
     >
-      {/* Framed map — inset from the screen edges with a rounded border */}
+      {/* Full-bleed map */}
       <div
         style={{
           position: "relative",
           height: "100%",
           width: "100%",
-          borderRadius: "clamp(14px, 1.6vw, 22px)",
           overflow: "hidden",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 12px 48px rgba(0,0,0,0.55)",
         }}
       >
         <Map ref={mapRef} buses={buses} onSelectBus={handleSelect} selectedId={selectedId} />
