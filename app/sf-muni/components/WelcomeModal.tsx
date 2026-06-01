@@ -53,10 +53,10 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
           maxWidth: 400,
           borderRadius: 20,
           overflow: "hidden",
-          background: "#ffffff",
-          border: "1px solid rgba(0,0,0,0.06)",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.25)",
-          color: "#1c1c1e",
+          background: "#1a1a1c",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+          color: "#fff",
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "30px 24px 16px" }}>
@@ -79,7 +79,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
           <p style={{ fontSize: 13.5, color: "#8e8e93", margin: "4px 0 0", letterSpacing: "-0.01em" }}>San Francisco, live</p>
         </div>
 
-        <div style={{ height: 1, background: "rgba(0,0,0,0.07)" }} />
+        <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
 
         <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
           <Row icon="📍" title="What is this?" body="Every active Muni bus in San Francisco, right now. One dot per bus, colored by how far behind schedule it is." />
@@ -87,7 +87,7 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
           <Row icon="🛰️" title="Where's the data from?" body="511 SF Bay's live transit feeds, refreshed about once a minute. Nothing is stored." />
         </div>
 
-        <div style={{ height: 1, background: "rgba(0,0,0,0.07)" }} />
+        <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
 
         <div style={{ padding: "16px 24px" }}>
           <button
@@ -97,8 +97,8 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
               padding: "13px",
               borderRadius: 12,
               border: "none",
-              background: "#1c1c1e",
-              color: "#fff",
+              background: "#fff",
+              color: "#111",
               fontSize: 15,
               fontWeight: 600,
               letterSpacing: "-0.01em",
@@ -127,7 +127,7 @@ function Row({ icon, title, body }: { icon: string; title: string; body: string 
       <div style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>{icon}</div>
       <div>
         <div style={{ fontSize: 13.5, fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</div>
-        <div style={{ fontSize: 13, color: "#6b6b70", marginTop: 2, lineHeight: 1.45, letterSpacing: "-0.005em" }}>{body}</div>
+        <div style={{ fontSize: 13, color: "#a1a1a6", marginTop: 2, lineHeight: 1.45, letterSpacing: "-0.005em" }}>{body}</div>
       </div>
     </div>
   )

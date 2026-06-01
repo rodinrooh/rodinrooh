@@ -61,12 +61,13 @@ export default function SFMuniPage() {
 
   const stats = useMemo(() => {
     const total = buses.length
-    if (total === 0) return { latePct: 0, avgDelayMin: 0, total: 0 }
+    if (total === 0) return { latePct: 0, totalDelayMin: 0, total: 0 }
     const late = buses.filter((b) => b.delay > 60).length
-    const avgDelaySec = buses.reduce((s, b) => s + b.delay, 0) / total
+    // Sum of every bus's lateness right now, in minutes — the live "delay debt".
+    const lateSeconds = buses.reduce((s, b) => s + Math.max(0, b.delay), 0)
     return {
       latePct: Math.round((late / total) * 100),
-      avgDelayMin: Math.max(0, avgDelaySec / 60),
+      totalDelayMin: Math.round(lateSeconds / 60),
       total,
     }
   }, [buses])
@@ -84,7 +85,7 @@ export default function SFMuniPage() {
         position: "relative",
         height: "100svh",
         width: "100%",
-        background: "#f2f2f5",
+        background: "#08080a",
         padding: "clamp(8px, 1.4vw, 18px)",
         boxSizing: "border-box",
       }}
@@ -97,13 +98,13 @@ export default function SFMuniPage() {
           width: "100%",
           borderRadius: "clamp(14px, 1.6vw, 22px)",
           overflow: "hidden",
-          border: "1px solid rgba(0,0,0,0.1)",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.18)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: "0 12px 48px rgba(0,0,0,0.55)",
         }}
       >
         <Map ref={mapRef} buses={buses} onSelectBus={handleSelect} selectedId={selectedId} />
 
-        <StatsOverlay latePct={stats.latePct} avgDelayMin={stats.avgDelayMin} total={stats.total} loading={loading} />
+        <StatsOverlay latePct={stats.latePct} totalDelayMin={stats.totalDelayMin} total={stats.total} loading={loading} />
 
         {/* Info button — reopens the welcome modal */}
         <button
@@ -116,18 +117,18 @@ export default function SFMuniPage() {
             width: 36,
             height: 36,
             borderRadius: "50%",
-            border: "1px solid rgba(0,0,0,0.08)",
-            background: "rgba(255,255,255,0.88)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(18,18,20,0.72)",
             backdropFilter: "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
-            color: "#1c1c1e",
+            color: "#fff",
             fontSize: 16,
             fontWeight: 600,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
           }}
         >
           i
@@ -159,12 +160,12 @@ function BusCard({ bus, onClose }: { bus: Bus; onClose: () => void }) {
         maxWidth: 300,
         padding: "14px 16px",
         borderRadius: 16,
-        background: "rgba(255,255,255,0.92)",
+        background: "rgba(18,18,20,0.82)",
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-        color: "#1c1c1e",
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+        color: "#fff",
         display: "flex",
         alignItems: "center",
         gap: 14,
@@ -173,7 +174,7 @@ function BusCard({ bus, onClose }: { bus: Bus; onClose: () => void }) {
       <div style={{ width: 12, height: 12, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 8px ${color}` }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.1 }}>Route {bus.route}</div>
-        <div style={{ fontSize: 13, color: "#6b6b70", marginTop: 2, letterSpacing: "-0.005em" }}>{status}</div>
+        <div style={{ fontSize: 13, color: "#a1a1a6", marginTop: 2, letterSpacing: "-0.005em" }}>{status}</div>
       </div>
       <button
         onClick={onClose}

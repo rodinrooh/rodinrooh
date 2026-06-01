@@ -13,7 +13,8 @@ interface MapProps {
   selectedId: string | null
 }
 
-const SF_CENTER = { latitude: 37.7749, longitude: -122.4194 }
+const SF_CENTER = { latitude: 37.76, longitude: -122.435 }
+const SF_CAMERA = 20500
 const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 
 // Green → yellow → orange → red by seconds behind schedule. Early/on-time = green.
@@ -54,6 +55,9 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
   // Route id → its polyline overlays, so we can recolor a whole route at once.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const routeOverlaysRef = useRef<globalThis.Map<string, any[]>>(new globalThis.Map())
+  // Flat list of every route overlay tagged with its route, for severity z-ordering.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const flatOverlaysRef = useRef<{ ov: any; route: string }[]>([])
 
   useEffect(() => { onSelectRef.current = onSelectBus }, [onSelectBus])
   useEffect(() => { busesRef.current = buses }, [buses])
@@ -68,17 +72,46 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
     return ds.length % 2 ? ds[m] : (ds[m - 1] + ds[m]) / 2
   }
 
-  // Color each route line by its live lateness. Routes with no active buses
-  // recede to a barely-there gray so the colored, in-service routes stand out.
+  // Worse lateness ranks higher and gets drawn on top, so where corridors
+  // overlap a late (red) route wins over an on-time (green) one. -1 = no buses.
+  function severityRank(d: number | null): number {
+    if (d === null) return -1
+    if (d <= 60) return 0
+    if (d <= 180) return 1
+    if (d <= 300) return 2
+    return 3
+  }
+
+  // Color each route by its live lateness, then z-order so the worst sits on
+  // top. Routes with no active buses recede to a barely-there gray.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function colorRoutes(mk: any) {
+    const map = mapRef.current
+    if (!map) return
+    const rankByRoute = new globalThis.Map<string, number>()
     for (const [route, overlays] of routeOverlaysRef.current) {
       const d = routeMedianDelay(route)
+      rankByRoute.set(route, severityRank(d))
       const style =
         d === null
-          ? new mk.Style({ lineWidth: 1, strokeColor: "#000000", strokeOpacity: 0.07 })
-          : new mk.Style({ lineWidth: 2, strokeColor: lateColor(d), strokeOpacity: 0.65 })
+          ? new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.07 })
+          : new mk.Style({ lineWidth: 2.2, strokeColor: lateColor(d), strokeOpacity: 0.75 })
       for (const o of overlays) o.style = style
+    }
+
+    // Re-stack only when the current draw order no longer keeps the worst on top.
+    const flat = flatOverlaysRef.current
+    let ordered = true
+    for (let i = 1; i < flat.length; i++) {
+      if (rankByRoute.get(flat[i].route)! < rankByRoute.get(flat[i - 1].route)!) { ordered = false; break }
+    }
+    if (!ordered) {
+      const sorted = [...flat].sort((a, b) => rankByRoute.get(a.route)! - rankByRoute.get(b.route)!)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).removeOverlays(flat.map((x) => x.ov))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).addOverlays(sorted.map((x) => x.ov))
+      flatOverlaysRef.current = sorted
     }
   }
 
@@ -92,15 +125,16 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       const shapes: { r: string; p: [number, number][] }[] = await res.json()
       const grouped = routeOverlaysRef.current
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const all: any[] = []
+      const flat: { ov: any; route: string }[] = []
       for (const { r, p } of shapes) {
         const ov = new mk.PolylineOverlay(p.map(([lng, lat]) => new mk.Coordinate(lat, lng)), {})
         if (!grouped.has(r)) grouped.set(r, [])
         grouped.get(r)!.push(ov)
-        all.push(ov)
+        flat.push({ ov, route: r })
       }
+      flatOverlaysRef.current = flat
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(map as any).addOverlays(all)
+      ;(map as any).addOverlays(flat.map((x) => x.ov))
       colorRoutes(mk)
     } catch {
       routesRef.current = false // allow a retry on next sync if it failed
@@ -163,7 +197,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       if (!mapRef.current) return
       const mk = window.mapkit
       mapRef.current.setCenterAnimated(new mk.Coordinate(SF_CENTER.latitude, SF_CENTER.longitude), true)
-      mapRef.current.cameraDistance = 17000
+      mapRef.current.cameraDistance = SF_CAMERA
     },
   }))
 
@@ -188,8 +222,8 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       const mkAny = mk as any
       const map = new mk.Map(containerRef.current, {
         center: new mk.Coordinate(SF_CENTER.latitude, SF_CENTER.longitude),
-        cameraDistance: 17000,
-        colorScheme: mkAny.Map?.ColorSchemes?.Light ?? "light",
+        cameraDistance: SF_CAMERA,
+        colorScheme: mkAny.Map?.ColorSchemes?.Dark ?? "dark",
         showsCompass: mk.FeatureVisibility.Hidden,
         showsZoomControl: false,
         showsMapTypeControl: false,
