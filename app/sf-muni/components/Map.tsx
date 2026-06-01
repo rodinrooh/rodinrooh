@@ -17,11 +17,11 @@ const SF_CENTER = { latitude: 37.76, longitude: -122.435 }
 const SF_CAMERA = 20500
 const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 
-// Green → yellow → orange → red by seconds behind schedule. Early/on-time = green.
+// Green → amber → orange → red by seconds behind schedule. Early/on-time = green.
 export function lateColor(delay: number): string {
   if (delay <= 60) return "#30d158"
-  if (delay <= 180) return "#ffd60a"
-  if (delay <= 300) return "#ff9f0a"
+  if (delay <= 180) return "#ffb020" // warm amber — "late" reads clearly, not benign lemon
+  if (delay <= 300) return "#ff7a00" // deeper orange, stays distinct from the amber
   return "#ff453a"
 }
 
