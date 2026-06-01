@@ -76,7 +76,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       const d = routeMedianDelay(route)
       const style =
         d === null
-          ? new mk.Style({ lineWidth: 1, strokeColor: "#ffffff", strokeOpacity: 0.06 })
+          ? new mk.Style({ lineWidth: 1, strokeColor: "#000000", strokeOpacity: 0.07 })
           : new mk.Style({ lineWidth: 2, strokeColor: lateColor(d), strokeOpacity: 0.65 })
       for (const o of overlays) o.style = style
     }
@@ -189,7 +189,7 @@ const Map = forwardRef<MapHandle, MapProps>(function Map({ buses, onSelectBus, s
       const map = new mk.Map(containerRef.current, {
         center: new mk.Coordinate(SF_CENTER.latitude, SF_CENTER.longitude),
         cameraDistance: 17000,
-        colorScheme: mkAny.Map?.ColorSchemes?.Dark ?? "dark",
+        colorScheme: mkAny.Map?.ColorSchemes?.Light ?? "light",
         showsCompass: mk.FeatureVisibility.Hidden,
         showsZoomControl: false,
         showsMapTypeControl: false,
