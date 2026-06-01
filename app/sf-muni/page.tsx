@@ -16,6 +16,7 @@ export default function SFMuniPage() {
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showInfo, setShowInfo] = useState(false)
+  const [lastFetch, setLastFetch] = useState<number | null>(null)
   const mapRef = useRef<MapHandle>(null)
 
   // Poll the cached endpoint. Slows to 5 min when the tab is hidden, snaps back
@@ -31,7 +32,10 @@ export default function SFMuniPage() {
         const res = await fetch("/sf-muni/api/buses", { cache: "no-store" })
         if (!res.ok) return
         const data: BusesResponse = await res.json()
-        if (!cancelled) setBuses(data.buses)
+        if (!cancelled) {
+          setBuses(data.buses)
+          setLastFetch(Date.now())
+        }
       } catch {
         // keep last good data on a transient failure
       } finally {
@@ -137,10 +141,45 @@ export default function SFMuniPage() {
         </button>
 
         {selectedBus && <BusCard bus={selectedBus} onClose={() => setSelectedId(null)} />}
+
+        <LastUpdated at={lastFetch} />
       </div>
 
       <WelcomeModal />
       {showInfo && <WelcomeModal open onClose={() => setShowInfo(false)} />}
+    </div>
+  )
+}
+
+// Small debug ticker: seconds since the last successful poll.
+function LastUpdated({ at }: { at: number | null }) {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  if (!at) return null
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000))
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: "max(10px, env(safe-area-inset-bottom))",
+        right: 12,
+        padding: "5px 9px",
+        borderRadius: 8,
+        background: "rgba(18,18,20,0.7)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        color: "#8e8e93",
+        fontSize: 11,
+        letterSpacing: "0.02em",
+        fontVariantNumeric: "tabular-nums",
+        pointerEvents: "none",
+      }}
+    >
+      updated {secs}s ago
     </div>
   )
 }
