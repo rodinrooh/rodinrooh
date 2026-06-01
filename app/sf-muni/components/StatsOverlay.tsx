@@ -18,12 +18,12 @@ export default function StatsOverlay({ latePct, avgDelayMin, total, loading }: S
         maxWidth: 340,
         padding: "16px 18px",
         borderRadius: 16,
-        background: "rgba(18,18,20,0.72)",
+        background: "rgba(255,255,255,0.85)",
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
-        color: "#fff",
+        border: "1px solid rgba(0,0,0,0.07)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+        color: "#1c1c1e",
         pointerEvents: "none",
       }}
     >
@@ -32,7 +32,7 @@ export default function StatsOverlay({ latePct, avgDelayMin, total, loading }: S
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 15, letterSpacing: "-0.01em", color: "#aeaeb2", marginTop: 12 }}>
+        <div style={{ fontSize: 15, letterSpacing: "-0.01em", color: "#8e8e93", marginTop: 12 }}>
           Locating every bus…
         </div>
       ) : (
@@ -41,7 +41,7 @@ export default function StatsOverlay({ latePct, avgDelayMin, total, loading }: S
             <span style={{ fontSize: "clamp(38px, 9vw, 54px)", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#ff453a" }}>
               {latePct}%
             </span>
-            <span style={{ fontSize: 15, letterSpacing: "-0.01em", color: "#d1d1d6", fontWeight: 500 }}>
+            <span style={{ fontSize: 15, letterSpacing: "-0.01em", color: "#3a3a3c", fontWeight: 500 }}>
               of buses late
             </span>
           </div>
