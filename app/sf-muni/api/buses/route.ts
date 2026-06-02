@@ -2,6 +2,8 @@ import { transit_realtime } from "gtfs-realtime-bindings"
 import type { Bus } from "@/lib/types-muni"
 
 export const runtime = "nodejs"
+// 511 can take 30–60s to respond; give the (background) refresh room to finish.
+export const maxDuration = 60
 
 const FEEDS = {
   positions: "https://api.511.org/transit/vehiclepositions",
@@ -120,7 +122,10 @@ export async function GET() {
     {
       headers: {
         // Edge-cached for the window so every visitor reads one shared copy.
-        "Cache-Control": `public, s-maxage=${window}, stale-while-revalidate=30`,
+        // Long stale-while-revalidate: once warm, the CDN always serves the
+        // last payload instantly and refreshes in the background, so nobody
+        // ever waits on a slow (30–60s) 511 response.
+        "Cache-Control": `public, s-maxage=${window}, stale-while-revalidate=3600`,
       },
     }
   )
