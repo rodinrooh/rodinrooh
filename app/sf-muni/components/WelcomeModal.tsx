@@ -114,7 +114,11 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
           <a href="https://x.com/rodinrooh" target="_blank" rel="noopener noreferrer" style={{ color: "#8e8e93", textDecoration: "underline" }}>
             Rodin Roohipour
           </a>
-          . Not affiliated with the SFMTA or Muni.
+          . Not affiliated with the SFMTA or Muni. Powered by{" "}
+          <a href="https://whop.com" target="_blank" rel="noopener noreferrer" style={{ color: "#8e8e93", textDecoration: "underline" }}>
+            Whop
+          </a>
+          .
         </p>
       </div>
     </div>
