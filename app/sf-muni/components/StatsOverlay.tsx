@@ -53,27 +53,17 @@ export default function StatsOverlay({ latePct, totalDelayMin, total, loading }:
 
             <div style={{ height: 1, background: "rgba(255,255,255,0.09)", margin: "15px 0" }} />
 
-            {/* dramatic live-delay metric */}
-            <div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.03em", color: "#fff", fontVariantNumeric: "tabular-nums" }}>
-                  {totalDelayMin.toLocaleString()}
-                </span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#c7c7cc" }}>min</span>
-              </div>
-              <div style={{ fontSize: 11, letterSpacing: "0.04em", color: "#8e8e93", textTransform: "uppercase", marginTop: 3 }}>
-                of delay across the system, right now
-              </div>
+            {/* dramatic live-delay metric — label inline to the right */}
+            <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+              <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.03em", color: "#fff", fontVariantNumeric: "tabular-nums" }}>
+                {totalDelayMin.toLocaleString()}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: "-0.01em", color: "#8e8e93" }}>
+                min of total delay
+              </span>
             </div>
           </>
         )}
-      </div>
-
-      {/* footnote */}
-      <div style={{ padding: "11px 18px", borderTop: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.02)" }}>
-        <div style={{ fontSize: 11, lineHeight: 1.45, letterSpacing: "-0.005em", color: "#8e8e93" }}>
-          Voters mandated 85% on-time in 1999. Muni has never hit it.
-        </div>
       </div>
     </div>
   )
