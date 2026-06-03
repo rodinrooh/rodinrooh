@@ -37,6 +37,12 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
+            href="/sf-payroll"
+            date="June 2026"
+            title="SF Payroll"
+            desc="Every SF city employee, by name, and the overtime machine paying hundreds of them more in OT than their salary"
+          />
+          <ProjectRow
             href="/sf-muni"
             date="May 2026"
             title="SF Muni Latency"
