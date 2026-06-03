@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={inter.className} style={{ fontFamily: inter.style.fontFamily, background: "#0a0a0c" }}>
+    <div className={inter.className} style={{ fontFamily: inter.style.fontFamily, background: "#ffffff" }}>
       {children}
     </div>
   )
