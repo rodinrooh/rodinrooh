@@ -10,6 +10,7 @@ import Leaderboards from "./components/Leaderboards"
 import DepartmentView from "./components/DepartmentView"
 import OvertimeBill from "./components/OvertimeBill"
 import SalaryRanker from "./components/SalaryRanker"
+import ReformSimulator from "./components/ReformSimulator"
 
 export default function Page() {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -53,15 +54,17 @@ export default function Page() {
 
         {stats && (
           <>
-            <Hero stats={stats} />
+            <Hero stats={stats} employees={employees} />
 
             <Leaderboards stats={stats} />
 
             <DepartmentView stats={stats} onSelect={selectDepartment} />
 
-            <OvertimeBill stats={stats} />
+            {employees && <ReformSimulator employees={employees} stats={stats} />}
 
             {employees && <SalaryRanker employees={employees} stats={stats} />}
+
+            <OvertimeBill stats={stats} />
 
             {employees ? (
               <Explorer
@@ -102,7 +105,7 @@ function Style() {
 :root { color-scheme: light; }
 .pay-root {
   --ink: #17171a; --muted: #6c6c74; --faint: #9a9aa2; --hair: #ededed; --rule: #e3e3e3;
-  --ot: #cf4b17;
+  --you: #137a4d; --you-soft: #e8f3ec;
   background: #fff; color: var(--ink); min-height: 100vh;
   -webkit-font-smoothing: antialiased; letter-spacing: -0.011em; font-size: 16px;
   overflow-x: hidden;
@@ -135,8 +138,8 @@ function Style() {
 .pay-hero { padding: 76px 0 0; }
 .pay-hero-kicker { color: var(--faint); font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
 .pay-hero-h1 { font-size: clamp(38px, 6.6vw, 60px); line-height: 1.0; font-weight: 800; letter-spacing: -0.04em; margin: 20px 0 0; }
-.pay-hl-ot { color: var(--ot); }
-.pay-hl-comp { font-weight: 700; }
+.pay-hl-ot { color: var(--ink); }
+.pay-hl-comp { font-weight: 800; color: var(--you); }
 .pay-hero-lede { font-size: clamp(17px, 2.3vw, 20px); color: var(--muted); max-width: 560px; line-height: 1.5; margin: 24px 0 0; }
 .pay-hero-lede strong { color: var(--ink); }
 
@@ -149,8 +152,8 @@ function Style() {
 .pay-stat-label { color: var(--muted); font-size: 12.5px; line-height: 1.35; margin-top: 7px; }
 
 /* most-extreme case — thin accent rule, not a box */
-.pay-herocard { margin: 56px 0 0; padding: 2px 0 0 20px; border-left: 2px solid var(--ot); }
-.pay-herocard-tag { color: var(--ot); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.pay-herocard { margin: 56px 0 0; padding: 2px 0 0 20px; border-left: 2px solid var(--ink); }
+.pay-herocard-tag { color: var(--faint); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .pay-herocard-name { font-size: 27px; font-weight: 800; letter-spacing: -0.035em; margin-top: 12px; }
 .pay-herocard-job { color: var(--muted); font-size: 14px; margin-top: 3px; }
 .pay-herocard-say { font-size: 18px; line-height: 1.6; margin: 18px 0 0; color: #2c2c32; }
@@ -204,16 +207,16 @@ function Style() {
 .pay-row-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
 .pay-row-nums { display: flex; gap: 28px; flex-shrink: 0; }
 .pay-num { text-align: right; }
-.pay-num-val { font-size: 15.5px; font-weight: 640; font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
-.pay-num-val.is-ot { color: var(--ot); }
+.pay-num-val { font-size: 15.5px; font-weight: 560; color: #3a3a40; font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
+.pay-num-val.is-ot { color: var(--ink); font-weight: 720; }
 .pay-num-label { color: var(--faint); font-size: 10.5px; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* quiet meta line — facts + flags separated by middots, only OT is colored */
 .pay-meta { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 9px; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .pay-meta > span { white-space: nowrap; }
 .pay-meta > span + span::before { content: "·"; margin: 0 8px; color: #d2d2d2; }
-.pay-meta-item.is-ot { color: var(--ot); font-weight: 550; }
-.pay-meta-item.is-gov { color: var(--ink); font-weight: 550; }
+.pay-meta-item.is-ot { color: var(--ink); font-weight: 560; }
+.pay-meta-item.is-gov { color: var(--ink); font-weight: 560; }
 
 /* tabs */
 .pay-tabs { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 6px; border-bottom: 1px solid var(--rule); }
@@ -237,9 +240,9 @@ function Style() {
 .pay-deptrow-name { font-size: 15.5px; font-weight: 620; }
 .pay-deptrow-ot { font-size: 15.5px; font-weight: 680; font-variant-numeric: tabular-nums; }
 .pay-deptbar-track { height: 4px; background: #efefef; border-radius: 999px; margin: 10px 0 8px; overflow: hidden; }
-.pay-deptbar-fill { height: 100%; background: var(--ot); border-radius: 999px; }
+.pay-deptbar-fill { height: 100%; background: #2b2b30; border-radius: 999px; }
 .pay-deptrow-meta { color: var(--faint); font-size: 12.5px; display: flex; justify-content: space-between; gap: 8px; }
-.pay-deptrow-go { color: var(--ot); opacity: 0; transition: opacity 0.15s; }
+.pay-deptrow-go { color: var(--ink); opacity: 0; transition: opacity 0.15s; }
 
 /* overtime bill — plain number list, no boxes */
 .pay-billlist { border-top: 1px solid var(--rule); }
@@ -266,6 +269,48 @@ function Style() {
 .pay-footer p { margin: 0 0 14px; max-width: 660px; }
 .pay-footer-frame { color: var(--muted); }
 .pay-footer a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+
+/* slider — the one place the accent lives (interactive = green = "you") */
+.pay-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; background: #e4e4e4; border-radius: 999px; outline: none; margin: 0; }
+.pay-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%; background: var(--you); cursor: pointer; border: 4px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.22); }
+.pay-slider::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--you); cursor: pointer; border: 4px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.22); }
+.pay-slider-ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; margin-top: 9px; font-variant-numeric: tabular-nums; }
+
+/* guess game — the hero interaction */
+.pay-game { margin: 32px 0 0; background: #fafafa; border: 1px solid var(--rule); border-radius: 16px; padding: 26px 24px; }
+.pay-game-prompt { display: flex; flex-direction: column; gap: 5px; }
+.pay-game-q { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--faint); }
+.pay-game-person { font-size: 16.5px; font-weight: 620; color: var(--ink); letter-spacing: -0.015em; line-height: 1.35; }
+.pay-game-readout { margin: 22px 0 18px; }
+.pay-game-label { font-size: 13px; color: var(--muted); }
+.pay-game-guess, .pay-game-actual { font-size: clamp(38px, 7vw, 54px); font-weight: 800; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 5px; }
+.pay-game-guess { color: var(--you); }
+.pay-game-actual { color: var(--ink); }
+.pay-game-btn { margin-top: 20px; background: var(--ink); color: #fff; border: none; border-radius: 10px; padding: 13px 28px; font: inherit; font-size: 15px; font-weight: 580; cursor: pointer; }
+.pay-game-btn:active { opacity: 0.85; }
+.pay-game-btn.is-ghost { background: none; color: var(--ink); border: 1px solid #d4d4d4; padding: 11px 20px; margin-top: 0; }
+.pay-game-bar { position: relative; height: 70px; margin: 8px 0; }
+.pay-game-bar-track { position: absolute; top: 34px; left: 0; right: 0; height: 3px; background: #e4e4e4; border-radius: 999px; }
+.pay-game-bar-mark { position: absolute; top: 28px; width: 2px; height: 15px; transform: translateX(-1px); }
+.pay-game-bar-mark.is-you { background: var(--you); }
+.pay-game-bar-mark.is-real { background: var(--ink); }
+.pay-game-bar-tag { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+/* stagger vertically so the two tags never collide when guess ≈ actual */
+.pay-game-bar-mark.is-you .pay-game-bar-tag { bottom: 22px; color: var(--you); }
+.pay-game-bar-mark.is-real .pay-game-bar-tag { top: 22px; color: var(--ink); }
+.pay-game-verdict { font-size: 16px; line-height: 1.55; color: var(--muted); margin: 16px 0 0; }
+.pay-game-verdict strong { color: var(--ink); font-weight: 680; }
+.pay-game-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+.pay-game-score { font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* reform simulator — the efficiency lever */
+.pay-sim-readout { margin: 2px 0 26px; }
+.pay-sim-saved { font-size: clamp(42px, 8vw, 64px); font-weight: 800; letter-spacing: -0.045em; color: var(--you); font-variant-numeric: tabular-nums; line-height: 1; }
+.pay-sim-savedlabel { font-size: 14px; color: var(--muted); margin-top: 9px; }
+.pay-sim-control { background: #fafafa; border: 1px solid var(--rule); border-radius: 14px; padding: 22px; }
+.pay-sim-caplabel { font-size: 16px; color: var(--ink); margin-bottom: 18px; }
+.pay-sim-caplabel strong { font-weight: 760; }
+.pay-sim-note { font-size: 13px; color: var(--faint); line-height: 1.6; margin: 18px 0 0; max-width: 620px; }
 
 /* welcome modal — light, minimal, no emoji */
 .pay-modal-scrim { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20,20,24,0.28); backdrop-filter: blur(5px); }

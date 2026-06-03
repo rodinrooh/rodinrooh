@@ -1,9 +1,10 @@
 "use client"
 
-import type { Stats } from "../lib/types"
+import type { Employee, Stats } from "../lib/types"
 import { usd, usdCompact, pct, hoursLabel } from "../lib/format"
+import GuessGame from "./GuessGame"
 
-export default function Hero({ stats }: { stats: Stats }) {
+export default function Hero({ stats, employees }: { stats: Stats; employees: Employee[] | null }) {
   const h = stats.hero
   return (
     <header className="pay-hero">
@@ -12,9 +13,11 @@ export default function Hero({ stats }: { stats: Stats }) {
         SF paid <span className="pay-hl-ot">{usdCompact(stats.totalOT)}</span> in overtime last year.
       </h1>
       <p className="pay-hero-lede">
-        {stats.counts.otBeatBase} employees made <strong>more in overtime than their entire base salary</strong>.
-        It&apos;s an overtime system with no brakes — and every dollar of it is public record.
+        Hundreds of city workers made more in overtime than their entire salary. Before you scroll the
+        records — <strong>guess what one of them actually took home.</strong>
       </p>
+
+      {employees && <GuessGame employees={employees} stats={stats} />}
 
       <div className="pay-stat-grid">
         <Stat num={usdCompact(stats.totalOT)} label="paid in overtime, 2025" />
