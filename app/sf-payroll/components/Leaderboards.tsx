@@ -32,7 +32,7 @@ export default function Leaderboards({ stats }: { stats: Stats }) {
     },
   ]
 
-  const board: LeaderCard[] = stats.leaderboards[tab]
+  const board: LeaderCard[] = stats.leaderboards[tab].slice(0, 15)
   const active = tabs.find((t) => t.key === tab)!
 
   return (

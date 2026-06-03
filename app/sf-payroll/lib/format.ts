@@ -34,26 +34,18 @@ export interface Tag {
   tone: "ot" | "gov" | "hours"
 }
 
-// Returns only the benchmark tags that actually apply to this person.
+// Returns only the benchmark facts that actually apply to this person — written
+// as a quiet inline meta line, not loud pills.
 export function benchmarkTags(e: Employee | LeaderCard, stats: Stats): Tag[] {
   const tags: Tag[] = []
   if (e.ot > e.base && e.base > 0) {
-    tags.push({
-      label: `${usd(e.ot - e.base)} more in OT than in base salary`,
-      tone: "ot",
-    })
+    tags.push({ label: `+${usd(e.ot - e.base)} OT over salary`, tone: "ot" })
   }
   if (e.totalComp > stats.governorSalary) {
-    tags.push({
-      label: `Out-earned the Governor (${usd(stats.governorSalary)})`,
-      tone: "gov",
-    })
+    tags.push({ label: `out-earned the Governor`, tone: "gov" })
   }
   if (e.hours > stats.hoursFlag) {
-    tags.push({
-      label: `🚩 ${hoursLabel(e.hours)} paid hours`,
-      tone: "hours",
-    })
+    tags.push({ label: `${hoursLabel(e.hours)} paid hrs`, tone: "hours" })
   }
   return tags
 }

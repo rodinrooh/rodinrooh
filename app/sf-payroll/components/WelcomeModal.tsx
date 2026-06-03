@@ -12,8 +12,9 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
 
   useEffect(() => {
     if (openProp === undefined) {
+      const skip = new URLSearchParams(window.location.search).has("skipintro")
       const seen = sessionStorage.getItem("payroll-welcome-seen")
-      if (!seen) setInternalOpen(true)
+      if (!seen && !skip) setInternalOpen(true)
     }
   }, [openProp])
 
@@ -33,55 +34,28 @@ export default function WelcomeModal({ open: openProp, onClose: onCloseProp }: W
   return (
     <div className="pay-modal-scrim" onClick={dismiss}>
       <div className="pay-modal" onClick={(ev) => ev.stopPropagation()}>
-        <div className="pay-modal-head">
-          <div className="pay-modal-emoji">💸</div>
-          <div>
-            <h1 className="pay-modal-title">SF Payroll</h1>
-            <p className="pay-modal-sub">San Francisco · 2025 · the public record</p>
-          </div>
-        </div>
+        <h1 className="pay-modal-title">SF Payroll</h1>
+        <p className="pay-modal-sub">Everyone on San Francisco&apos;s payroll in 2025, by name.</p>
 
         <div className="pay-modal-body">
-          <Row
-            icon="🧾"
-            title="What this is"
-            body="Every person on San Francisco's payroll in 2025 — by name — with what the city paid them. All 42,543 of them. Search, sort, filter. It's a public record; this just makes it readable."
-          />
-          <Row
-            icon="⏱️"
-            title="Why overtime is the story"
-            body="The city paid $482 million in overtime last year. 410 employees made more in overtime than in their entire base salary. This explorer puts that front and center."
-          />
-          <Row
-            icon="⚖️"
-            title="Not a hit list"
-            body="Most of this overtime is mandatory — driven by chronic understaffing and minimum-staffing rules. The city's own budget analyst flagged a system with weak controls. The numbers indict the machine, not the people working the shifts."
-          />
-          <Row
-            icon="📂"
-            title="Source"
-            body="DataSF's Employee Compensation dataset, calendar year 2025. Downloaded once, not live. Names are public for 2017 onward."
-          />
+          <p>
+            All 42,543 of them — what the city paid each person, and the overtime that paid hundreds of them more
+            than their salary. It&apos;s a public record; this just makes it readable.
+          </p>
+          <p>
+            Most of this overtime is mandatory: chronic understaffing, minimum-staffing rules, and a system the
+            city&apos;s own budget analyst flagged for weak controls. The numbers are evidence of the machine — not
+            an accusation against the people working the shifts.
+          </p>
+          <p className="pay-modal-src">
+            Source: DataSF Employee Compensation, calendar year 2025. Names are public for 2017 onward.
+          </p>
         </div>
 
         <button onClick={dismiss} className="pay-modal-btn">
           Show me the payroll
         </button>
-        <p className="pay-modal-fine">
-          By Rodin Roohipour. Public data, presented as-is. Not affiliated with the City of San Francisco.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function Row({ icon, title, body }: { icon: string; title: string; body: React.ReactNode }) {
-  return (
-    <div className="pay-modal-row">
-      <div className="pay-modal-row-icon">{icon}</div>
-      <div>
-        <div className="pay-modal-row-title">{title}</div>
-        <div className="pay-modal-row-body">{body}</div>
+        <p className="pay-modal-fine">By Rodin Roohipour. Not affiliated with the City of San Francisco.</p>
       </div>
     </div>
   )
