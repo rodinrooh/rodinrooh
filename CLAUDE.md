@@ -12,6 +12,7 @@ Vercel project: `rodinrooh` (rodins-projects-97c1647b)
 | `/internet-airport` | `app/internet-airport/` | Live domain arrivals board |
 | `/sf-meters` | `app/sf-meters/` | Live SF parking meter revenue tracker (Apple MapKit, DataSF, Supabase realtime) |
 | `/sf-muni` | `app/sf-muni/` | Live Muni bus latency map (Apple MapKit, 511 GTFS-RT, no storage) |
+| `/sf-craigslist` | `app/sf-craigslist/` | Freelist — SF Bay craigslist free section feed (no storage) |
 
 ## Environment variables (set in Vercel project)
 
@@ -41,6 +42,7 @@ Vercel project: `rodinrooh` (rodins-projects-97c1647b)
 - **sf-towing**: Supabase `tows` table, scraper in `rodinrooh/findmycar` repo (GitHub Actions, currently broken — Autura firewalled the source). Dataset is frozen as of May 12, 2026.
 - **internet-airport**: Supabase `domains` table, scraper + reveal workflow in `rodinrooh/domains.today` repo (still active).
 - **sf-meters**: Supabase `sf_meter_transactions` table. GitHub Actions cron (`.github/workflows/sf-meters-sync.yml`) runs every 5 min, pulls from DataSF API (`data.sfgov.org/resource/imvp-dq3v.json`), geocodes via Mapbox. GitHub Actions secrets needed: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `MAPBOX_TOKEN`, `DATASF_APP_TOKEN` (optional).
+- **sf-craigslist**: No storage. Server component fetches Craigslist's internal search API (`sapi.craigslist.org/web/v8/postings/search/full?...&searchPath=zip` — the RSS feed was discontinued in 2020), cached 5 min via `next: { revalidate: 300 }`, decodes the compact item arrays against the response's `decode` table, renders the grid server-side. Images hotlinked from `images.craigslist.org`. Note: craigslist may block datacenter IPs; if the page shows "Feed unavailable" the upstream fetch is being 403'd.
 - **sf-muni**: No storage. `app/sf-muni/api/buses/route.ts` fetches the 511 SF Bay GTFS-RT VehiclePositions + TripUpdates feeds (agency `SF`), parses the protobuf with `gtfs-realtime-bindings`, joins position+delay, returns a compact JSON array. The upstream fetch and the response are both cached for the refresh window so 511 is hit at most once per window regardless of traffic (511 limit: 60 req/hr per key). Client polls the cached route and computes the stats. Needs `API_511_KEYS`.
 
 ## How to deploy
