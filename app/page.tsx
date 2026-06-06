@@ -37,12 +37,6 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
-            href="/sf-craigslist"
-            date="June 2026"
-            title="Freelist"
-            desc="The SF Bay Area craigslist free section in a clean feed"
-          />
-          <ProjectRow
             href="/sf-muni"
             date="May 2026"
             title="SF Muni Latency"
