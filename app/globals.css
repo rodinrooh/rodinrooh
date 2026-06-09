@@ -85,6 +85,12 @@ html, body { overscroll-behavior: none; }
 input::placeholder { color: #333; letter-spacing: 0.14em; }
 .modal-body { font: 400 13px/1.5 "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; color: #888 !important; }
 
+/* /waypoints — constellation viz */
+.wp-word:hover { color: #ffb84d !important; }
+@media (max-width: 760px) {
+  .wp-hide-sm { display: none !important; }
+}
+
 /* Force Whop chat iframe to always be interactive regardless of parent visibility state */
 .whop-el,
 .whop-el > *,

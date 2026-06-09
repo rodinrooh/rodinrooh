@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import type { Point } from "./components/Map"
+import type { Point } from "./components/Constellation"
 
-const WaypointMap = dynamic(() => import("./components/Map"), { ssr: false })
+const Constellation = dynamic(() => import("./components/Constellation"), { ssr: false })
 
 type Row = [string, number, number, string]
 type WeirdItem = Point & { caption?: string }
+type StateStat = { st: string; n: number }
 
 const STATES: Record<string, string> = {
   AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
@@ -21,75 +22,66 @@ const STATES: Record<string, string> = {
   SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
   VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
   DC: "Washington, D.C.", PR: "Puerto Rico", VI: "U.S. Virgin Islands", GU: "Guam",
-  AS: "American Samoa", MP: "the Northern Marianas",
 }
 
 const toPoint = (r: Row): Point => ({ id: r[0], lat: r[1], lon: r[2], st: r[3] })
 
 function coords(lat: number, lon: number) {
-  const la = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? "N" : "S"}`
-  const lo = `${Math.abs(lon).toFixed(4)}°${lon >= 0 ? "E" : "W"}`
-  return `${la}, ${lo}`
+  const la = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}`
+  const lo = `${Math.abs(lon).toFixed(3)}°${lon >= 0 ? "E" : "W"}`
+  return `${la}  ${lo}`
 }
-
-function placeLine(st: string) {
-  const name = STATES[st]
-  return name ? `over ${name}` : "out over America"
-}
+const placeLine = (st: string) => (STATES[st] ? `over ${STATES[st]}` : "out past the coast")
 
 export default function Waypoints() {
-  const [byId, setById] = useState<Map<string, Point> | null>(null)
+  const [points, setPoints] = useState<Point[]>([])
+  const [byId, setById] = useState<Map<string, Point>>(new Map())
   const [ids, setIds] = useState<string[]>([])
-  const [count, setCount] = useState(0)
+  const [wordSet, setWordSet] = useState<Set<string>>(new Set())
   const [curated, setCurated] = useState<WeirdItem[]>([])
   const [words, setWords] = useState<Point[]>([])
+  const [stats, setStats] = useState<{ total: number; realWords: number; byState: StateStat[] } | null>(null)
 
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Point | null>(null)
+  const [highlightWords, setHighlightWords] = useState(false)
   const [filter, setFilter] = useState("")
-  const mapAnchor = useRef<HTMLDivElement | null>(null)
+  const topRef = useRef<HTMLDivElement | null>(null)
 
-  // Load the precomputed static data once.
   useEffect(() => {
     Promise.all([
       fetch("/waypoints.json").then((r) => r.json()),
       fetch("/waypoints-weird.json").then((r) => r.json()),
-    ]).then(([data, weird]) => {
+      fetch("/waypoints-stats.json").then((r) => r.json()),
+    ]).then(([data, weird, st]) => {
+      const pts = (data.rows as Row[]).map(toPoint)
       const map = new Map<string, Point>()
       const idList: string[] = []
-      for (const r of data.rows as Row[]) {
-        const p = toPoint(r)
-        if (!map.has(p.id)) {
-          map.set(p.id, p)
-          idList.push(p.id)
-        }
-      }
+      for (const p of pts) if (!map.has(p.id)) { map.set(p.id, p); idList.push(p.id) }
       idList.sort()
+      const wpts = (weird.words as Row[]).map(toPoint)
+      setPoints(pts)
       setById(map)
       setIds(idList)
-      setCount(idList.length)
+      setWordSet(new Set(wpts.map((p) => p.id)))
       setCurated(weird.curated as WeirdItem[])
-      setWords((weird.words as Row[]).map(toPoint))
+      setWords(wpts)
+      setStats(st)
     })
   }, [])
 
   const q = useMemo(() => query.toUpperCase().replace(/[^A-Z]/g, ""), [query])
-  const exact = q && byId ? byId.get(q) || null : null
+  const exact = q ? byId.get(q) || null : null
 
-  // Prefix suggestions when there's no exact hit.
   const suggestions = useMemo(() => {
     if (!q || exact || q.length < 2) return []
     const out: string[] = []
     for (const id of ids) {
-      if (id.startsWith(q)) {
-        out.push(id)
-        if (out.length >= 8) break
-      }
+      if (id.startsWith(q)) { out.push(id); if (out.length >= 6) break }
     }
     return out
   }, [q, exact, ids])
 
-  // Auto-reveal an exact match as you type it.
   useEffect(() => {
     if (exact) setSelected(exact)
   }, [exact])
@@ -97,254 +89,195 @@ export default function Waypoints() {
   function choose(p: Point) {
     setQuery(p.id)
     setSelected(p)
-    requestAnimationFrame(() =>
-      mapAnchor.current?.scrollIntoView({ behavior: "smooth", block: "center" })
-    )
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
-  const WORD_LIMIT = 240
   const filteredWords = useMemo(() => {
     const f = filter.toUpperCase().replace(/[^A-Z]/g, "")
-    if (!f) return words
-    return words.filter((w) => w.id.includes(f))
+    return f ? words.filter((w) => w.id.includes(f)) : words
   }, [filter, words])
-  const shownWords = filter ? filteredWords : filteredWords.slice(0, WORD_LIMIT)
-  const truncated = !filter && words.length > WORD_LIMIT
 
-  const loading = !byId
+  const loading = points.length === 0
+  const maxState = stats?.byState[0]?.n || 1
 
   return (
-    <main
-      style={{
-        maxWidth: 1120,
-        margin: "0 auto",
-        padding: "48px 24px 120px",
-        color: "#111",
-        fontFamily:
-          '-apple-system, "SF Pro Text", BlinkMacSystemFont, "Helvetica Neue", sans-serif',
-      }}
-    >
-      {/* Header */}
-      <h1 style={{ fontSize: 44, fontWeight: 700, letterSpacing: -1.4, lineHeight: 1.02, margin: 0 }}>
-        Every Name in the Sky
-      </h1>
-      <p style={{ fontSize: 17, lineHeight: 1.6, color: "#555", margin: "16px 0 0", maxWidth: 600 }}>
-        There are {count ? count.toLocaleString() : "tens of thousands of"}{" "}
-        named navigation waypoints floating invisibly over America — short names that planes fly
-        between, printed on charts you&apos;ll never see. Type any word and find out if it&apos;s one
-        of them.
-      </p>
+    <main style={{ background: "#070a12", color: "#e7ecf7", minHeight: "100vh", fontFamily: '-apple-system, "SF Pro Text", BlinkMacSystemFont, sans-serif' }}>
+      <div ref={topRef} />
 
-      {/* Map hero — always on, search overlaid like a HUD */}
-      <div
-        ref={mapAnchor}
-        style={{
-          position: "relative",
-          marginTop: 28,
-          height: "66vh",
-          minHeight: 500,
-          borderRadius: 14,
-          overflow: "hidden",
-          background: "#0b1b2e",
-          boxShadow: "0 1px 2px rgba(0,0,0,.05), 0 18px 50px -20px rgba(0,0,0,.35)",
-        }}
-      >
-        <WaypointMap selected={selected} />
+      {/* Top bar */}
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+        <span style={{ font: "600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".22em", color: "#cdd6ee" }}>
+          EVERY&nbsp;NAME&nbsp;IN&nbsp;THE&nbsp;SKY
+        </span>
+        <span style={{ font: "500 10.5px/1 ui-monospace, Menlo, monospace", letterSpacing: ".14em", color: "#55607c" }}>
+          FAA NASR · 2026-05-14
+        </span>
+      </header>
 
-        {/* floating search panel */}
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            left: 18,
-            width: "min(440px, calc(100% - 36px))",
-            background: "rgba(255,255,255,.94)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            borderRadius: 13,
-            padding: "16px 18px",
-            boxShadow: "0 10px 34px rgba(0,0,0,.26)",
-          }}
-        >
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a word…"
-            spellCheck={false}
-            autoCapitalize="characters"
-            style={{
-              width: "100%",
-              fontSize: 26,
-              fontWeight: 600,
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              padding: 0,
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              color: "#111",
-            }}
+      {/* Constellation hero */}
+      <section style={{ position: "relative", height: "calc(100vh - 53px)", minHeight: 560, overflow: "hidden" }}>
+        {!loading && (
+          <Constellation
+            points={points}
+            wordSet={wordSet}
+            selected={selected}
+            highlightWords={highlightWords}
+            onSelect={(p) => setSelected(p)}
           />
+        )}
 
-          {(loading || (!loading && (exact || q.length >= 1))) && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #ececec" }}>
-              {loading && <p style={{ color: "#999", fontSize: 14, margin: 0 }}>Loading the sky…</p>}
+        {/* Search + title HUD */}
+        <div className="wp-search" style={{ position: "absolute", top: 22, left: 22, width: "min(380px, calc(100% - 44px))", zIndex: 5 }}>
+          <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.8, lineHeight: 1.04, margin: "0 0 6px", textShadow: "0 2px 24px rgba(0,0,0,.7)" }}>
+            Every name in the sky
+          </h1>
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "#9aa6c4", margin: "0 0 14px", textShadow: "0 1px 12px rgba(0,0,0,.8)" }}>
+            {stats ? stats.total.toLocaleString() : "69,010"} navigation waypoints hover invisibly over America.
+            Each dot is a real name planes fly between. Find yours.
+          </p>
 
-              {!loading && exact && (
-                <>
-                  <p style={{ fontSize: 16, margin: 0, lineHeight: 1.45 }}>
-                    <strong>{exact.id}</strong> is real — floating {placeLine(exact.st)}.
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 12.5,
-                      color: "#999",
-                      margin: "5px 0 0",
-                      letterSpacing: ".02em",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {coords(exact.lat, exact.lon)}
-                  </p>
-                </>
-              )}
-
-              {!loading && !exact && q.length >= 1 && (
-                <>
-                  <p style={{ fontSize: 15, margin: 0, color: "#444" }}>
-                    No waypoint named <strong>{q}</strong> — yet.
-                  </p>
-                  {suggestions.length > 0 && (
-                    <p style={{ fontSize: 13, color: "#888", margin: "8px 0 0" }}>
-                      Close:{" "}
-                      {suggestions.map((s, i) => (
-                        <span key={s}>
-                          {i > 0 && ", "}
-                          <button onClick={() => choose(byId!.get(s)!)} style={linkBtn}>
-                            {s}
-                          </button>
-                        </span>
-                      ))}
-                    </p>
-                  )}
-                </>
-              )}
+          <div style={{ background: "rgba(10,14,26,.72)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 11, padding: "11px 13px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ color: "#ffb84d", font: "600 15px/1 ui-monospace, Menlo, monospace" }}>⌖</span>
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="TYPE A NAME"
+                spellCheck={false}
+                autoCapitalize="characters"
+                style={{ flex: 1, font: "600 18px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".12em", textTransform: "uppercase", border: "none", outline: "none", background: "transparent", color: "#fff", caretColor: "#ffb84d", minWidth: 0 }}
+              />
             </div>
-          )}
+
+            {!loading && (exact || q.length >= 1) && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,.1)" }}>
+                {exact ? (
+                  <>
+                    <div style={{ fontSize: 14, lineHeight: 1.4 }}>
+                      <b style={{ color: "#ffb84d" }}>{exact.id}</b> is real — floating {placeLine(exact.st)}.
+                    </div>
+                    <div style={{ font: "500 11px/1 ui-monospace, Menlo, monospace", color: "#7e8aa6", marginTop: 5, letterSpacing: ".04em" }}>
+                      {coords(exact.lat, exact.lon)}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: "#9aa6c4" }}>
+                    No waypoint named <b style={{ color: "#cdd6ee" }}>{q}</b> — yet.
+                    {suggestions.length > 0 && (
+                      <div style={{ marginTop: 7, font: "500 12px/1.6 ui-monospace, Menlo, monospace" }}>
+                        {suggestions.map((s, i) => (
+                          <span key={s}>
+                            {i > 0 && <span style={{ color: "#444c66" }}> · </span>}
+                            <button onClick={() => choose(byId.get(s)!)} style={{ border: "none", background: "none", padding: 0, color: "#ffb84d", cursor: "pointer", font: "inherit" }}>{s}</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* real-words toggle */}
+          <button
+            onClick={() => setHighlightWords((v) => !v)}
+            style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", background: highlightWords ? "rgba(255,184,77,.16)" : "rgba(10,14,26,.6)", border: `1px solid ${highlightWords ? "rgba(255,184,77,.5)" : "rgba(255,255,255,.12)"}`, color: highlightWords ? "#ffce8a" : "#9aa6c4", borderRadius: 999, padding: "7px 13px", font: "600 11px/1 ui-monospace, Menlo, monospace", letterSpacing: ".08em" }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: highlightWords ? "#ffb84d" : "#46506e", boxShadow: highlightWords ? "0 0 8px #ffb84d" : "none" }} />
+            {(stats?.realWords ?? 4895).toLocaleString()} REAL WORDS
+          </button>
         </div>
-      </div>
+
+        {/* Stat HUD (top-right) */}
+        <div className="wp-hide-sm" style={{ position: "absolute", top: 22, right: 24, textAlign: "right", zIndex: 5, pointerEvents: "none" }}>
+          <div style={{ font: "700 34px/1 ui-monospace, Menlo, monospace", letterSpacing: "-.02em", color: "#fff", textShadow: "0 2px 20px rgba(0,0,0,.8)" }}>
+            {stats ? stats.total.toLocaleString() : "—"}
+          </div>
+          <div style={{ font: "600 10px/1 ui-monospace, Menlo, monospace", letterSpacing: ".18em", color: "#7e8aa6", marginTop: 6 }}>
+            NAMED WAYPOINTS
+          </div>
+        </div>
+
+        {/* hint */}
+        <div style={{ position: "absolute", bottom: 16, right: 24, font: "500 10.5px/1 ui-monospace, Menlo, monospace", letterSpacing: ".1em", color: "#55607c", zIndex: 5, pointerEvents: "none", textShadow: "0 1px 10px rgba(0,0,0,.9)" }}>
+          DRAG TO PAN · SCROLL TO ZOOM · CLICK A STAR
+        </div>
+      </section>
+
+      {/* Readout: density by state */}
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "64px 24px 8px" }}>
+        <SectionLabel>Where the names cluster</SectionLabel>
+        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 26px", lineHeight: 1.6, maxWidth: 560 }}>
+          The density isn&apos;t random — it traces the busiest airspace in the country. Here&apos;s
+          where the most named waypoints hang.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 9 }}>
+          {(stats?.byState || []).slice(0, 12).map((s) => (
+            <div key={s.st} style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px", alignItems: "center", gap: 14 }}>
+              <span style={{ font: "500 13px/1 ui-monospace, Menlo, monospace", color: "#cdd6ee", letterSpacing: ".02em" }}>
+                {STATES[s.st] || s.st}
+              </span>
+              <span style={{ height: 8, background: "rgba(255,255,255,.05)", borderRadius: 4, overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", width: `${(s.n / maxState) * 100}%`, background: "linear-gradient(90deg,#ffb84d,#ff8a3d)", borderRadius: 4 }} />
+              </span>
+              <span style={{ font: "600 12px/1 ui-monospace, Menlo, monospace", color: "#7e8aa6", textAlign: "right" }}>
+                {s.n.toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* The weird ones */}
-      <section style={{ marginTop: 72, borderTop: "1px solid #eee", paddingTop: 40 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 640, letterSpacing: -0.4, margin: 0 }}>
-          The weird ones
-        </h2>
-        <p style={{ fontSize: 15, color: "#666", margin: "10px 0 0", lineHeight: 1.6 }}>
-          Controllers name these things, and they have a sense of humor. A few favorites — tap any to
-          see where it hides.
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "56px 24px 8px" }}>
+        <SectionLabel>The weird ones</SectionLabel>
+        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 24px", lineHeight: 1.6, maxWidth: 560 }}>
+          Controllers name these, and they have a sense of humor. Tap any to fly to it.
         </p>
-
-        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: 0 }}>
           {curated.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => choose(c)}
-              style={{
-                display: "flex",
-                gap: 16,
-                alignItems: "baseline",
-                textAlign: "left",
-                padding: "12px 0",
-                border: "none",
-                borderBottom: "1px solid #f1f1f1",
-                background: "transparent",
-                cursor: "pointer",
-                width: "100%",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  minWidth: 72,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {c.id}
-              </span>
-              <span style={{ fontSize: 15, color: "#555", lineHeight: 1.5 }}>{c.caption}</span>
+            <button key={c.id} onClick={() => choose(c)} style={{ display: "flex", gap: 14, alignItems: "baseline", textAlign: "left", padding: "13px 0", border: "none", borderBottom: "1px solid rgba(255,255,255,.06)", background: "transparent", cursor: "pointer", width: "100%" }}>
+              <span style={{ font: "600 14px/1 ui-monospace, Menlo, monospace", letterSpacing: ".08em", color: "#ffb84d", minWidth: 64 }}>{c.id}</span>
+              <span style={{ fontSize: 14, color: "#9aa6c4", lineHeight: 1.5 }}>{c.caption}</span>
             </button>
           ))}
         </div>
+      </section>
 
-        {/* Real words */}
-        <h3 style={{ fontSize: 16, fontWeight: 620, margin: "44px 0 0" }}>
-          Real words hiding in the sky{" "}
-          <span style={{ color: "#aaa", fontWeight: 400 }}>({words.length.toLocaleString()})</span>
-        </h3>
-        <p style={{ fontSize: 14, color: "#888", margin: "8px 0 0", lineHeight: 1.6 }}>
-          Every plain English word that also happens to be a real waypoint.
+      {/* All the real words */}
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "48px 24px 110px" }}>
+        <SectionLabel>
+          Real words in the sky <span style={{ color: "#55607c" }}>· {words.length.toLocaleString()}</span>
+        </SectionLabel>
+        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 18px", lineHeight: 1.6, maxWidth: 560 }}>
+          Every plain English word that&apos;s also a real waypoint. All of them.
         </p>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter…"
+          placeholder="FILTER"
           spellCheck={false}
-          style={{
-            marginTop: 16,
-            width: "100%",
-            maxWidth: 260,
-            fontSize: 14,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            padding: "8px 0",
-            border: "none",
-            borderBottom: "1px solid #ddd",
-            outline: "none",
-            background: "transparent",
-          }}
+          style={{ marginBottom: 22, width: "min(260px,100%)", font: "600 13px/1 ui-monospace, Menlo, monospace", letterSpacing: ".1em", textTransform: "uppercase", padding: "9px 0", border: "none", borderBottom: "1px solid rgba(255,255,255,.16)", outline: "none", background: "transparent", color: "#fff", caretColor: "#ffb84d" }}
         />
-        <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
-          {shownWords.map((w) => (
-            <button
-              key={w.id + w.lat}
-              onClick={() => choose(w)}
-              style={{
-                fontSize: 13,
-                fontWeight: 500,
-                letterSpacing: "0.06em",
-                color: "#333",
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "9px 16px" }}>
+          {filteredWords.map((w) => (
+            <button key={w.id} onClick={() => choose(w)} style={{ font: "500 13px/1 ui-monospace, Menlo, monospace", letterSpacing: ".06em", color: wordSet.has(w.id) ? "#aeb9d8" : "#aeb9d8", border: "none", background: "none", padding: 0, cursor: "pointer" }} className="wp-word">
               {w.id}
             </button>
           ))}
-          {filteredWords.length === 0 && (
-            <span style={{ fontSize: 14, color: "#aaa" }}>nothing matches that.</span>
-          )}
+          {filteredWords.length === 0 && <span style={{ fontSize: 14, color: "#55607c" }}>nothing matches that.</span>}
         </div>
-        {truncated && (
-          <p style={{ fontSize: 13, color: "#aaa", margin: "18px 0 0" }}>
-            Showing {WORD_LIMIT} of {words.length.toLocaleString()} — filter to find a specific word.
-          </p>
-        )}
       </section>
     </main>
   )
 }
 
-const linkBtn: React.CSSProperties = {
-  border: "none",
-  background: "transparent",
-  padding: 0,
-  font: "inherit",
-  color: "#111",
-  textDecoration: "underline",
-  cursor: "pointer",
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 style={{ font: "600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".2em", textTransform: "uppercase", color: "#cdd6ee", margin: 0 }}>
+      {children}
+    </h2>
+  )
 }

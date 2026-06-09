@@ -170,11 +170,40 @@ const weirdFile = {
   words: wordHits.map((p) => [p.id, p.lat, p.lon, p.st]),
 }
 
+// ---- stats (per-state density etc.) ----------------------------------------
+const stateCounts = new Map()
+for (const p of points) {
+  const k = p.st && p.st.trim() ? p.st.trim() : "??"
+  stateCounts.set(k, (stateCounts.get(k) || 0) + 1)
+}
+const byState = [...stateCounts]
+  .map(([st, n]) => ({ st, n }))
+  .sort((a, b) => b.n - a.n)
+
+const statsFile = {
+  effectiveDate: EFFECTIVE_DATE,
+  total: points.length,
+  uniqueIds: byId.size,
+  realWords: wordHits.length,
+  byState,
+}
+
+// ---- US map outline (bundled so the viz has no runtime CDN dependency) ------
+const STATES_TOPO_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json"
+console.log(`Downloading US map outline: ${STATES_TOPO_URL}`)
+const sres = await fetch(STATES_TOPO_URL)
+if (!sres.ok) throw new Error(`US atlas download failed ${sres.status}`)
+const statesTopo = Buffer.from(await sres.arrayBuffer())
+
 // ---- write -----------------------------------------------------------------
 const dataPath = join(PUBLIC_DIR, "waypoints.json")
 const weirdPath = join(PUBLIC_DIR, "waypoints-weird.json")
+const statsPath = join(PUBLIC_DIR, "waypoints-stats.json")
+const topoPath = join(PUBLIC_DIR, "us-states-10m.json")
 writeFileSync(dataPath, JSON.stringify(dataFile))
 writeFileSync(weirdPath, JSON.stringify(weirdFile))
+writeFileSync(statsPath, JSON.stringify(statsFile))
+writeFileSync(topoPath, statesTopo)
 
 const mb = (p) => (Buffer.byteLength(JSON.stringify(p)) / 1e6).toFixed(2)
 console.log("\n=== SUMMARY ===")
@@ -187,6 +216,9 @@ for (const id of ["BURGR", "WHODA", "ITAWT"]) {
   const p = byId.get(id)
   console.log(`  ${id.padEnd(6)}: ${p ? `${p.lat}, ${p.lon} (${p.st})` : "NOT FOUND"}`)
 }
+console.log(`top states      : ${byState.slice(0, 5).map((s) => `${s.st}:${s.n}`).join("  ")}`)
 console.log(`waypoints.json       : ${mb(dataFile)} MB`)
 console.log(`waypoints-weird.json : ${mb(weirdFile)} MB`)
-console.log(`\nWrote ${dataPath}\nWrote ${weirdPath}`)
+console.log(`waypoints-stats.json : ${mb(statsFile)} MB`)
+console.log(`us-states-10m.json   : ${(statesTopo.length / 1e6).toFixed(2)} MB`)
+console.log(`\nWrote ${dataPath}\nWrote ${weirdPath}\nWrote ${statsPath}\nWrote ${topoPath}`)
