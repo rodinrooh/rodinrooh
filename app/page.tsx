@@ -37,6 +37,12 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
+            href="/waypoints"
+            date="June 2026"
+            title="Every Name in the Sky"
+            desc="Type any word and see if it's a real FAA waypoint floating over America"
+          />
+          <ProjectRow
             href="/sf-muni"
             date="May 2026"
             title="SF Muni Latency"

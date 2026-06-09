@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:waypoints": "node scripts/build-waypoints-data.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
@@ -17,6 +18,7 @@
     "@whop/embedded-components-vanilla-js": "^1.0.0",
     "gtfs-realtime-bindings": "^2.0.0",
     "jsonwebtoken": "^9.0.3",
+    "maplibre-gl": "^5.24.0",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -26,9 +28,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "adm-zip": "^0.5.17",
+    "csv-parse": "^5.6.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "word-list": "^4.1.0"
   }
 }
