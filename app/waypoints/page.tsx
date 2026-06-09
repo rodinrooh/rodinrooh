@@ -116,103 +116,123 @@ export default function Waypoints() {
   return (
     <main
       style={{
-        maxWidth: 720,
+        maxWidth: 1120,
         margin: "0 auto",
-        padding: "96px 24px 120px",
+        padding: "48px 24px 120px",
         color: "#111",
         fontFamily:
           '-apple-system, "SF Pro Text", BlinkMacSystemFont, "Helvetica Neue", sans-serif',
       }}
     >
       {/* Header */}
-      <h1 style={{ fontSize: 40, fontWeight: 680, letterSpacing: -1, lineHeight: 1.05, margin: 0 }}>
+      <h1 style={{ fontSize: 44, fontWeight: 700, letterSpacing: -1.4, lineHeight: 1.02, margin: 0 }}>
         Every Name in the Sky
       </h1>
-      <p style={{ fontSize: 17, lineHeight: 1.6, color: "#555", margin: "18px 0 0", maxWidth: 560 }}>
+      <p style={{ fontSize: 17, lineHeight: 1.6, color: "#555", margin: "16px 0 0", maxWidth: 600 }}>
         There are {count ? count.toLocaleString() : "tens of thousands of"}{" "}
         named navigation waypoints floating invisibly over America — short names that planes fly
         between, printed on charts you&apos;ll never see. Type any word and find out if it&apos;s one
         of them.
       </p>
 
-      {/* Search */}
-      <div style={{ marginTop: 40 }}>
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type a word…"
-          spellCheck={false}
-          autoCapitalize="characters"
+      {/* Map hero — always on, search overlaid like a HUD */}
+      <div
+        ref={mapAnchor}
+        style={{
+          position: "relative",
+          marginTop: 28,
+          height: "66vh",
+          minHeight: 500,
+          borderRadius: 14,
+          overflow: "hidden",
+          background: "#0b1b2e",
+          boxShadow: "0 1px 2px rgba(0,0,0,.05), 0 18px 50px -20px rgba(0,0,0,.35)",
+        }}
+      >
+        <WaypointMap selected={selected} />
+
+        {/* floating search panel */}
+        <div
           style={{
-            width: "100%",
-            fontSize: 28,
-            fontWeight: 500,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            padding: "14px 2px",
-            border: "none",
-            borderBottom: "2px solid #111",
-            outline: "none",
-            background: "transparent",
-            color: "#111",
+            position: "absolute",
+            top: 18,
+            left: 18,
+            width: "min(440px, calc(100% - 36px))",
+            background: "rgba(255,255,255,.94)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            borderRadius: 13,
+            padding: "16px 18px",
+            boxShadow: "0 10px 34px rgba(0,0,0,.26)",
           }}
-        />
-      </div>
+        >
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Type a word…"
+            spellCheck={false}
+            autoCapitalize="characters"
+            style={{
+              width: "100%",
+              fontSize: 26,
+              fontWeight: 600,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              padding: 0,
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              color: "#111",
+            }}
+          />
 
-      {/* Result */}
-      <div style={{ marginTop: 28, minHeight: 64 }}>
-        {loading && <p style={{ color: "#999", fontSize: 15 }}>Loading the sky…</p>}
+          {(loading || (!loading && (exact || q.length >= 1))) && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #ececec" }}>
+              {loading && <p style={{ color: "#999", fontSize: 14, margin: 0 }}>Loading the sky…</p>}
 
-        {!loading && exact && (
-          <div>
-            <p style={{ fontSize: 22, margin: 0, lineHeight: 1.45 }}>
-              <strong>{exact.id}</strong> is real. It&apos;s floating {placeLine(exact.st)}.
-            </p>
-            <p style={{ fontSize: 14, color: "#888", margin: "8px 0 0", fontVariantNumeric: "tabular-nums" }}>
-              {coords(exact.lat, exact.lon)}
-            </p>
-          </div>
-        )}
+              {!loading && exact && (
+                <>
+                  <p style={{ fontSize: 16, margin: 0, lineHeight: 1.45 }}>
+                    <strong>{exact.id}</strong> is real — floating {placeLine(exact.st)}.
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 12.5,
+                      color: "#999",
+                      margin: "5px 0 0",
+                      letterSpacing: ".02em",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {coords(exact.lat, exact.lon)}
+                  </p>
+                </>
+              )}
 
-        {!loading && !exact && q.length >= 1 && (
-          <div>
-            <p style={{ fontSize: 18, margin: 0, color: "#444" }}>
-              No waypoint named <strong>{q}</strong> — yet.
-            </p>
-            {suggestions.length > 0 && (
-              <p style={{ fontSize: 14, color: "#888", margin: "10px 0 0" }}>
-                Close:{" "}
-                {suggestions.map((s, i) => (
-                  <span key={s}>
-                    {i > 0 && ", "}
-                    <button onClick={() => choose(byId!.get(s)!)} style={linkBtn}>
-                      {s}
-                    </button>
-                  </span>
-                ))}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Map */}
-      <div ref={mapAnchor}>
-        {selected && (
-          <div style={{ marginTop: 16 }}>
-            <div
-              style={{
-                height: 420,
-                border: "1px solid #e6e6e6",
-                borderRadius: 6,
-                overflow: "hidden",
-              }}
-            >
-              <WaypointMap selected={selected} />
+              {!loading && !exact && q.length >= 1 && (
+                <>
+                  <p style={{ fontSize: 15, margin: 0, color: "#444" }}>
+                    No waypoint named <strong>{q}</strong> — yet.
+                  </p>
+                  {suggestions.length > 0 && (
+                    <p style={{ fontSize: 13, color: "#888", margin: "8px 0 0" }}>
+                      Close:{" "}
+                      {suggestions.map((s, i) => (
+                        <span key={s}>
+                          {i > 0 && ", "}
+                          <button onClick={() => choose(byId!.get(s)!)} style={linkBtn}>
+                            {s}
+                          </button>
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* The weird ones */}
