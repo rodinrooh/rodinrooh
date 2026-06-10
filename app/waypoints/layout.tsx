@@ -13,5 +13,11 @@ export const metadata: Metadata = {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <div style={{ background: "#fff" }}>{children}</div>
+  return (
+    <div style={{ background: "#eaeef2" }}>
+      {/* Preload MapKit JS so it starts fetching before the map mounts */}
+      <link rel="preload" href="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js" as="script" />
+      {children}
+    </div>
+  )
 }

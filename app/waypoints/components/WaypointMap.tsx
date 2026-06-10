@@ -1,23 +1,34 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { geoAlbersUsa, geoPath, type GeoProjection } from "d3-geo"
-import { zoom as d3zoom, zoomIdentity, type ZoomTransform } from "d3-zoom"
 import { quadtree, type Quadtree } from "d3-quadtree"
-import { select } from "d3-selection"
-import "d3-transition"
-import { feature } from "topojson-client"
 
 export type Point = { id: string; lat: number; lon: number; st: string }
 
-type Node = { i: number; x: number; y: number }
-
-// Normal map palette — light land, blue water, visible borders.
-const WATER = "#e7eef6"
-const LAND = "#fcfdfe"
-const BORDER = "#c2ccda"
-const DOT = "27,44,74" // navy (rgb)
+const MAPKIT_URL = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"
 const ACCENT = "#e5484d"
+
+type WNode = { i: number; x: number; y: number }
+
+const STATES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas",
+  KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts",
+  MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana",
+  NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico",
+  NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma",
+  OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+  DC: "Washington, D.C.", PR: "Puerto Rico", VI: "U.S. Virgin Islands", GU: "Guam",
+  OG: "Gulf of Mexico",
+}
+const subtitleFor = (p: Point) => {
+  const place = STATES[p.st] || ""
+  const c = `${Math.abs(p.lat).toFixed(2)}°${p.lat >= 0 ? "N" : "S"} ${Math.abs(p.lon).toFixed(2)}°${p.lon >= 0 ? "E" : "W"}`
+  return place ? `${place} · ${c}` : c
+}
 
 interface Props {
   points: Point[]
@@ -27,27 +38,14 @@ interface Props {
 
 export default function WaypointMap({ points, selected, onSelect }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-
-  const sizeRef = useRef({ w: 0, h: 0, dpr: 1 })
-  const projRef = useRef<GeoProjection | null>(null)
-  const xsRef = useRef<Float64Array>(new Float64Array(0))
-  const ysRef = useRef<Float64Array>(new Float64Array(0))
-  const okRef = useRef<Uint8Array>(new Uint8Array(0))
-  const treeRef = useRef<Quadtree<Node> | null>(null)
-  const landRef = useRef<Path2D | null>(null)
-  const fcRef = useRef<GeoJSON.FeatureCollection | null>(null)
-  const tRef = useRef<ZoomTransform>(zoomIdentity)
-  const hoverRef = useRef(-1)
-  const selIdxRef = useRef(-1)
+  const mapElRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<mapkit.Map | null>(null)
+  const treeRef = useRef<Quadtree<WNode> | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const zoomRef = useRef<any>(null)
+  const markerRef = useRef<any>(null)
   const idIndexRef = useRef<Map<string, number>>(new Map())
-  const fadeRef = useRef(0)
-  const rafRef = useRef(0)
-
+  const initRef = useRef(false)
   const [tip, setTip] = useState<{ x: number; y: number; id: string; st: string } | null>(null)
-  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     const idx = new Map<string, number>()
@@ -56,262 +54,165 @@ export default function WaypointMap({ points, selected, onSelect }: Props) {
   }, [points])
 
   useEffect(() => {
-    let alive = true
-    fetch("/us-states-10m.json")
-      .then((r) => r.json())
-      .then((topo) => {
-        if (!alive) return
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        fcRef.current = feature(topo, (topo as any).objects.states) as unknown as GeoJSON.FeatureCollection
-        layout()
-        setReady(true)
-        intro()
+    if (initRef.current) return
+    initRef.current = true
+
+    function initMap() {
+      const mk = window.mapkit
+      if (!mk || !mapElRef.current) return
+      mk.init({
+        authorizationCallback: async (done: (t: string) => void) => {
+          const res = await fetch("/waypoints/api/maps-token")
+          const { token } = await res.json()
+          done(token)
+        },
       })
-    return () => {
-      alive = false
-      cancelAnimationFrame(rafRef.current)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mkAny = mk as any
+      const map = new mk.Map(mapElRef.current, {
+        showsCompass: mk.FeatureVisibility.Hidden,
+        showsScale: mk.FeatureVisibility.Hidden,
+        showsMapTypeControl: false,
+        showsZoomControl: true,
+        isRotationEnabled: false,
+      })
+      mapRef.current = map
+      ;(map as unknown as { region: unknown }).region = new mkAny.CoordinateRegion(
+        new mk.Coordinate(39.5, -96),
+        new mkAny.CoordinateSpan(34, 60),
+      )
+      buildOverlay(mkAny, map)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    // Bake all 69k dots into one image MapKit pans/zooms natively (no per-frame work).
+    // Project through MapKit's own toMapPoint so the image + rect share its exact projection.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function buildOverlay(mkAny: any, map: mapkit.Map) {
+      const n = points.length
+      const xs = new Float64Array(n)
+      const ys = new Float64Array(n)
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      const nodes: WNode[] = new Array(n)
+      for (let i = 0; i < n; i++) {
+        const mp = new mkAny.Coordinate(points[i].lat, points[i].lon).toMapPoint()
+        const x = mp.x, y = mp.y
+        xs[i] = x; ys[i] = y
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+        nodes[i] = { i, x, y }
+      }
+      treeRef.current = quadtree<WNode>().x((d) => d.x).y((d) => d.y).addAll(nodes)
+
+      const rwRaw = maxX - minX
+      const pad = rwRaw * 0.01
+      minX -= pad; maxX += pad; minY -= pad; maxY += pad
+      const rw = maxX - minX
+      const rh = maxY - minY
+      const imgW = 3072
+      const imgH = Math.round((imgW * rh) / rw)
+      const cv = document.createElement("canvas")
+      cv.width = imgW
+      cv.height = imgH
+      const ctx = cv.getContext("2d")!
+      ctx.fillStyle = "rgba(22,40,74,0.72)"
+      const r = 2.4
+      for (let i = 0; i < n; i++) {
+        const px = ((xs[i] - minX) / rw) * imgW
+        const py = ((ys[i] - minY) / rh) * imgH
+        ctx.beginPath()
+        ctx.arc(px, py, r, 0, 6.283)
+        ctx.fill()
+      }
+      const url = cv.toDataURL("image/png")
+      const rect = new mkAny.MapRect(minX, minY, rw, rh)
+      const overlay = new mkAny.ImageOverlay(url, { rect })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(map as any).addOverlay(overlay)
+    }
+
+    if (typeof window !== "undefined" && window.mapkit) {
+      initMap()
+    } else if (!document.querySelector(`script[src="${MAPKIT_URL}"]`)) {
+      const s = document.createElement("script")
+      s.src = MAPKIT_URL
+      s.async = true
+      s.onload = initMap
+      document.head.appendChild(s)
+    } else {
+      const t = setInterval(() => {
+        if (window.mapkit) {
+          clearInterval(t)
+          initMap()
+        }
+      }, 100)
+    }
   }, [])
 
-  function layout() {
-    const wrap = wrapRef.current
-    const canvas = canvasRef.current
-    const fc = fcRef.current
-    if (!wrap || !canvas || !fc) return
-
-    const w = wrap.clientWidth
-    const h = wrap.clientHeight
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    sizeRef.current = { w, h, dpr }
-    canvas.width = Math.round(w * dpr)
-    canvas.height = Math.round(h * dpr)
-    canvas.style.width = w + "px"
-    canvas.style.height = h + "px"
-
-    const proj = geoAlbersUsa().fitExtent([[w * 0.04, h * 0.08], [w * 0.96, h * 0.94]], fc)
-    projRef.current = proj
-
-    const land = new Path2D()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    geoPath(proj, land as any)(fc)
-    landRef.current = land
-
-    const n = points.length
-    const xs = new Float64Array(n)
-    const ys = new Float64Array(n)
-    const ok = new Uint8Array(n)
-    const nodes: Node[] = []
-    for (let i = 0; i < n; i++) {
-      const xy = proj([points[i].lon, points[i].lat])
-      if (xy) {
-        xs[i] = xy[0]
-        ys[i] = xy[1]
-        ok[i] = 1
-        nodes.push({ i, x: xy[0], y: xy[1] })
-      }
-    }
-    xsRef.current = xs
-    ysRef.current = ys
-    okRef.current = ok
-    treeRef.current = quadtree<Node>().x((d) => d.x).y((d) => d.y).addAll(nodes)
-
-    if (!zoomRef.current) {
-      const z = d3zoom<HTMLCanvasElement, unknown>()
-        .scaleExtent([1, 90])
-        .on("zoom", (e) => {
-          tRef.current = e.transform
-          draw()
-        })
-      zoomRef.current = z
-      select(canvas).call(z)
-    }
-    draw()
-  }
-
-  function intro() {
-    const start = performance.now()
-    const step = (now: number) => {
-      fadeRef.current = Math.min(1, (now - start) / 700)
-      draw()
-      if (fadeRef.current < 1) rafRef.current = requestAnimationFrame(step)
-    }
-    rafRef.current = requestAnimationFrame(step)
-  }
-
-  function draw() {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-    const { w, h, dpr } = sizeRef.current
-    const t = tRef.current
-    const k = t.k
-    const xs = xsRef.current
-    const ys = ysRef.current
-    const ok = okRef.current
-    const fade = fadeRef.current
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = WATER
-    ctx.fillRect(0, 0, w, h)
-    ctx.translate(t.x, t.y)
-    ctx.scale(k, k)
-
-    // Landmass — filled, with clear state borders, so it reads as a real US map.
-    const land = landRef.current
-    if (land) {
-      ctx.fillStyle = LAND
-      ctx.fill(land)
-      ctx.lineWidth = 0.9 / k
-      ctx.strokeStyle = BORDER
-      ctx.stroke(land)
-    }
-
-    // Waypoints.
-    const n = xs.length
-    const s = 1.35 / k
-    const half = s / 2
-    ctx.fillStyle = `rgba(${DOT},${(0.55 * fade).toFixed(3)})`
-    for (let i = 0; i < n; i++) {
-      if (!ok[i]) continue
-      ctx.fillRect(xs[i] - half, ys[i] - half, s, s)
-    }
-
-    // Hover.
-    const hi = hoverRef.current
-    if (hi >= 0 && ok[hi]) {
-      ctx.fillStyle = "#1b2c4a"
-      ctx.beginPath()
-      ctx.arc(xs[hi], ys[hi], 2.8 / k, 0, 6.283)
-      ctx.fill()
-    }
-
-    // Selected pin.
-    const si = selIdxRef.current
-    if (si >= 0 && ok[si]) {
-      ctx.save()
-      ctx.shadowColor = "rgba(229,72,77,0.5)"
-      ctx.shadowBlur = 12
-      ctx.fillStyle = ACCENT
-      ctx.beginPath()
-      ctx.arc(xs[si], ys[si], 4 / k, 0, 6.283)
-      ctx.fill()
-      ctx.restore()
-      ctx.lineWidth = 2 / k
-      ctx.strokeStyle = "#fff"
-      ctx.beginPath()
-      ctx.arc(xs[si], ys[si], 4 / k, 0, 6.283)
-      ctx.stroke()
-      ctx.lineWidth = 1.1 / k
-      ctx.strokeStyle = "rgba(229,72,77,0.55)"
-      ctx.beginPath()
-      ctx.arc(xs[si], ys[si], 9 / k, 0, 6.283)
-      ctx.stroke()
-    }
-
-    // Selected label (screen space).
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    if (si >= 0 && ok[si]) {
-      const sx = t.x + xs[si] * k
-      const sy = t.y + ys[si] * k
-      const label = points[si].id
-      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
-      const tw = ctx.measureText(label).width
-      const lx = Math.min(Math.max(sx + 13, 8), w - tw - 16)
-      const ly = Math.min(Math.max(sy, 20), h - 8)
-      ctx.fillStyle = "#111"
-      const rx = lx - 7, ry = ly - 13, rw = tw + 14, rh = 21, rr = 6
-      ctx.beginPath()
-      ctx.moveTo(rx + rr, ry)
-      ctx.arcTo(rx + rw, ry, rx + rw, ry + rh, rr)
-      ctx.arcTo(rx + rw, ry + rh, rx, ry + rh, rr)
-      ctx.arcTo(rx, ry + rh, rx, ry, rr)
-      ctx.arcTo(rx, ry, rx + rw, ry, rr)
-      ctx.fill()
-      ctx.fillStyle = "#fff"
-      ctx.fillText(label, lx, ly + 1)
-    }
-  }
-
-  // Ease to the selected waypoint.
+  // Selection → native pin + fly.
   useEffect(() => {
-    const idx = selected ? idIndexRef.current.get(selected.id) ?? -1 : -1
-    selIdxRef.current = idx
-    const canvas = canvasRef.current
-    const z = zoomRef.current
-    if (idx < 0 || !canvas || !z || !okRef.current[idx]) {
-      draw()
-      return
+    const map = mapRef.current
+    const mk = typeof window !== "undefined" ? window.mapkit : null
+    if (!map || !mk || !selected) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mkAny = mk as any
+    if (markerRef.current) {
+      map.removeAnnotation(markerRef.current)
+      markerRef.current = null
     }
-    const { w, h } = sizeRef.current
-    const k = 14
-    const target = zoomIdentity.translate(w / 2 - xsRef.current[idx] * k, h / 2 - ysRef.current[idx] * k).scale(k)
-    select(canvas).transition().duration(750).call(z.transform, target)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const ann = new mkAny.MarkerAnnotation(new mk.Coordinate(selected.lat, selected.lon), {
+      color: ACCENT,
+      title: selected.id,
+      subtitle: subtitleFor(selected),
+      selected: true,
+    })
+    map.addAnnotation(ann)
+    markerRef.current = ann
+    map.setCenterAnimated(new mk.Coordinate(selected.lat, selected.lon), true)
+    map.cameraDistance = 130000
   }, [selected])
 
-  // Resize.
-  useEffect(() => {
-    if (!ready) return
-    let raf = 0
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(layout)
-    })
-    if (wrapRef.current) ro.observe(wrapRef.current)
-    return () => {
-      ro.disconnect()
-      cancelAnimationFrame(raf)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready])
-
+  // Hit-test a screen point against the dots via MapKit's projection.
   function pick(clientX: number, clientY: number): number {
-    const canvas = canvasRef.current
+    const map = mapRef.current
+    const mk = typeof window !== "undefined" ? window.mapkit : null
     const tree = treeRef.current
-    if (!canvas || !tree) return -1
-    const rect = canvas.getBoundingClientRect()
-    const t = tRef.current
-    const bx = (clientX - rect.left - t.x) / t.k
-    const by = (clientY - rect.top - t.y) / t.k
-    const found = tree.find(bx, by, 13 / t.k)
-    return found ? found.i : -1
+    if (!map || !mk || !tree) return -1
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mkAny = mk as any
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const m = map as any
+      const c0 = m.convertPointOnPageToCoordinate(new DOMPoint(clientX, clientY))
+      const c1 = m.convertPointOnPageToCoordinate(new DOMPoint(clientX + 10, clientY))
+      const p0 = new mkAny.Coordinate(c0.latitude, c0.longitude).toMapPoint()
+      const p1 = new mkAny.Coordinate(c1.latitude, c1.longitude).toMapPoint()
+      const perPx = Math.abs(p1.x - p0.x) / 10 || 1e-9
+      const found = tree.find(p0.x, p0.y, 12 * perPx)
+      return found ? found.i : -1
+    } catch {
+      return -1
+    }
   }
 
   function onMove(e: React.PointerEvent) {
     const i = pick(e.clientX, e.clientY)
-    if (i !== hoverRef.current) {
-      hoverRef.current = i
-      draw()
-    }
-    const rect = canvasRef.current!.getBoundingClientRect()
+    const rect = wrapRef.current!.getBoundingClientRect()
     if (i >= 0) setTip({ x: e.clientX - rect.left, y: e.clientY - rect.top, id: points[i].id, st: points[i].st })
     else if (tip) setTip(null)
   }
-
   function onLeave() {
-    if (hoverRef.current !== -1) {
-      hoverRef.current = -1
-      draw()
-    }
-    setTip(null)
+    if (tip) setTip(null)
   }
-
   function onClick(e: React.MouseEvent) {
     const i = pick(e.clientX, e.clientY)
     if (i >= 0) onSelect(points[i])
   }
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, background: WATER }}>
-      <canvas
-        ref={canvasRef}
-        onPointerMove={onMove}
-        onPointerLeave={onLeave}
-        onClick={onClick}
-        style={{ display: "block", cursor: hoverRef.current >= 0 ? "pointer" : "grab", touchAction: "none" }}
-      />
+    <div ref={wrapRef} onPointerMove={onMove} onPointerLeave={onLeave} onClick={onClick} style={{ position: "absolute", inset: 0 }}>
+      <div ref={mapElRef} style={{ position: "absolute", inset: 0 }} />
       {tip && (
         <div
           style={{
@@ -321,11 +222,11 @@ export default function WaypointMap({ points, selected, onSelect }: Props) {
             pointerEvents: "none",
             font: '600 12px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
             color: "#fff",
-            background: "#111",
+            background: "#1a1a1a",
             padding: "6px 9px",
             borderRadius: 7,
             whiteSpace: "nowrap",
-            transform: tip.x > sizeRef.current.w - 130 ? "translateX(calc(-100% - 26px))" : "none",
+            transform: tip.x > (wrapRef.current?.clientWidth || 9999) - 130 ? "translateX(calc(-100% - 26px))" : "none",
           }}
         >
           {tip.id} <span style={{ color: "#9aa3b2", marginLeft: 2 }}>{tip.st || "—"}</span>
