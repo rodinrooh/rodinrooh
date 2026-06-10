@@ -13,5 +13,5 @@ export const metadata: Metadata = {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <div style={{ background: "#070a12" }}>{children}</div>
+  return <div style={{ background: "#fff" }}>{children}</div>
 }

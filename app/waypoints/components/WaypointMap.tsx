@@ -12,12 +12,12 @@ export type Point = { id: string; lat: number; lon: number; st: string }
 
 type Node = { i: number; x: number; y: number }
 
-// Clean dark-map palette.
-const BG = "#0a0e17" // water / space
-const LAND = "#161d2b" // landmass fill
-const LAND_LINE = "rgba(150,172,214,0.12)" // state hairlines
-const STAR = "229,236,250" // base waypoint dots (rgb)
-const ACCENT = "#ff9f1c"
+// Clean light atlas palette.
+const BG = "#ffffff" // paper
+const LAND = "#fbfbfa" // barely-there landmass fill
+const LAND_LINE = "rgba(20,30,50,0.07)" // state hairlines
+const STAR = "44,58,78" // base waypoint dots (rgb) — soft slate
+const ACCENT = "#e8462d"
 
 interface Props {
   points: Point[]
@@ -192,7 +192,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     const half = s / 2
 
     // Base waypoints.
-    ctx.fillStyle = `rgba(${STAR},${(0.5 * fade).toFixed(3)})`
+    ctx.fillStyle = `rgba(${STAR},${(0.42 * fade).toFixed(3)})`
     for (let i = 0; i < n; i++) {
       if (!ok[i] || (hl && word[i])) continue
       ctx.fillRect(xs[i] - half, ys[i] - half, s, s)
@@ -213,7 +213,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     // Hover.
     const hi = hoverRef.current
     if (hi >= 0 && ok[hi]) {
-      ctx.fillStyle = "#fff"
+      ctx.fillStyle = "#16223a"
       ctx.beginPath()
       ctx.arc(xs[hi], ys[hi], 2.6 / k, 0, 6.283)
       ctx.fill()

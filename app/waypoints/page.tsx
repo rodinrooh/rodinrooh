@@ -103,11 +103,11 @@ export default function Waypoints() {
   const maxState = stats?.byState[0]?.n || 1
 
   return (
-    <main style={{ background: "#070a12", color: "#e7ecf7", minHeight: "100vh", fontFamily: '-apple-system, "SF Pro Text", BlinkMacSystemFont, sans-serif' }}>
+    <main style={{ background: "#fff", color: "#1a1a1a", minHeight: "100vh", fontFamily: '-apple-system, "SF Pro Text", BlinkMacSystemFont, "Helvetica Neue", sans-serif' }}>
       <div ref={topRef} />
 
-      {/* Map hero */}
-      <section style={{ position: "relative", height: "100vh", minHeight: 560, overflow: "hidden" }}>
+      {/* Map */}
+      <section style={{ position: "relative", height: "94vh", minHeight: 560, overflow: "hidden" }}>
         {!loading && (
           <WaypointMap
             points={points}
@@ -118,96 +118,97 @@ export default function Waypoints() {
           />
         )}
 
+        {/* soft scrim so floating chrome stays crisp over the map */}
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 220, background: "linear-gradient(180deg,#fff 18%,rgba(255,255,255,0))", zIndex: 1, pointerEvents: "none" }} />
+
         {/* Title + search */}
-        <div className="wp-search" style={{ position: "absolute", top: 28, left: 28, width: "min(360px, calc(100% - 44px))", zIndex: 5 }}>
-          <h1 style={{ fontSize: 27, fontWeight: 600, letterSpacing: -0.6, lineHeight: 1.1, margin: "0 0 6px", textShadow: "0 1px 18px rgba(0,0,0,.85)" }}>
+        <div className="wp-search" style={{ position: "absolute", top: 40, left: 40, width: "min(380px, calc(100% - 56px))", zIndex: 5 }}>
+          <h1 style={{ fontSize: 34, fontWeight: 680, letterSpacing: -1, lineHeight: 1.04, margin: "0 0 10px" }}>
             Every name in the sky
           </h1>
-          <p style={{ fontSize: 13.5, lineHeight: 1.5, color: "#aab4cc", margin: "0 0 16px", textShadow: "0 1px 14px rgba(0,0,0,.9)" }}>
-            {stats ? stats.total.toLocaleString() : "69,010"} waypoints hover invisibly over America.
-            Each one is a real name planes fly between.
+          <p style={{ fontSize: 15, lineHeight: 1.55, color: "#666", margin: "0 0 22px", maxWidth: 340 }}>
+            {stats ? stats.total.toLocaleString() : "69,010"} waypoints hover invisibly over America —
+            each a real name planes fly between. Search for one.
           </p>
 
-          <div style={{ background: "rgba(16,20,30,.7)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 13, padding: "12px 14px", boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search a name"
-              spellCheck={false}
-              autoCapitalize="characters"
-              style={{ width: "100%", fontSize: 18, fontWeight: 500, letterSpacing: ".02em", textTransform: "uppercase", border: "none", outline: "none", background: "transparent", color: "#fff", caretColor: ACCENT, minWidth: 0 }}
-            />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a name"
+            spellCheck={false}
+            autoCapitalize="characters"
+            style={{ width: "100%", maxWidth: 320, fontSize: 22, fontWeight: 500, letterSpacing: ".01em", textTransform: "uppercase", padding: "6px 0", border: "none", borderBottom: "1.5px solid #111", outline: "none", background: "transparent", color: "#111", caretColor: ACCENT }}
+          />
 
-            {!loading && (exact || q.length >= 1) && (
-              <div style={{ marginTop: 11, paddingTop: 11, borderTop: "1px solid rgba(255,255,255,.09)" }}>
-                {exact ? (
-                  <>
-                    <div style={{ fontSize: 14, lineHeight: 1.45, color: "#e7ecf7" }}>
-                      <b style={{ color: ACCENT, fontWeight: 600 }}>{exact.id}</b> is real — {placeLine(exact.st)}.
-                    </div>
-                    <div style={{ fontSize: 12, color: "#7e8aa6", marginTop: 5, fontVariantNumeric: "tabular-nums" }}>
-                      {coords(exact.lat, exact.lon)}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ fontSize: 13.5, color: "#aab4cc" }}>
-                    No waypoint named <b style={{ color: "#e7ecf7", fontWeight: 600 }}>{q}</b> yet.
-                    {suggestions.length > 0 && (
-                      <div style={{ marginTop: 6 }}>
-                        {suggestions.map((s, i) => (
-                          <span key={s} style={{ fontSize: 13 }}>
-                            {i > 0 && <span style={{ color: "#3f4866" }}> · </span>}
-                            <button onClick={() => choose(byId.get(s)!)} style={{ border: "none", background: "none", padding: 0, color: ACCENT, cursor: "pointer", font: "inherit" }}>{s}</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
+          {!loading && (exact || q.length >= 1) && (
+            <div style={{ marginTop: 16, maxWidth: 320 }}>
+              {exact ? (
+                <>
+                  <div style={{ fontSize: 16, lineHeight: 1.4 }}>
+                    <b style={{ color: ACCENT, fontWeight: 600 }}>{exact.id}</b> is real — {placeLine(exact.st)}.
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                  <div style={{ fontSize: 12.5, color: "#999", marginTop: 5, fontVariantNumeric: "tabular-nums" }}>
+                    {coords(exact.lat, exact.lon)}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 15, color: "#666" }}>
+                  No waypoint named <b style={{ color: "#111", fontWeight: 600 }}>{q}</b> yet.
+                  {suggestions.length > 0 && (
+                    <div style={{ marginTop: 7 }}>
+                      {suggestions.map((s, i) => (
+                        <span key={s} style={{ fontSize: 14 }}>
+                          {i > 0 && <span style={{ color: "#ccc" }}> · </span>}
+                          <button onClick={() => choose(byId.get(s)!)} style={{ border: "none", background: "none", padding: 0, color: ACCENT, cursor: "pointer", font: "inherit" }}>{s}</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* real-words toggle */}
           <button
             onClick={() => setHighlightWords((v) => !v)}
-            style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 9, cursor: "pointer", background: highlightWords ? "rgba(255,159,28,.15)" : "rgba(16,20,30,.6)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${highlightWords ? "rgba(255,159,28,.45)" : "rgba(255,255,255,.1)"}`, color: highlightWords ? "#ffc46b" : "#aab4cc", borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 500 }}
+            style={{ marginTop: 22, display: "inline-flex", alignItems: "center", gap: 9, cursor: "pointer", background: "transparent", border: `1px solid ${highlightWords ? ACCENT : "#dcdcdc"}`, color: highlightWords ? ACCENT : "#555", borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 500 }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: highlightWords ? ACCENT : "#414b69", boxShadow: highlightWords ? `0 0 8px ${ACCENT}` : "none" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: highlightWords ? ACCENT : "#cfcfcf" }} />
             Highlight the {(stats?.realWords ?? 4895).toLocaleString()} real words
           </button>
         </div>
 
         {/* Stat */}
-        <div className="wp-hide-sm" style={{ position: "absolute", top: 30, right: 32, textAlign: "right", zIndex: 5, pointerEvents: "none" }}>
-          <div style={{ fontSize: 30, fontWeight: 600, letterSpacing: "-.01em", color: "#fff", fontVariantNumeric: "tabular-nums", textShadow: "0 1px 16px rgba(0,0,0,.85)" }}>
+        <div className="wp-hide-sm" style={{ position: "absolute", top: 42, right: 44, textAlign: "right", zIndex: 5, pointerEvents: "none" }}>
+          <div style={{ fontSize: 34, fontWeight: 680, letterSpacing: "-.02em", color: "#111", fontVariantNumeric: "tabular-nums" }}>
             {stats ? stats.total.toLocaleString() : "—"}
           </div>
-          <div style={{ fontSize: 12, color: "#8b97b6", marginTop: 3 }}>named waypoints</div>
+          <div style={{ fontSize: 12.5, color: "#999", marginTop: 2 }}>named waypoints</div>
         </div>
 
         {/* hint */}
-        <div style={{ position: "absolute", bottom: 18, right: 32, fontSize: 12, color: "#6b7590", zIndex: 5, pointerEvents: "none", textShadow: "0 1px 10px rgba(0,0,0,.9)" }}>
+        <div style={{ position: "absolute", bottom: 18, right: 28, fontSize: 12, color: "#b5b5b5", zIndex: 5, pointerEvents: "none" }}>
           Drag to explore · click a dot
         </div>
       </section>
 
-      {/* Readout: density by state */}
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "64px 24px 8px" }}>
+      {/* Where the names cluster */}
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "72px 40px 8px" }}>
         <SectionLabel>Where the names cluster</SectionLabel>
-        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 26px", lineHeight: 1.6, maxWidth: 560 }}>
+        <p style={{ fontSize: 15, color: "#666", margin: "12px 0 28px", lineHeight: 1.6, maxWidth: 540 }}>
           The density isn&apos;t random — it traces the busiest airspace in the country. Here&apos;s
           where the most named waypoints hang.
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 9 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 11, maxWidth: 720 }}>
           {(stats?.byState || []).slice(0, 12).map((s) => (
-            <div key={s.st} style={{ display: "grid", gridTemplateColumns: "150px 1fr 60px", alignItems: "center", gap: 14 }}>
-              <span style={{ fontSize: 14, color: "#c4cde2" }}>{STATES[s.st] || s.st}</span>
-              <span style={{ height: 7, background: "rgba(255,255,255,.05)", borderRadius: 4, overflow: "hidden" }}>
-                <span style={{ display: "block", height: "100%", width: `${(s.n / maxState) * 100}%`, background: "linear-gradient(90deg,#ff9f1c,#ff7a2f)", borderRadius: 4 }} />
+            <div key={s.st} style={{ display: "grid", gridTemplateColumns: "140px 1fr 56px", alignItems: "center", gap: 16 }}>
+              <span style={{ fontSize: 14, color: "#333" }}>{STATES[s.st] || s.st}</span>
+              <span style={{ height: 6, background: "#f0f0f0", borderRadius: 3, overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", width: `${(s.n / maxState) * 100}%`, background: ACCENT, borderRadius: 3 }} />
               </span>
-              <span style={{ fontSize: 13, color: "#7e8aa6", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: 13, color: "#999", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                 {s.n.toLocaleString()}
               </span>
             </div>
@@ -216,27 +217,27 @@ export default function Waypoints() {
       </section>
 
       {/* The weird ones */}
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "56px 24px 8px" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "60px 40px 8px" }}>
         <SectionLabel>The weird ones</SectionLabel>
-        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 24px", lineHeight: 1.6, maxWidth: 560 }}>
-          Controllers name these, and they have a sense of humor. Tap any to fly to it.
+        <p style={{ fontSize: 15, color: "#666", margin: "12px 0 22px", lineHeight: 1.6, maxWidth: 540 }}>
+          Controllers name these, and they have a sense of humor. Click any to find it on the map.
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", columnGap: 40 }}>
           {curated.map((c) => (
-            <button key={c.id} onClick={() => choose(c)} style={{ display: "flex", gap: 14, alignItems: "baseline", textAlign: "left", padding: "13px 0", border: "none", borderBottom: "1px solid rgba(255,255,255,.06)", background: "transparent", cursor: "pointer", width: "100%" }}>
-              <span style={{ font: "600 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".06em", color: ACCENT, minWidth: 62 }}>{c.id}</span>
-              <span style={{ fontSize: 14, color: "#9aa6c4", lineHeight: 1.5 }}>{c.caption}</span>
+            <button key={c.id} onClick={() => choose(c)} style={{ display: "flex", gap: 16, alignItems: "baseline", textAlign: "left", padding: "14px 0", border: "none", borderBottom: "1px solid #eee", background: "transparent", cursor: "pointer", width: "100%" }}>
+              <span style={{ font: "600 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".06em", color: ACCENT, minWidth: 60 }}>{c.id}</span>
+              <span style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>{c.caption}</span>
             </button>
           ))}
         </div>
       </section>
 
       {/* All the real words */}
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "48px 24px 110px" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "52px 40px 120px" }}>
         <SectionLabel>
-          Real words in the sky <span style={{ color: "#55607c" }}>· {words.length.toLocaleString()}</span>
+          Real words in the sky <span style={{ color: "#bbb", fontWeight: 400 }}>· {words.length.toLocaleString()}</span>
         </SectionLabel>
-        <p style={{ fontSize: 15, color: "#8b97b6", margin: "10px 0 18px", lineHeight: 1.6, maxWidth: 560 }}>
+        <p style={{ fontSize: 15, color: "#666", margin: "12px 0 20px", lineHeight: 1.6, maxWidth: 540 }}>
           Every plain English word that&apos;s also a real waypoint. All of them.
         </p>
         <input
@@ -244,15 +245,15 @@ export default function Waypoints() {
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter"
           spellCheck={false}
-          style={{ marginBottom: 22, width: "min(240px,100%)", fontSize: 14, textTransform: "uppercase", padding: "9px 0", border: "none", borderBottom: "1px solid rgba(255,255,255,.16)", outline: "none", background: "transparent", color: "#fff", caretColor: ACCENT }}
+          style={{ marginBottom: 24, width: "min(220px,100%)", fontSize: 14, textTransform: "uppercase", padding: "8px 0", border: "none", borderBottom: "1px solid #ddd", outline: "none", background: "transparent", color: "#111", caretColor: ACCENT }}
         />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 18px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "11px 20px" }}>
           {filteredWords.map((w) => (
-            <button key={w.id} onClick={() => choose(w)} style={{ font: "500 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".04em", color: "#aeb9d8", border: "none", background: "none", padding: 0, cursor: "pointer" }} className="wp-word">
+            <button key={w.id} onClick={() => choose(w)} style={{ font: "500 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: ".04em", color: "#555", border: "none", background: "none", padding: 0, cursor: "pointer" }} className="wp-word">
               {w.id}
             </button>
           ))}
-          {filteredWords.length === 0 && <span style={{ fontSize: 14, color: "#55607c" }}>nothing matches that.</span>}
+          {filteredWords.length === 0 && <span style={{ fontSize: 14, color: "#bbb" }}>nothing matches that.</span>}
         </div>
       </section>
     </main>
@@ -261,7 +262,7 @@ export default function Waypoints() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 style={{ fontSize: 21, fontWeight: 600, letterSpacing: -0.4, color: "#eef2fb", margin: 0 }}>
+    <h2 style={{ fontSize: 22, fontWeight: 640, letterSpacing: -0.5, color: "#111", margin: 0 }}>
       {children}
     </h2>
   )
