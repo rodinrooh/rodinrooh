@@ -12,22 +12,20 @@ export type Point = { id: string; lat: number; lon: number; st: string }
 
 type Node = { i: number; x: number; y: number }
 
-// Clean light atlas palette.
-const BG = "#ffffff" // paper
-const LAND = "#fbfbfa" // barely-there landmass fill
-const LAND_LINE = "rgba(20,30,50,0.07)" // state hairlines
-const STAR = "44,58,78" // base waypoint dots (rgb) — soft slate
-const ACCENT = "#e8462d"
+// Normal map palette — light land, blue water, visible borders.
+const WATER = "#e7eef6"
+const LAND = "#fcfdfe"
+const BORDER = "#c2ccda"
+const DOT = "27,44,74" // navy (rgb)
+const ACCENT = "#e5484d"
 
 interface Props {
   points: Point[]
-  wordSet: Set<string>
   selected: Point | null
-  highlightWords: boolean
   onSelect: (p: Point) => void
 }
 
-export default function WaypointMap({ points, wordSet, selected, highlightWords, onSelect }: Props) {
+export default function WaypointMap({ points, selected, onSelect }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -36,14 +34,12 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
   const xsRef = useRef<Float64Array>(new Float64Array(0))
   const ysRef = useRef<Float64Array>(new Float64Array(0))
   const okRef = useRef<Uint8Array>(new Uint8Array(0))
-  const wordRef = useRef<Uint8Array>(new Uint8Array(0))
   const treeRef = useRef<Quadtree<Node> | null>(null)
   const landRef = useRef<Path2D | null>(null)
   const fcRef = useRef<GeoJSON.FeatureCollection | null>(null)
   const tRef = useRef<ZoomTransform>(zoomIdentity)
   const hoverRef = useRef(-1)
   const selIdxRef = useRef(-1)
-  const highlightRef = useRef(highlightWords)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const zoomRef = useRef<any>(null)
   const idIndexRef = useRef<Map<string, number>>(new Map())
@@ -54,24 +50,11 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    highlightRef.current = highlightWords
-    draw()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightWords])
-
-  // Build id index + word flags once.
-  useEffect(() => {
     const idx = new Map<string, number>()
-    const word = new Uint8Array(points.length)
-    for (let i = 0; i < points.length; i++) {
-      idx.set(points[i].id, i)
-      word[i] = wordSet.has(points[i].id) ? 1 : 0
-    }
+    for (let i = 0; i < points.length; i++) idx.set(points[i].id, i)
     idIndexRef.current = idx
-    wordRef.current = word
-  }, [points, wordSet])
+  }, [points])
 
-  // Load the US outline, then lay everything out.
   useEffect(() => {
     let alive = true
     fetch("/us-states-10m.json")
@@ -106,7 +89,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     canvas.style.width = w + "px"
     canvas.style.height = h + "px"
 
-    const proj = geoAlbersUsa().fitExtent([[w * 0.04, h * 0.08], [w * 0.96, h * 0.92]], fc)
+    const proj = geoAlbersUsa().fitExtent([[w * 0.04, h * 0.08], [w * 0.96, h * 0.94]], fc)
     projRef.current = proj
 
     const land = new Path2D()
@@ -149,7 +132,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
   function intro() {
     const start = performance.now()
     const step = (now: number) => {
-      fadeRef.current = Math.min(1, (now - start) / 800)
+      fadeRef.current = Math.min(1, (now - start) / 700)
       draw()
       if (fadeRef.current < 1) rafRef.current = requestAnimationFrame(step)
     }
@@ -167,71 +150,61 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     const xs = xsRef.current
     const ys = ysRef.current
     const ok = okRef.current
-    const word = wordRef.current
     const fade = fadeRef.current
-    const hl = highlightRef.current
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = BG
+    ctx.fillStyle = WATER
     ctx.fillRect(0, 0, w, h)
     ctx.translate(t.x, t.y)
     ctx.scale(k, k)
 
-    // Landmass — a real, clean filled map so the dots have ground to sit on.
+    // Landmass — filled, with clear state borders, so it reads as a real US map.
     const land = landRef.current
     if (land) {
       ctx.fillStyle = LAND
       ctx.fill(land)
-      ctx.lineWidth = 0.7 / k
-      ctx.strokeStyle = LAND_LINE
+      ctx.lineWidth = 0.9 / k
+      ctx.strokeStyle = BORDER
       ctx.stroke(land)
     }
 
+    // Waypoints.
     const n = xs.length
-    const s = 1.1 / k
+    const s = 1.35 / k
     const half = s / 2
-
-    // Base waypoints.
-    ctx.fillStyle = `rgba(${STAR},${(0.42 * fade).toFixed(3)})`
+    ctx.fillStyle = `rgba(${DOT},${(0.55 * fade).toFixed(3)})`
     for (let i = 0; i < n; i++) {
-      if (!ok[i] || (hl && word[i])) continue
+      if (!ok[i]) continue
       ctx.fillRect(xs[i] - half, ys[i] - half, s, s)
-    }
-
-    // Real words.
-    if (hl) {
-      ctx.fillStyle = ACCENT
-      const ws = 1.8 / k
-      for (let i = 0; i < n; i++) {
-        if (!ok[i] || !word[i]) continue
-        ctx.beginPath()
-        ctx.arc(xs[i], ys[i], ws / 2, 0, 6.283)
-        ctx.fill()
-      }
     }
 
     // Hover.
     const hi = hoverRef.current
     if (hi >= 0 && ok[hi]) {
-      ctx.fillStyle = "#16223a"
+      ctx.fillStyle = "#1b2c4a"
       ctx.beginPath()
-      ctx.arc(xs[hi], ys[hi], 2.6 / k, 0, 6.283)
+      ctx.arc(xs[hi], ys[hi], 2.8 / k, 0, 6.283)
       ctx.fill()
     }
 
-    // Selected: glow + ring.
+    // Selected pin.
     const si = selIdxRef.current
     if (si >= 0 && ok[si]) {
       ctx.save()
-      ctx.shadowColor = ACCENT
-      ctx.shadowBlur = 14
+      ctx.shadowColor = "rgba(229,72,77,0.5)"
+      ctx.shadowBlur = 12
       ctx.fillStyle = ACCENT
       ctx.beginPath()
-      ctx.arc(xs[si], ys[si], 3.4 / k, 0, 6.283)
+      ctx.arc(xs[si], ys[si], 4 / k, 0, 6.283)
       ctx.fill()
       ctx.restore()
+      ctx.lineWidth = 2 / k
+      ctx.strokeStyle = "#fff"
+      ctx.beginPath()
+      ctx.arc(xs[si], ys[si], 4 / k, 0, 6.283)
+      ctx.stroke()
       ctx.lineWidth = 1.1 / k
-      ctx.strokeStyle = "rgba(255,159,28,0.5)"
+      ctx.strokeStyle = "rgba(229,72,77,0.55)"
       ctx.beginPath()
       ctx.arc(xs[si], ys[si], 9 / k, 0, 6.283)
       ctx.stroke()
@@ -247,7 +220,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
       const tw = ctx.measureText(label).width
       const lx = Math.min(Math.max(sx + 13, 8), w - tw - 16)
       const ly = Math.min(Math.max(sy, 20), h - 8)
-      ctx.fillStyle = "rgba(10,14,23,0.86)"
+      ctx.fillStyle = "#111"
       const rx = lx - 7, ry = ly - 13, rw = tw + 14, rh = 21, rr = 6
       ctx.beginPath()
       ctx.moveTo(rx + rr, ry)
@@ -274,7 +247,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     const { w, h } = sizeRef.current
     const k = 14
     const target = zoomIdentity.translate(w / 2 - xsRef.current[idx] * k, h / 2 - ysRef.current[idx] * k).scale(k)
-    select(canvas).transition().duration(800).call(z.transform, target)
+    select(canvas).transition().duration(750).call(z.transform, target)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected])
 
@@ -294,7 +267,6 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready])
 
-  // Pointer.
   function pick(clientX: number, clientY: number): number {
     const canvas = canvasRef.current
     const tree = treeRef.current
@@ -332,7 +304,7 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
   }
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, background: BG }}>
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, background: WATER }}>
       <canvas
         ref={canvasRef}
         onPointerMove={onMove}
@@ -349,15 +321,14 @@ export default function WaypointMap({ points, wordSet, selected, highlightWords,
             pointerEvents: "none",
             font: '600 12px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
             color: "#fff",
-            background: "rgba(10,14,23,.9)",
-            border: "1px solid rgba(255,255,255,.13)",
+            background: "#111",
             padding: "6px 9px",
             borderRadius: 7,
             whiteSpace: "nowrap",
             transform: tip.x > sizeRef.current.w - 130 ? "translateX(calc(-100% - 26px))" : "none",
           }}
         >
-          {tip.id} <span style={{ color: "#8b97b6", marginLeft: 2 }}>{tip.st || "—"}</span>
+          {tip.id} <span style={{ color: "#9aa3b2", marginLeft: 2 }}>{tip.st || "—"}</span>
         </div>
       )}
     </div>
