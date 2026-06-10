@@ -85,10 +85,12 @@ html, body { overscroll-behavior: none; }
 input::placeholder { color: #333; letter-spacing: 0.14em; }
 .modal-body { font: 400 13px/1.5 "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; color: #888 !important; }
 
-/* /waypoints — constellation viz */
-.wp-word:hover { color: #e8462d !important; }
-@media (max-width: 760px) {
-  .wp-hide-sm { display: none !important; }
+/* /waypoints */
+.wp-input::placeholder {
+  color: #aab0b9 !important;
+  letter-spacing: -0.015em !important;
+  text-transform: none !important;
+  font-weight: 400 !important;
 }
 
 /* Force Whop chat iframe to always be interactive regardless of parent visibility state */

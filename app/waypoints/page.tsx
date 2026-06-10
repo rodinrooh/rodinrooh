@@ -77,19 +77,18 @@ export default function Waypoints() {
           }}
         >
           <input
+            className="wp-input"
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onEnter()}
-            placeholder="Search a name"
+            placeholder="search a name"
             spellCheck={false}
-            autoCapitalize="characters"
             style={{
               width: "100%",
               fontSize: 16,
               fontWeight: 500,
-              letterSpacing: "-0.01em",
-              textTransform: "uppercase",
+              letterSpacing: "-0.015em",
               textAlign: "center",
               border: "none",
               outline: "none",
