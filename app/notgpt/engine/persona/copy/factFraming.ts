@@ -21,13 +21,13 @@ export const DICT_LEAD_INS: string[] = [
 ];
 
 // Hedge framing (before a low-confidence answer)
-// Slot: {title}
+// Slot: {title} — keep short; source chip already shows the article name
 export const HEDGE_FRAMING: string[] = [
-  "I think you mean **{title}** — here's what Wikipedia has:",
-  "Best match: **{title}**. If that's not right, rephrase and I'll try again:",
-  "Nearest result is **{title}** — confidence is qualified. Here it is:",
-  "I matched **{title}**, which may or may not be what you meant. Here's what's there:",
-  "Closest I found: **{title}**. Verify this is what you're asking about:",
+  "",
+  "",
+  "On **{title}**:",
+  "**{title}**, from Wikipedia:",
+  "",
 ];
 
 // "It gets technical from here" truncation affordance — 4 variants

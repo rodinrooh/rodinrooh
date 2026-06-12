@@ -712,13 +712,14 @@ export async function* runPipeline(
 
     const msg = pickVariant(variants, categoryId, memory, seed);
 
-    // Optional factual pivot: try to fetch a related Wikipedia article
-    const pivot = classified.slots.topic ?? classified.residual;
-    if (pivot && pivot.length > 2 && pivot.length < 100) {
+    // Factual pivot only for opinion queries (not predictions/hypotheticals/advice —
+    // those are cleaner as a flat decline; pivoting to a bad article is worse than nothing)
+    const pivot = !isPrediction && !isAdvice ? (classified.slots.topic ?? classified.residual) : null;
+    if (pivot && pivot.length > 2 && pivot.length < 60) {
       yield* streamText(msg, seed);
       yield* status("Finding factual background...", "wikipedia");
       const wikiResult = await withTimeout(searchAndFetch(pivot));
-      if (wikiResult) {
+      if (wikiResult && wikiResult.type !== "disambiguation") {
         const { truncated, wasTruncated } = truncateExtract(wikiResult.extract);
         provenance.push({ ...wikiProvenance(wikiResult), latencyMs: Date.now() - startMs });
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated, title: wikiResult.title });
@@ -873,15 +874,52 @@ export async function* runPipeline(
     yield* status(`Looking up ${entityA}...`, "wikipedia");
     yield* status(`Looking up ${entityB}...`, "wikipedia");
 
-    const [wikiA, wikiB] = await Promise.all([
-      withTimeout(searchAndFetch(entityA)),
-      withTimeout(searchAndFetch(entityB)),
-    ]);
+    // Helper: resolve an entity to a usable extract.
+    // If Wikipedia returns a disambiguation page, try: (1) dictionary, (2) first dab link article.
+    const resolveEntity = async (entity: string): Promise<{ extract: string; title: string; source: "wikipedia" | "dictionary"; wikibaseItem?: string } | null> => {
+      const wiki = await withTimeout(searchAndFetch(entity));
+      if (!wiki) return null;
 
-    if (!wikiA || !wikiB) {
+      // Good Wikipedia article — use it
+      if (wiki.type !== "disambiguation" && wiki.extract) {
+        return { extract: wiki.extract, title: wiki.title, source: "wikipedia", wikibaseItem: wiki.wikibaseItem };
+      }
+
+      // Disambiguation page — try dictionary first (entity may be a common word)
+      const dictResult = await withTimeout(fetchDefinition(entity));
+      if (dictResult) {
+        const top = dictResult.entry.meanings[0]?.definitions[0];
+        if (top) {
+          const partOfSpeech = dictResult.entry.meanings[0].partOfSpeech;
+          const extract = `*(${partOfSpeech})* ${top.definition}${top.example ? ` — *"${top.example}"*` : ""}`;
+          return { extract, title: entity, source: "dictionary" };
+        }
+      }
+
+      // Try first non-dab article linked from the disambiguation page
+      const { fetchDabOptions } = await import("./sources/wikipedia");
+      const dabLinks = await withTimeout(fetchDabOptions(wiki.title)) ?? [];
+      if (dabLinks.length > 0) {
+        const firstArticle = await withTimeout(fetchWikiSummary(dabLinks[0].title));
+        if (firstArticle?.extract && firstArticle.type !== "disambiguation") {
+          return { extract: firstArticle.extract, title: firstArticle.title, source: "wikipedia", wikibaseItem: firstArticle.wikibaseItem };
+        }
+      }
+
+      // Last resort: use the dab extract but clean it up (strip "may refer to:" prefix)
+      if (wiki.extract) {
+        const cleaned = wiki.extract.replace(/^[^:]+:\s*/i, "").replace(/\n/g, " · ").trim();
+        return { extract: cleaned, title: wiki.title, source: "wikipedia", wikibaseItem: wiki.wikibaseItem };
+      }
+      return null;
+    };
+
+    const [resA, resB] = await Promise.all([resolveEntity(entityA), resolveEntity(entityB)]);
+
+    if (!resA || !resB) {
       const notFound = fillSlots(
         pickVariant(NOT_FOUND, "not-found", memory, seed),
-        { sourceCount: "2", ms: String(Date.now() - startMs), term: !wikiA ? entityA : entityB }
+        { sourceCount: "2", ms: String(Date.now() - startMs), term: !resA ? entityA : entityB }
       );
       memory.failureStreak++;
       yield* streamText(notFound, seed);
@@ -890,17 +928,26 @@ export async function* runPipeline(
     }
 
     memory.failureStreak = 0;
-    provenance.push({ ...wikiProvenance(wikiA), latencyMs: Date.now() - startMs });
-    provenance.push({ ...wikiProvenance(wikiB), latencyMs: Date.now() - startMs });
+    if (resA.source === "wikipedia") {
+      const wikiSumA = await withTimeout(fetchWikiSummary(resA.title));
+      if (wikiSumA) provenance.push({ ...wikiProvenance(wikiSumA), latencyMs: Date.now() - startMs });
+    } else {
+      provenance.push({ source: "dictionaryapi", url: `https://api.dictionaryapi.dev/api/v2/entries/en/${entityA}`, label: entityA, fetchedAt: new Date().toISOString() });
+    }
+    if (resB.source === "wikipedia") {
+      const wikiSumB = await withTimeout(fetchWikiSummary(resB.title));
+      if (wikiSumB) provenance.push({ ...wikiProvenance(wikiSumB), latencyMs: Date.now() - startMs });
+    } else {
+      provenance.push({ source: "dictionaryapi", url: `https://api.dictionaryapi.dev/api/v2/entries/en/${entityB}`, label: entityB, fetchedAt: new Date().toISOString() });
+    }
 
-    // Fetch shared Wikidata properties if QIDs available
+    // Fetch shared Wikidata properties if both resolved from Wikipedia with QIDs
     const rows: Array<{ property: string; values: string[] }> = [];
-
-    if (wikiA.wikibaseItem && wikiB.wikibaseItem) {
+    if (resA.wikibaseItem && resB.wikibaseItem) {
       yield* status("Fetching shared properties...", "wikidata");
       const COMPARISON_PROPS = ["P569", "P570", "P1082", "P571", "P577", "P36", "P159", "P169", "P2218"];
       const sharedProps = await withTimeout(
-        fetchSharedProperties(wikiA.wikibaseItem, wikiB.wikibaseItem, COMPARISON_PROPS)
+        fetchSharedProperties(resA.wikibaseItem, resB.wikibaseItem, COMPARISON_PROPS)
       );
       if (sharedProps && sharedProps.length > 0) {
         const propLabels: Record<string, string> = {
@@ -914,28 +961,28 @@ export async function* runPipeline(
         }
         provenance.push({
           source: "wikidata",
-          url: `https://www.wikidata.org/wiki/${wikiA.wikibaseItem}`,
+          url: `https://www.wikidata.org/wiki/${resA.wikibaseItem}`,
           label: "Wikidata comparison",
           fetchedAt: new Date().toISOString(),
         });
       }
     }
 
-    // If no Wikidata rows, build summary comparison from extracts
-    if (rows.length === 0) {
-      const { truncated: extractA } = truncateExtract(wikiA.extract);
-      const { truncated: extractB } = truncateExtract(wikiB.extract);
-      const compText = `**${wikiA.title}**\n${extractA}\n\n**${wikiB.title}**\n${extractB}`;
-      yield* streamText(compText, seed);
-    } else {
+    // Render: table if we have Wikidata rows, otherwise side-by-side extracts
+    if (rows.length > 0) {
       const block: Block = {
         type: "comparison-table",
-        entities: [wikiA.title, wikiB.title],
+        entities: [resA.title, resB.title],
         rows,
       };
       blocks.push(block);
-      yield* streamText(`Comparing **${wikiA.title}** and **${wikiB.title}**:`, seed);
+      yield* streamText(`Comparing **${resA.title}** and **${resB.title}**:`, seed);
       yield { event: "block", data: block };
+    } else {
+      const { truncated: extractA } = truncateExtract(resA.extract);
+      const { truncated: extractB } = truncateExtract(resB.extract);
+      const compText = `**${resA.title}**\n${extractA}\n\n**${resB.title}**\n${extractB}`;
+      yield* streamText(compText, seed);
     }
 
     yield { event: "provenance", data: { sources: provenance } };
@@ -1362,10 +1409,7 @@ export async function* runPipeline(
       fullText = `${disclaimer}\n\n${displayText}`;
     }
 
-    // Attribution footer
-    const withAttribution = `${fullText}\n\n*${ATTRIBUTION_FOOTER}*`;
-
-    yield* streamFramingAndText(leadIn, withAttribution);
+    yield* streamFramingAndText(leadIn, fullText);
 
     const block: Block = {
       type: "wikipedia",

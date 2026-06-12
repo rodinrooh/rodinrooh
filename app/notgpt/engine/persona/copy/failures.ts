@@ -13,15 +13,14 @@ export const NOT_FOUND: string[] = [
   "I genuinely looked and found nothing. This is the rarest honest output. Most tools won't give it to you.",
 ];
 
-// (b) LOW_CONFIDENCE framing — 6 variants (used before a hedged result)
-// Slots: {term}
+// (b) LOW_CONFIDENCE framing — source chip shows the article; framing just needs to be brief
 export const LOW_CONFIDENCE_FRAMING: string[] = [
-  "I found something, but I'm not sure it's what you meant. I matched on '{term}', which may be wrong. Here it is anyway — you decide:",
-  "Closest match below, confidence: questionable. I'm showing the seams instead of painting over them.",
-  "I think this is what you're asking about, but I matched on '{term}' and that might not be right. Verify before you use it:",
-  "Low confidence result. I'd rather show you my uncertainty than hide it. Here's what I found for '{term}':",
-  "This is the nearest thing I could find. It may not be what you meant. The source is real either way.",
-  "Possible match on '{term}' — I'm not certain this is your question. If it's not, rephrase and I'll try again:",
+  "",
+  "",
+  "",
+  "Nearest result:",
+  "",
+  "",
 ];
 
 // (c) UNANSWERABLE — broken into sub-types
@@ -40,7 +39,7 @@ export const UNANSWERABLE_OPINION: string[] = [
 export const UNANSWERABLE_PREDICTION: string[] = [
   "I can't predict the future. Neither can anyone else — I'm just the only chatbot that puts it in writing.",
   "Future events don't have Wikipedia articles yet. I'll check back when they do.",
-  "No source on Earth can answer that yet. I'm not being coy — predictions aren't retrievable.",
+  "The future is unindexed.",
   "That's a forecast, not a fact. I do facts. No source I can query has this answer.",
   "The future isn't in any database I can reach. When it becomes the past, ask me again.",
 ];
