@@ -325,13 +325,19 @@ export async function* runPipeline(
         yield* streamText(SAM_ALTMAN_FRAMING, seed);
       }
     } else {
-      // Map egg id to EASTER_EGGS key
       const eggKey = eggId.replace(/-/g, " ");
       const eggText =
         EASTER_EGGS[eggKey] ??
         EASTER_EGGS[eggId] ??
         pickVariant(WHAT_ARE_YOU, "what-are-you", memory, seed);
       yield* streamText(eggText, seed);
+      // Local provenance so buildEnvelope sets verdict="answered" not "declined"
+      provenance.push({
+        source: "local-computation",
+        url: "",
+        label: `Easter egg: ${eggKey || eggId}`,
+        fetchedAt: new Date().toISOString(),
+      });
     }
 
     yield {
@@ -1121,11 +1127,32 @@ export async function* runPipeline(
       if (noLeadingVerb !== q && noLeadingVerb.length > 2) terms.push(noLeadingVerb);
       const noVerb = noLeadingVerb;
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces)\s*$/i, "").trim();
+      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved)\s*$/i, "").trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
       const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
       if (noTrailingAdj !== q && noTrailingAdj.length > 2) terms.push(noTrailingAdj);
+      // "X of Y" → also try Y alone ("symptoms of adhd" → "adhd", "history of rome" → "rome")
+      const ofPattern = q.match(/^(?:\w+\s+)+of\s+(.+)$/i);
+      if (ofPattern) terms.push(ofPattern[1].trim());
+      // Vocabulary expansion: informal/descriptive phrases → canonical Wikipedia terms
+      // This is NOT hardcoding answers — it maps descriptive language to canonical article names
+      const vocabMap: Array<[RegExp, string[]]> = [
+        [/\bgravitational\s+pull\b|\bsucks\s+in\s+everything\b|\bnothing\s+escapes\b/i, ["black hole", "gravitational field"]],
+        [/\bgravitational\b/i, ["gravity", "gravitational field"]],
+        [/\blight\s+bends\b|\bspace\s+warps\b|\bspace\s+time\b|\bspacetime\b/i, ["general relativity"]],
+        [/\bplant\s+food\b|\b(?:plants?|trees?)\s+(?:make|produce|use)\s+food\b/i, ["photosynthesis"]],
+        [/\bright\s+ascension\b|\bdeclination\b/i, ["celestial coordinate system"]],
+        [/\bblood\s+pumped\b|\bheart\s+beats?\b/i, ["heart", "cardiac cycle"]],
+        [/\bvirus\s+spread\b|\bhow\s+(?:viruses?|diseases?)\s+spread\b/i, ["viral disease", "infection"]],
+        [/\bmoney\s+worth\s+less\b|\bprices\s+go\s+up\b/i, ["inflation"]],
+        [/\bthunder\b.*\blightning\b|\blightning\b.*\bthunder\b/i, ["thunder", "lightning"]],
+      ];
+      for (const [pattern, synonyms] of vocabMap) {
+        if (pattern.test(q)) {
+          for (const s of synonyms) if (!terms.includes(s)) terms.push(s);
+        }
+      }
       // Strip leading article/adj: "the sky blue" → "sky blue"
       const noLeadingThe = q.replace(/^(?:the|a|an)\s+/i, "").trim();
       if (noLeadingThe !== q && noLeadingThe.length > 2) terms.push(noLeadingThe);

@@ -4,8 +4,10 @@ import { MatchResult } from "./index"
 // "cold war", "temperature of water", "hot dog", "wind instruments", etc.
 const STRONG_WEATHER_WORDS = new Set([
   "weather", "forecast", "raining", "snowing", "sunny", "cloudy", "humidity",
-  "humid", "stormy", "thunderstorm", "lightning", "foggy", "drizzle", "hail",
+  "humid", "stormy", "thunderstorm", "foggy", "drizzle", "hail",
   "sleet", "overcast", "precipitation", "uv index", "feels like", "wind chill",
+  // Note: "lightning" and "thunder" excluded — appear in non-weather physics questions
+  // ("why does thunder follow lightning", "what causes lightning")
 ])
 
 // Location extraction patterns (require explicit weather context)
