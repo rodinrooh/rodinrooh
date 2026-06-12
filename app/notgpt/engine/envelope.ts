@@ -6,6 +6,7 @@ export type ProvenanceEntry = {
   label: string;            // display name, e.g. article title
   fetchedAt: string;        // ISO timestamp of retrieval
   contentTimestamp?: string; // ISO timestamp of source's last edit, if known
+  latencyMs?: number;        // round-trip fetch time in milliseconds
 };
 
 // ---- Answer envelope (structured response from handler) ----
