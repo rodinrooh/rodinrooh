@@ -1,14 +1,23 @@
 // Lead-ins for successful factual answers (rotate to feel non-canned)
 // Weight toward plainest — several blank entries to let the block speak for itself
+// For Wikipedia/general fact lookups
 export const FACT_LEAD_INS: string[] = [
   "",
   "",
   "",
   "According to Wikipedia — the actual one, retrieved just now:",
-  "Wiktionary says, verbatim:",
   "Straight from the source, untouched:",
   "From Wikipedia, word for word — the chip below links to the exact revision:",
-  "Here's what the source has:",
+  "Here's what Wikipedia's editors wrote:",
+  "",
+];
+
+// For dictionary lookups specifically
+export const DICT_LEAD_INS: string[] = [
+  "Wiktionary says, verbatim:",
+  "According to the dictionary:",
+  "",
+  "The definition, verbatim:",
 ];
 
 // Hedge framing (before a low-confidence answer)

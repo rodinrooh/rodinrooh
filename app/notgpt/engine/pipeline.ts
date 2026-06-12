@@ -65,6 +65,7 @@ import {
 } from "./persona/copy/creative";
 import {
   FACT_LEAD_INS,
+  DICT_LEAD_INS,
   HEDGE_FRAMING,
   TRUNCATION_AFFORDANCE,
   RECENCY_DISCLAIMER,
@@ -510,6 +511,51 @@ export async function* runPipeline(
   }
 
   // ------------------------------------------------------------------
+  // UNIT CONVERSION
+  // ------------------------------------------------------------------
+
+  if (classified.intent === "convert_units") {
+    const value = parseFloat(classified.slots.value ?? "1") || 1;
+    const fromUnit = classified.slots.fromUnit ?? classified.slots.fromRaw ?? "";
+    const toUnit = classified.slots.toUnit ?? classified.slots.toRaw ?? "";
+
+    try {
+      // Use mathjs for unit conversion
+      const mathjs = await import("mathjs");
+      const result = mathjs.evaluate(`${value} ${fromUnit} to ${toUnit}`);
+      const resultStr = result.toString().replace(/\s+/g, " ");
+
+      const block: Block = {
+        type: "unit",
+        value,
+        fromUnit,
+        toUnit,
+        result: typeof result === "object" && "toNumber" in result ? (result as {toNumber: () => number}).toNumber() : parseFloat(resultStr),
+      };
+      blocks.push(block);
+
+      provenance.push({
+        source: "local-computation",
+        url: "",
+        label: `${value} ${fromUnit} to ${toUnit}`,
+        fetchedAt: new Date().toISOString(),
+      });
+
+      yield* streamText(`**${value} ${fromUnit}** = **${resultStr}**`, seed);
+      yield { event: "block", data: block };
+      yield { event: "provenance", data: { sources: provenance } };
+    } catch {
+      const msg = fillSlots(
+        pickVariant(UNPARSEABLE, "unparseable", memory, seed),
+        {}
+      );
+      yield* streamText(msg, seed);
+    }
+    yield { event: "done", data: buildEnvelope("convert_units", blocks, provenance, startMs) };
+    return;
+  }
+
+  // ------------------------------------------------------------------
   // CURRENCY CONVERSION
   // ------------------------------------------------------------------
 
@@ -622,7 +668,7 @@ export async function* runPipeline(
     };
     blocks.push(block);
 
-    const leadIn = pickVariant(FACT_LEAD_INS, "fact-lead-in", memory, seed);
+    const leadIn = pickVariant(DICT_LEAD_INS, "dict-lead-in", memory, seed);
     const phonetic = entry.phonetic ? ` /${entry.phonetic}/` : "";
     const defText = topDef
       ? `**${entry.word}**${phonetic} *(${topMeaning.partOfSpeech})*\n\n${topDef.definition}${topDef.example ? `\n\n*"${topDef.example}"*` : ""}`
@@ -1073,6 +1119,33 @@ export async function* runPipeline(
 
     memory.failureStreak = 0;
 
+    // Disambiguation: show clarify options instead of the disambiguation page text
+    if (summary.type === "disambiguation") {
+      yield* status("Multiple results found...", "wikipedia");
+      const { fetchDabOptions } = await import("./sources/wikipedia");
+      const dabOptions = await withTimeout(fetchDabOptions(summary.title)) ?? [];
+      if (dabOptions.length > 0) {
+        const clarifyQuestion = `Wikipedia lists ${dabOptions.length > 3 ? "several" : dabOptions.length} things called "${summary.title}" — which one?`;
+        yield {
+          event: "clarify",
+          data: {
+            question: clarifyQuestion,
+            options: dabOptions.slice(0, 5).map((o) => ({
+              label: o.title,
+              description: o.description ?? "",
+              query: o.query,
+            })),
+          },
+        };
+        const env = buildEnvelope("lookup", blocks, provenance, startMs);
+        env.verdict = "clarified";
+        env.clarify = { question: clarifyQuestion, options: dabOptions.slice(0, 5).map((o) => ({ label: o.title, description: o.description ?? "", query: o.query })) };
+        yield { event: "done", data: env };
+        return;
+      }
+      // No dab options — fall through and display the dab page text as-is
+    }
+
     const isHedged = directResult === null && (searchResult?.hits.length ?? 0) > 0;
     const { truncated, wasTruncated } = truncateExtract(summary.extract);
 
@@ -1111,9 +1184,10 @@ export async function* runPipeline(
       leadIn = pickVariant(FACT_LEAD_INS, "fact-lead-in", memory, seed);
     }
 
-    // Recency check
+    // Recency disclaimer: only show when the QUERY itself mentions recent events
+    // (not just because someone edited a historical article last week)
     let fullText = displayText;
-    if (summary.revisionTimestamp && isRecent(summary.revisionTimestamp)) {
+    if (isRecentQuery && summary.revisionTimestamp) {
       const relTime = relativeTime(summary.revisionTimestamp);
       const disclaimer = fillSlots(
         pickVariant(RECENCY_DISCLAIMER, "recency-disclaimer", memory, seed),

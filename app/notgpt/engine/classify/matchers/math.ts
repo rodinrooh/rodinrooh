@@ -4,22 +4,12 @@ import { MatchResult } from "./index"
 // Create a restricted math instance
 const math = mathjs.create(mathjs.all)
 
-// Disable dangerous/stateful operations
+// Block stateful/dangerous operations; keep parse() and node.evaluate() which are safe
 math.import(
   {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     import: () => { throw new Error("blocked") },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createUnit: () => { throw new Error("blocked") },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    evaluate: undefined as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    parse: undefined as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    simplify: undefined as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    derivative: undefined as any,
-  },
+  } as Record<string, unknown>,
   { override: true }
 )
 

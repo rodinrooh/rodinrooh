@@ -331,7 +331,7 @@ export default function Chat() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            query: text,
+            message: text,
             context: contextMessages,
           }),
           signal: abortController.signal,
@@ -347,29 +347,34 @@ export default function Chat() {
         const decoder = new TextDecoder();
         let sseBuffer = "";
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const processEvent = (eventName: string, dataStr: string) => {
           if (!isMountedRef.current) return;
+          if (!dataStr || dataStr === "") return;
 
-          let parsed: SSEEvent;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let data: any;
           try {
-            parsed = JSON.parse(dataStr);
+            data = JSON.parse(dataStr);
           } catch {
             return;
           }
 
-          switch (parsed.event) {
+          // The SSE `event:` field is the eventName parameter (not inside data JSON)
+          switch (eventName) {
             case "delta":
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
-                content: m.content + parsed.text,
+                content: m.content + (data.text ?? ""),
                 status: undefined,
               }));
               break;
 
             case "block":
+              // data IS the block (Block shape)
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
-                blocks: [...(m.blocks ?? []), parsed.block as Block],
+                blocks: [...(m.blocks ?? []), data as Block],
               }));
               break;
 
@@ -377,43 +382,46 @@ export default function Chat() {
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
                 clarify: {
-                  question: parsed.question,
-                  options: parsed.options,
+                  question: data.question ?? "",
+                  options: data.options ?? [],
                 },
               }));
               break;
 
             case "status":
+              // server sends { stage, message, source? }
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
-                status: parsed.text,
+                status: data.message ?? data.text ?? "",
               }));
               break;
 
             case "provenance":
+              // server sends { sources: ProvenanceEntry[] }
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
                 provenance: [
                   ...(m.provenance ?? []),
-                  ...(parsed.entries as ProvenanceEntry[]),
+                  ...(data.sources ?? data.entries ?? []) as ProvenanceEntry[],
                 ],
               }));
               break;
 
             case "done":
+              // data is AnswerEnvelope
               updateMessage(convId!, assistantMsgId, (m) => ({
                 ...m,
                 isStreaming: false,
                 status: undefined,
-                timing: parsed.timing,
+                timing: data.timing,
               }));
-              if (parsed.trace) {
-                setDevTrace(parsed.trace as ClassifyTrace);
+              if (data.trace) {
+                setDevTrace(data.trace as ClassifyTrace);
               }
-              if (parsed.timing) {
-                setDevMeta((prev) => ({
+              if (data.timing) {
+                setDevMeta((prev: Record<string, unknown>) => ({
                   ...prev,
-                  timingMs: parsed.timing?.totalMs,
+                  timingMs: data.timing?.totalMs,
                 }));
               }
               setIsLoading(false);
@@ -427,7 +435,7 @@ export default function Chat() {
                 status: undefined,
                 content:
                   m.content ||
-                  `Sorry, something went wrong: ${parsed.message}`,
+                  `Something went wrong: ${data.message ?? "unknown error"}`,
               }));
               setIsLoading(false);
               abortControllerRef.current = null;

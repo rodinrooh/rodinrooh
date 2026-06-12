@@ -37,6 +37,12 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
+            href="/notgpt"
+            date="June 2026"
+            title="chatGPT (GPT struck through)"
+            desc="Looks like ChatGPT. No AI inside. Every answer is Wikipedia, a dictionary, or a calculator — sourced and timestamped."
+          />
+          <ProjectRow
             href="/waypoints"
             date="June 2026"
             title="Every Name in the Sky"
