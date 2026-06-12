@@ -19,8 +19,8 @@ const DEFINE_PATTERNS: Array<[RegExp, number]> = [
   [/^what\s+does\s+(.+?)\s+stand\s+for\b/i, 1],
   // "how do you define X" → group 1
   [/^how\s+do\s+(?:you\s+|one\s+)?define\s+(.+)$/i, 1],
-  // "what is the term X" → group 1
-  [/^what\s+is\s+(?:the\s+(?:term\s+|word\s+|concept\s+of\s+)?)(.+)$/i, 1],
+  // "what is the term/word/concept X" — REQUIRES term/word/concept qualifier (not just "what is the X")
+  [/^what\s+is\s+the\s+(?:term|word|concept\s+of)\s+(.+)$/i, 1],
 ]
 
 // Stopwords — if the residual contains only stopwords after scaffold strip, it's not a definition query
@@ -70,17 +70,11 @@ export function matchDefinition(
     }
   }
 
-  // Scaffold "what" + short residual (1-3 tokens) that isn't a named entity
-  // This catches "what is photosynthesis", "what is the mitochondria" etc.
-  if (scaffoldKind === "what" || scaffoldKind === "define") {
+  // Scaffold "define" only (not "what") + single word
+  // "what is X" should go to lookup (Wikipedia article is better than dictionary for most concepts)
+  if (scaffoldKind === "define") {
     const tokens = residual.split(/\s+/).filter((t) => t.length > 0)
-    // 1-4 tokens, not looking like a comparison or question
-    if (
-      tokens.length >= 1 &&
-      tokens.length <= 4 &&
-      isValidTerm(residual) &&
-      !/\bvs\.?\b|\bversus\b|\bdifference\b/i.test(residual)
-    ) {
+    if (tokens.length === 1 && isValidTerm(residual)) {
       return {
         intent: "definition",
         confidence: 0.7,

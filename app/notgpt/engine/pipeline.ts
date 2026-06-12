@@ -137,14 +137,15 @@ function isRecent(isoStr: string): boolean {
 }
 
 function looksLikeKeyboardMash(s: string): boolean {
-  if (s.length < 4) return false;
-  // High ratio of consonant clusters, low ratio of vowels, many repeated chars
+  if (s.length < 8) return false;
+  // Must have very few vowels (< 5%) — not just unique chars, which fires on real phrases
   const vowels = (s.match(/[aeiou]/gi) ?? []).length;
   const ratio = vowels / s.length;
-  if (ratio < 0.05 && s.length > 5) return true;
-  // Check for alternating random chars (high entropy proxy)
-  const uniqueChars = new Set(s.toLowerCase()).size;
-  if (uniqueChars / s.length > 0.85 && s.length > 8) return true;
+  if (ratio < 0.05 && s.length > 8) return true;
+  // Very high unique-char density — only on longer strings to avoid false positives
+  const uniqueChars = new Set(s.toLowerCase().replace(/\s/g, "")).size;
+  const noSpaceLen = s.replace(/\s/g, "").length;
+  if (noSpaceLen > 15 && uniqueChars / noSpaceLen > 0.92) return true;
   return false;
 }
 
@@ -1087,15 +1088,135 @@ export async function* runPipeline(
 
     yield* status("Searching Wikipedia...", "wikipedia");
 
-    // Run direct summary fetch and search in parallel
-    const [directResult, searchResult] = await Promise.all([
-      withTimeout(fetchWikiSummary(query)),
-      withTimeout(searchWiki(query, 5)),
-    ]);
+    // Extract the best searchable term from the raw query.
+    // For how-to queries ("how do you make pasta"), extract the object noun phrase.
+    // For superlative queries ("what is the tallest building"), extract the core noun.
+    const extractSearchTerm = (q: string): string[] => {
+      const terms: string[] = [q];
+      // Strip leading how-to scaffolding to get the main noun
+      const howTo = q.replace(/^(?:how\s+(?:do(?:es)?(?:\s+(?:one|you|i|we))?|can\s+(?:you|i|we)|to|should\s+(?:you|i|we))\s+(?:make|build|create|do|write|draw|use|fix|solve|find|get|learn|understand|explain|describe)\s+)/i, "").trim();
+      if (howTo !== q && howTo.length > 2) terms.push(howTo);
+      // Strip superlatives: "tallest building in the world" → "building"
+      const supMatch = q.match(/\b(most|least|best|worst|biggest|smallest|largest|tallest|shortest|fastest|slowest|oldest|newest|richest|poorest|famous|popular|common|important|notable|well-?known)\b/i);
+      const noSuperlative = q.replace(/\b(?:most|least|best|worst|biggest|smallest|largest|tallest|shortest|fastest|slowest|oldest|newest|richest|poorest|famous|popular|common|important|notable|well-?known)\b\s*/gi, "").trim();
+      if (noSuperlative !== q && noSuperlative.length > 2) {
+        terms.push(noSuperlative);
+        // Also try "list of [superlative] [noun]" — often the best Wikipedia article for these
+        if (supMatch) terms.push(`list of ${supMatch[1]} ${noSuperlative}`);
+      }
+      // Strip "in the world/US/etc" tails
+      const noLocation = q.replace(/\s+(?:in|of|around)\s+(?:the\s+)?(?:world|earth|us|usa|america|history|all\s+time|all\s+history)\s*$/i, "").trim();
+      if (noLocation !== q && noLocation.length > 2) terms.push(noLocation);
+      // "food in france" → "french cuisine"
+      const countryFoodMatch = q.match(/\b(?:food|cuisine|dish|meal|eat)\b.+\bin\s+([a-z]+)\s*$/i);
+      if (countryFoodMatch) terms.push(`${countryFoodMatch[1]} cuisine`);
+      // "famous X in Y" → extract X category
+      const inCountry = q.match(/\b(?:famous|popular|common|typical|traditional|iconic)\b.+?\b((?:food|dish|sport|music|art|building|landmark|city|animal|plant)\b.+)$/i);
+      if (inCountry) terms.push(inCountry[1]);
+      // Strip filler adjectives from the front: "simple circuit" → "circuit"
+      const noFiller = q.replace(/^(?:simple|basic|easy|quick|small|tiny|short|brief|little|common|typical|standard|general|normal|plain)\s+/i, "").trim();
+      if (noFiller !== q && noFiller.length > 2) terms.push(noFiller);
+      // Strip leading process/cause verbs: "causes rain" → "rain", "affects climate" → "climate"
+      const noLeadingVerb = q.replace(/^(?:make|makes|build|create|do|does|write|draw|use|fix|solve|find|get|learn|understand|explain|describe|calculate|compute|cause|causes|caused|affect|affects|form|forms|occur|occurs|happen|happens|produce|produces|involve|involves)\s+(?:a\s+|an\s+|the\s+)?/i, "").trim();
+      if (noLeadingVerb !== q && noLeadingVerb.length > 2) terms.push(noLeadingVerb);
+      const noVerb = noLeadingVerb;
+      // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
+      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces)\s*$/i, "").trim();
+      if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
+      // Strip trailing adjectives from "the sky blue" → "sky"
+      const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
+      if (noTrailingAdj !== q && noTrailingAdj.length > 2) terms.push(noTrailingAdj);
+      // Strip leading article/adj: "the sky blue" → "sky blue"
+      const noLeadingThe = q.replace(/^(?:the|a|an)\s+/i, "").trim();
+      if (noLeadingThe !== q && noLeadingThe.length > 2) terms.push(noLeadingThe);
+      // Strip both leading "the" AND trailing adj: "the sky blue" → "sky"
+      const noLeadingAndTrailing = noTrailingAdj.replace(/^(?:the|a|an)\s+/i, "").trim();
+      if (noLeadingAndTrailing !== noTrailingAdj && noLeadingAndTrailing.length > 2) terms.push(noLeadingAndTrailing);
+      // Deduplicate while preserving order
+      return [...new Set(terms)];
+    };
 
-    const summary = directResult ?? (searchResult?.hits.length
-      ? await withTimeout(fetchWikiSummary(searchResult.hits[0].title))
-      : null);
+    // For "why" scaffold queries, prepend "why [query]" as highest-priority search term
+    // so we surface explanatory articles ("Rayleigh scattering") over descriptive ones ("Sky blue")
+    const scaffoldKind = classified.scaffoldKind;
+    const baseSearchTerms = extractSearchTerm(query);
+    const searchTerms = scaffoldKind === "why" || raw.toLowerCase().startsWith("why ")
+      ? [`why ${query}`, ...baseSearchTerms]
+      : baseSearchTerms;
+
+    // Score a Wikipedia search hit against our query for relevance (higher = better match)
+    // Penalizes titles with extra words not in the query (e.g. "Ocean sunfish" vs "Ocean")
+    const scoreHit = (hitTitle: string, q: string): number => {
+      const titleLower = hitTitle.toLowerCase();
+      const STOP = new Set(["the","a","an","is","are","was","were","of","in","to","do","does","and","or","for","with","by","from"]);
+      const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
+      const titleTokens = titleLower.split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
+      if (!qTokens.length || !titleTokens.length) return 0;
+      const matches = qTokens.filter(t => titleLower.includes(t)).length;
+      // Recall: fraction of query tokens found in title
+      const recall = matches / qTokens.length;
+      // Precision: fraction of title tokens that are in query (penalizes extra words)
+      const titleMatches = titleTokens.filter(t => q.toLowerCase().includes(t)).length;
+      const precision = titleMatches / titleTokens.length;
+      // F1-style combined score
+      return recall > 0 && precision > 0 ? 2 * recall * precision / (recall + precision) : 0;
+    };
+
+
+
+    // Try each search term in order, use first that gets a real Wikipedia hit
+    let summary = null;
+    let usedTerm = query;
+    for (const term of searchTerms) {
+      const [direct, searched] = await Promise.all([
+        withTimeout(fetchWikiSummary(term)),
+        withTimeout(searchWiki(term, 5)),
+      ]);
+
+      // Direct hit takes priority if it's a real article
+      if (direct?.extract && direct.type !== "disambiguation") {
+        summary = direct;
+        usedTerm = term;
+        break;
+      }
+
+      // Score search hits and fetch best-matching one (avoid iterating all = too slow)
+      if (searched?.hits.length) {
+        const scored = searched.hits
+          .map(h => ({ hit: h, score: scoreHit(h.title, term) }))
+          .sort((a, b) => b.score - a.score);
+        const best = scored[0];
+        // Only accept if minimum relevance threshold met (avoids "Ocean sunfish" for "ocean" queries)
+        const MIN_SCORE = 0.4;  // Require at least 40% token overlap — avoids "Ocean sunfish" for "ocean"
+        if (best.score >= MIN_SCORE) {
+          const candidate = await withTimeout(fetchWikiSummary(best.hit.title));
+          if (candidate?.extract && candidate.type !== "disambiguation") {
+            summary = candidate;
+            usedTerm = term;
+            break;
+          }
+        }
+        // Score too low — fall through to next search term
+      }
+
+      // Keep disambiguation as a last resort if nothing better found
+      if (!summary && direct) {
+        summary = direct;
+        usedTerm = term;
+      }
+    }
+
+    // If still no result, try spell correction from the search suggestion
+    if (!summary || !summary.extract) {
+      const spellCheck = await withTimeout(searchWiki(query, 1));
+      if (spellCheck?.suggestion) {
+        const corrected = await withTimeout(fetchWikiSummary(spellCheck.suggestion));
+        if (corrected?.extract) {
+          summary = corrected;
+          usedTerm = spellCheck.suggestion;
+        }
+      }
+    }
 
     if (!summary || !summary.extract) {
       memory.failureStreak++;
@@ -1116,6 +1237,8 @@ export async function* runPipeline(
       yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) };
       return;
     }
+    // If we used a simplified term, note it for hedged framing
+    const searchedWithFallback = usedTerm !== query;
 
     memory.failureStreak = 0;
 
@@ -1146,7 +1269,7 @@ export async function* runPipeline(
       // No dab options — fall through and display the dab page text as-is
     }
 
-    const isHedged = directResult === null && (searchResult?.hits.length ?? 0) > 0;
+    const isHedged = searchedWithFallback;
     const { truncated, wasTruncated } = truncateExtract(summary.extract);
 
     provenance.push({

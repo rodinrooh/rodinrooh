@@ -145,7 +145,7 @@ export const SCAFFOLDS: Array<[RegExp, string]> = [
   [/^where\s+(?:is|are|was|were)\s+/i, "what"],
   [/^when\s+(?:is|are|was|were|did|does|do)\s+/i, "what"],
   [/^why\s+(?:is|are|was|were|did|does|do)\s+/i, "what"],
-  [/^how\s+(?:is|are|was|were|did|does|do)\s+/i, "what"],
+  [/^how\s+(?:is|are|was|were|did|does|do)\s+(?:(?:you|i|we|one|they|it|he|she)\s+)?/i, "what"],
   [/^how\s+(?:many|much|long|far|old|big|tall|wide|deep|high)\s+(?:is|are|was|were)?\s*/i, "what"],
   [/^tell\s+me\s+(?:about|more\s+about|all\s+about)\s+/i, "tell"],
   [/^can\s+you\s+tell\s+me\s+(?:about\s+)?/i, "tell"],
