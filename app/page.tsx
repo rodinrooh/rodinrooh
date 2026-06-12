@@ -40,7 +40,7 @@ export default function Home() {
             href="/notgpt"
             date="June 2026"
             title={<>chat<s>GPT</s></>}
-            desc="ChatGPT running on Wikipedia, a dictionary, and a calculator"
+            desc="An AI chatbot that runs on no AI"
           />
           <ProjectRow
             href="/sf-muni"
