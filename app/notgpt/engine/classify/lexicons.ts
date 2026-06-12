@@ -643,4 +643,18 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     properties: ["P159"],
     entityGroup: 1,
   },
+  // "who is the current/new/reigning X" — current holder of a position
+  // Properties empty: pipeline will do a Wikipedia search for "current [role]" instead of Wikidata
+  {
+    pattern: /^(?:who\s+is\s+(?:the\s+)?(?:current|new|reigning|sitting|incumbent|latest|present)\s+)(.+)$/i,
+    label: "current holder",
+    properties: [],
+    entityGroup: 1,
+  },
+  {
+    pattern: /^(?:(?:current|new|reigning|sitting|incumbent|latest|present)\s+)(.+)$/i,
+    label: "current holder",
+    properties: [],
+    entityGroup: 1,
+  },
 ]

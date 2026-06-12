@@ -29,6 +29,7 @@ export type ClassifyResult = {
   modifiers: Modifier[]
   residual: string
   scaffoldKind: string | null
+  wantsSimple: boolean
   coref: { pronoun: string; resolvedTo: string } | null
   trace: Array<{ matcher: string; result: "claimed" | "passed" | "fallthrough" }>
 }
@@ -55,7 +56,7 @@ export function classify(raw: string, context?: TurnContext[]): ClassifyResult {
   const trace: TraceEntry[] = []
 
   // Step 1: Normalize
-  const { normalized, scaffoldKind, residual: rawResidual } = normalize(raw)
+  const { normalized, scaffoldKind, residual: rawResidual, wantsSimple } = normalize(raw)
 
   // Step 2: Coref resolution
   let resolvedQuery = normalized
@@ -96,61 +97,61 @@ export function classify(raw: string, context?: TurnContext[]): ClassifyResult {
 
   // Priority 1: Safety — over-triggers intentionally
   const safety = tryMatcher("safety", () => matchSafety(residual, normalized))
-  if (safety) return buildResult(safety, modifiers, residual, scaffoldKind, coref, trace)
+  if (safety) return buildResult(safety, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 2: Easter eggs (before jailbreak so "sudo" doesn't get caught by jailbreak)
   const egg = tryMatcher("easterEgg", () => matchEasterEgg(residual, normalized))
-  if (egg) return buildResult(egg, modifiers, residual, scaffoldKind, coref, trace)
+  if (egg) return buildResult(egg, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 3: Jailbreak
   const jailbreak = tryMatcher("jailbreak", () => matchJailbreak(residual, normalized))
-  if (jailbreak) return buildResult(jailbreak, modifiers, residual, scaffoldKind, coref, trace)
+  if (jailbreak) return buildResult(jailbreak, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 4: Meta / self-referential
   const meta = tryMatcher("meta", () => matchMeta(residual, normalized))
-  if (meta) return buildResult(meta, modifiers, residual, scaffoldKind, coref, trace)
+  if (meta) return buildResult(meta, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 5: Roleplay
   const roleplay = tryMatcher("roleplay", () => matchRoleplay(residual, normalized))
-  if (roleplay) return buildResult(roleplay, modifiers, residual, scaffoldKind, coref, trace)
+  if (roleplay) return buildResult(roleplay, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 6: Math (before other things to catch "what is 2+2")
   const math = tryMatcher("math", () => matchMath(residual, normalized))
-  if (math) return buildResult(math, modifiers, residual, scaffoldKind, coref, trace)
+  if (math) return buildResult(math, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 7: Unit conversion (before general math to avoid confusion)
   const units = tryMatcher("units", () => matchUnits(residual, normalized))
-  if (units) return buildResult(units, modifiers, residual, scaffoldKind, coref, trace)
+  if (units) return buildResult(units, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 8: Currency conversion
   const currency = tryMatcher("currency", () => matchCurrency(residual, normalized))
-  if (currency) return buildResult(currency, modifiers, residual, scaffoldKind, coref, trace)
+  if (currency) return buildResult(currency, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 9: Time queries
   const time = tryMatcher("time", () => matchTime(residual, normalized))
-  if (time) return buildResult(time, modifiers, residual, scaffoldKind, coref, trace)
+  if (time) return buildResult(time, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 10: Weather
   const weather = tryMatcher("weather", () => matchWeather(residual, normalized))
-  if (weather) return buildResult(weather, modifiers, residual, scaffoldKind, coref, trace)
+  if (weather) return buildResult(weather, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 11: Spelling
   const spelling = tryMatcher("spelling", () => matchSpelling(residual, normalized))
-  if (spelling) return buildResult(spelling, modifiers, residual, scaffoldKind, coref, trace)
+  if (spelling) return buildResult(spelling, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 12: Code requests
   const code = tryMatcher("code", () => matchCode(residual, normalized))
-  if (code) return buildResult(code, modifiers, residual, scaffoldKind, coref, trace)
+  if (code) return buildResult(code, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 13: Creative requests
   const creative = tryMatcher("creative", () => matchCreative(residual, normalized))
-  if (creative) return buildResult(creative, modifiers, residual, scaffoldKind, coref, trace)
+  if (creative) return buildResult(creative, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 14: Structured facts (specific property lookups)
   const structuredFact = tryMatcher("structuredFact", () =>
     matchStructuredFact(residual, normalized)
   )
-  if (structuredFact) return buildResult(structuredFact, modifiers, residual, scaffoldKind, coref, trace)
+  if (structuredFact) return buildResult(structuredFact, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 15: Comparison — with entity gate guard
   // The comparison matcher should only fire when the string looks like an explicit comparison,
@@ -161,28 +162,28 @@ export function classify(raw: string, context?: TurnContext[]): ClassifyResult {
     const comparison = tryMatcher("comparison", () =>
       matchComparison(residual, normalized)
     )
-    if (comparison) return buildResult(comparison, modifiers, residual, scaffoldKind, coref, trace)
+    if (comparison) return buildResult(comparison, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
   } else {
     trace.push({ matcher: "comparison", result: "fallthrough" })
   }
 
   // Priority 16: Recent news / temporal queries
   const news = tryMatcher("newsRecent", () => matchNewsRecent(residual, normalized))
-  if (news) return buildResult(news, modifiers, residual, scaffoldKind, coref, trace)
+  if (news) return buildResult(news, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 17: Opinion / subjective queries
   const opinion = tryMatcher("opinion", () => matchOpinion(residual, normalized))
-  if (opinion) return buildResult(opinion, modifiers, residual, scaffoldKind, coref, trace)
+  if (opinion) return buildResult(opinion, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 18: Definition (low-confidence scaffold match runs here, after more specific matchers)
   const definition = tryMatcher("definition", () =>
     matchDefinition(residual, normalized, scaffoldKind)
   )
-  if (definition) return buildResult(definition, modifiers, residual, scaffoldKind, coref, trace)
+  if (definition) return buildResult(definition, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Priority 19: Generic lookup (always matches if there's content)
   const lookup = tryMatcher("lookup", () => matchLookup(residual, normalized))
-  if (lookup) return buildResult(lookup, modifiers, residual, scaffoldKind, coref, trace)
+  if (lookup) return buildResult(lookup, modifiers, residual, scaffoldKind, wantsSimple, coref, trace)
 
   // Fallthrough: unknown
   trace.push({ matcher: "fallthrough", result: "fallthrough" })
@@ -193,6 +194,7 @@ export function classify(raw: string, context?: TurnContext[]): ClassifyResult {
     modifiers,
     residual,
     scaffoldKind,
+    wantsSimple,
     coref,
     trace,
   }
@@ -203,6 +205,7 @@ function buildResult(
   modifiers: Modifier[],
   residual: string,
   scaffoldKind: string | null,
+  wantsSimple: boolean,
   coref: { pronoun: string; resolvedTo: string } | null,
   trace: TraceEntry[]
 ): ClassifyResult {
@@ -213,6 +216,7 @@ function buildResult(
     modifiers,
     residual,
     scaffoldKind,
+    wantsSimple,
     coref,
     trace,
   }

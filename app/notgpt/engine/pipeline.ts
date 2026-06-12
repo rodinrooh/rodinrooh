@@ -104,6 +104,7 @@ import {
   fetchSharedProperties,
   formatValue,
   wikidataProvenance,
+  fetchLabel,
 } from "./sources/wikidata";
 
 // ----- Utility helpers -----
@@ -1063,8 +1064,57 @@ export async function* runPipeline(
 
   if (classified.intent === "structured_fact") {
     const entity = classified.slots.entity ?? classified.residual;
-    const label = classified.slots.label ?? "fact";
-    const properties = (classified.slots.properties ?? "").split(",").filter(Boolean);
+    const label = classified.slots.property ?? classified.slots.label ?? "fact";
+    const properties = (classified.slots.wikidata_properties ?? classified.slots.properties ?? "").split(",").filter(Boolean);
+
+    // "current holder" label: find via Wikidata P1308 (officeholder), P35 (head of state),
+    // P6 (head of government) on the role entity — avoids guessing the person's name
+    if (label === "current holder") {
+      yield* status(`Looking up current ${entity}...`, "wikipedia");
+      // Find the role's QID via Wikipedia
+      const roleArticle = await withTimeout(searchAndFetch(entity));
+      let holderArticle = null;
+      if (roleArticle?.wikibaseItem) {
+        // Try officeholder properties in order
+        const holderProps = ["P1308", "P35", "P6", "P169"];
+        const holderValue = await withTimeout(fetchFirstProperty(roleArticle.wikibaseItem, holderProps));
+        if (holderValue?.type === "entity") {
+          // Fetch the label (person's name) then their Wikipedia article
+          const personLabel = await withTimeout(fetchLabel(holderValue.id));
+          if (personLabel) {
+            holderArticle = await withTimeout(fetchWikiSummary(personLabel));
+          }
+          // Also try by Wikidata entity page
+          if (!holderArticle?.extract) {
+            const personSearch = await withTimeout(searchWiki(holderValue.id, 1));
+            if (personSearch?.hits?.[0]) {
+              holderArticle = await withTimeout(fetchWikiSummary(personSearch.hits[0].title));
+            }
+          }
+        }
+      }
+      // Fallback: search "current [role]"
+      if (!holderArticle?.extract) {
+        const searchResult = await withTimeout(searchWiki(`current ${entity}`, 3));
+        const bestHit = searchResult?.hits?.find(h => !h.title.toLowerCase().includes("list of"));
+        if (bestHit) holderArticle = await withTimeout(fetchWikiSummary(bestHit.title));
+      }
+
+      if (holderArticle?.extract && holderArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(holderArticle.extract);
+        provenance.push({ ...wikiProvenance(holderArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: holderArticle.title });
+        const leadIn = pickVariant(FACT_LEAD_INS, "fact-lead-in", memory, seed);
+        yield* streamFramingAndText(leadIn, truncated);
+        yield { event: "block", data: blocks[blocks.length - 1] };
+      } else {
+        memory.failureStreak++;
+        yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
+      }
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
 
     yield* status(`Looking up ${entity}...`, "wikipedia");
     const wikiResult = await withTimeout(searchAndFetch(entity));
@@ -1173,6 +1223,40 @@ export async function* runPipeline(
       const noLeadingVerb = q.replace(/^(?:make|makes|build|create|do|does|write|draw|use|fix|solve|find|get|learn|understand|explain|describe|calculate|compute|cause|causes|caused|affect|affects|form|forms|occur|occurs|happen|happens|produce|produces|involve|involves)\s+(?:a\s+|an\s+|the\s+)?/i, "").trim();
       if (noLeadingVerb !== q && noLeadingVerb.length > 2) terms.push(noLeadingVerb);
       const noVerb = noLeadingVerb;
+      // For "[noun] [verb]" residuals (how-do scaffold), nominalize the trailing verb FIRST —
+      // "planes fly" → "flight" → search "flight" returns "Flight" article (correct).
+      // This must come BEFORE the bare noun strip so we prefer "flight" over "planes".
+      {
+        const VERB_TO_CONCEPT: Record<string, string> = {
+          fly: "flight", flies: "flight", flew: "flight",
+          swim: "swimming", swims: "swimming",
+          grow: "growth", grows: "growth",
+          burn: "combustion", burns: "combustion",
+          breathe: "respiration", breathes: "respiration",
+          digest: "digestion", digests: "digestion",
+          beat: "cardiac cycle", beats: "cardiac cycle",
+          evolve: "evolution", evolves: "evolution",
+          reproduce: "reproduction",
+          move: "motion", moves: "motion",
+          orbit: "orbital mechanics", orbits: "orbital mechanics",
+          circulate: "circulation",
+          photosynthesize: "photosynthesis",
+          rust: "corrosion",
+          melt: "melting point", melts: "melting point",
+          boil: "boiling point", boils: "boiling point",
+        }
+        const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
+        if (lastWord && VERB_TO_CONCEPT[lastWord]) {
+          const concept = VERB_TO_CONCEPT[lastWord]
+          if (!terms.includes(concept)) terms.push(concept)
+          // Also "[subject noun] [concept]": "airplane flight"
+          const firstWord = q.split(/\s+/)[0]
+          if (firstWord && firstWord !== lastWord) {
+            const combined = `${firstWord} ${concept}`
+            if (!terms.includes(combined)) terms.push(combined)
+          }
+        }
+      }
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
       const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved)\s*$/i, "").trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
@@ -1224,16 +1308,43 @@ export async function* runPipeline(
       return [...new Set(terms)];
     };
 
-    // For "why" scaffold queries, prepend "why [query]" as highest-priority search term
-    // so we surface explanatory articles ("Rayleigh scattering") over descriptive ones ("Sky blue")
+    // For "why"/"how" scaffold queries, add the scaffold word back as a search prefix
+    // so Wikipedia's ranking finds explanatory articles, not entertainment titles.
+    // "how do planes fly" → also search "how planes fly" → finds "Lift (force)", "Bernoulli's principle"
+    // "why is the sky blue" → also search "why sky blue" → finds "Diffuse sky radiation"
     const scaffoldKind = classified.scaffoldKind;
+    const normalizedLower = classified.residual ? raw.toLowerCase() : "";
     const baseSearchTerms = extractSearchTerm(query);
-    const searchTerms = scaffoldKind === "why" || raw.toLowerCase().startsWith("why ")
-      ? [`why ${query}`, ...baseSearchTerms]
-      : baseSearchTerms;
+    let searchTerms: string[];
+    if (raw.toLowerCase().startsWith("why ")) {
+      searchTerms = [`why ${query}`, ...baseSearchTerms];
+    } else if (raw.toLowerCase().match(/^how\s+(?:do|does|did|is|are|was|were|can|could)\s/i)) {
+      searchTerms = [`how ${query}`, ...baseSearchTerms];
+    } else {
+      searchTerms = baseSearchTerms;
+    }
+    void normalizedLower; // suppress unused warning
+
+    // Returns true if a search result title looks like entertainment that should be
+    // deprioritized when the query is about a concept, mechanism, or process
+    const isEntertainmentTitle = (title: string, q: string): boolean => {
+      // Only deprioritize entertainment when the query has no entertainment context
+      const entertainmentQuery = /\bfilm\b|\bmovie\b|\bshow\b|\bseries\b|\bsong\b|\balbum\b|\bband\b|\bgame\b|\bnovel\b|\bbook\b|\bcharacter\b/i
+      if (entertainmentQuery.test(q)) return false  // query IS about entertainment
+
+      // Explicit disambiguation markers
+      if (/\(film\)|\(TV\s*series\)|\(song\)|\(album\)|\(band\)|\(video\s*game\)|\(book\)|\(novel\)|\(TV\s*show\)|\(miniseries\)|\(soundtrack\)/i.test(title)) return true
+
+      // "Planes 2", "Cars 3", etc. — numbered sequel format often entertainment
+      if (/^[A-Z][a-z]+\s+\d+:/.test(title)) return true
+
+      return false
+    }
 
     // Score a Wikipedia search hit against our query for relevance (higher = better match)
     const scoreHit = (hitTitle: string, q: string): number => {
+      // Immediately reject entertainment disambiguation when query is not about entertainment
+      if (isEntertainmentTitle(hitTitle, q)) return 0
       const titleLower = hitTitle.toLowerCase();
       const STOP = new Set(["the","a","an","is","are","was","were","of","in","to","do","does","and","or","for","with","by","from"]);
       const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
@@ -1257,8 +1368,11 @@ export async function* runPipeline(
     let usedTerm = query;
     for (let termIdx = 0; termIdx < searchTerms.length; termIdx++) {
       const term = searchTerms[termIdx];
-      // First (most exact) search term uses stricter threshold; fallbacks are more permissive
-      const MIN_SCORE = termIdx === 0 ? 0.35 : 0.15;
+      // First term: 0.55 — requires strong title match.
+      // Fallback terms: 0.45 — blocks "Planes: Fire & Rescue" (F1=0.40 < 0.45) while allowing
+      // legitimate derived searches. Verb nominalization terms ("flight") match their search term
+      // at F1=1.0 via direct fetch, bypassing the score check entirely.
+      const MIN_SCORE = termIdx === 0 ? 0.55 : 0.45;
 
       const [direct, searched] = await Promise.all([
         withTimeout(fetchWikiSummary(term)),
@@ -1367,8 +1481,9 @@ export async function* runPipeline(
       latencyMs: Date.now() - startMs,
     });
 
-    // ELI5 check
-    const wantsSimple = /\b(eli5|explain like|simple|simply|basic|beginner)\b/i.test(raw);
+    // ELI5: use the flag from the classifier (which strips the prefix before routing),
+    // or fall back to checking the raw query for inline "explain like" / "simply" etc.
+    const wantsSimple = classified.wantsSimple || /\b(explain like|simply|basic|beginner)\b/i.test(raw);
     let displayText = truncated;
     let leadIn: string;
 

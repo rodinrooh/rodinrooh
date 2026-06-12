@@ -1,22 +1,56 @@
 import { CONTRACTIONS, SCAFFOLDS } from "./lexicons"
 
 export type NormalizeResult = {
-  normalized: string // lowercase, NFKC, contractions expanded, punctuation stripped
-  scaffoldKind: string | null // "what" | "who" | "tell" | "define" | null
-  residual: string // after scaffold strip
+  normalized: string       // fully cleaned text, contractions expanded, apostrophes ASCII
+  scaffoldKind: string | null
+  residual: string         // after scaffold strip
+  wantsSimple: boolean     // "eli5" / "explain like i'm five" prefix detected and stripped
 }
 
-/**
- * Expands contractions in a string.
- * Works on whole-word matches to avoid partial replacements.
- */
+// Apostrophe-like Unicode characters that autocorrect substitutes for ASCII apostrophe.
+// NFKC does NOT normalize these — we must handle them explicitly.
+const CURLY_APOSTROPHES = /[’‘ʼ`´ʹ]/g
+
+// ELI5 prefixes: strip from query and mark wantsSimple = true.
+// These must be at the start of the query (after slang stripping).
+const ELI5_PREFIX = /^(?:eli5|explain\s+like\s+(?:i(?:'m|\s+am)\s+five|a\s+five\s+year\s+old|i(?:'m|\s+am)\s+(?:a\s+)?(?:kid|child|5)|five)|explain\s+simply|simplify)\s+/i
+
+// Number words to digits — applied only inside the math context (see math.ts),
+// but also stripped from scaffold residuals so "two" doesn't end up as a search term.
+// Map covers 0-20 + common large numbers.
+export const NUMBER_WORDS: Array<[RegExp, string]> = [
+  [/\bzero\b/gi, "0"],
+  [/\bone\b/gi, "1"],
+  [/\btwo\b/gi, "2"],
+  [/\bthree\b/gi, "3"],
+  [/\bfour\b/gi, "4"],
+  [/\bfive\b/gi, "5"],
+  [/\bsix\b/gi, "6"],
+  [/\bseven\b/gi, "7"],
+  [/\beight\b/gi, "8"],
+  [/\bnine\b/gi, "9"],
+  [/\bten\b/gi, "10"],
+  [/\beleven\b/gi, "11"],
+  [/\btwelve\b/gi, "12"],
+  [/\bthirteen\b/gi, "13"],
+  [/\bfourteen\b/gi, "14"],
+  [/\bfifteen\b/gi, "15"],
+  [/\bsixteen\b/gi, "16"],
+  [/\bseventeen\b/gi, "17"],
+  [/\beighteen\b/gi, "18"],
+  [/\bnineteen\b/gi, "19"],
+  [/\btwenty\b/gi, "20"],
+  [/\bhundred\b/gi, "* 100"],
+  [/\bthousand\b/gi, "* 1000"],
+  [/\bmillion\b/gi, "* 1000000"],
+]
+
 function expandContractions(text: string): string {
-  // Sort by length descending so longer contractions match first
   const sorted = Object.entries(CONTRACTIONS).sort((a, b) => b[0].length - a[0].length)
   let result = text
   for (const [contraction, expansion] of sorted) {
-    // Escape special regex characters in contraction
     const escaped = contraction.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    // Use word boundary equivalents; the lookbehind ensures we don't partially match
     const re = new RegExp(`(?<![a-z])${escaped}(?![a-z])`, "gi")
     result = result.replace(re, expansion)
   }
@@ -24,48 +58,59 @@ function expandContractions(text: string): string {
 }
 
 /**
- * Normalizes a raw query string:
+ * Normalizes a raw query. Order matters — each step feeds the next.
+ *
  * 1. NFKC Unicode normalization
- * 2. Lowercase
- * 3. Expand contractions
- * 4. Strip trailing ?!. characters
- * 5. Collapse whitespace
- * 6. Detect and strip one leading scaffold
+ * 2. Normalize Unicode apostrophes to ASCII (U+2019 etc. → U+0027)
+ * 3. Lowercase
+ * 4. Strip leading slang/filler ("lmao", "omg", etc.)
+ * 5. Detect and strip ELI5 prefix → wantsSimple = true
+ * 6. Expand contractions ("what's" → "what is")
+ * 7. Strip trailing punctuation
+ * 8. Collapse whitespace
+ * 9. Detect and strip one leading scaffold
  */
 export function normalize(raw: string): NormalizeResult {
-  // Step 1: NFKC normalization
+  // Step 1: NFKC
   let text = raw.normalize("NFKC")
 
-  // Step 2: Lowercase
+  // Step 2: Normalize curly/smart apostrophes to ASCII apostrophe
+  // Must happen before lowercase so the regex class is minimal
+  text = text.replace(CURLY_APOSTROPHES, "'")
+
+  // Step 3: Lowercase
   text = text.toLowerCase()
 
-  // Step 2b: Strip leading slang/filler words that prevent scaffold detection
-  // "lmao what is karma" → "what is karma", "omg who is elon musk" → "who is elon musk"
-  text = text.replace(/^(?:lmao|lol|omg|wtf|bruh|bro|dude|yo|ok|okay|well|so|uh|um|hmm|like|basically|literally|honestly|seriously|actually|wait)[,\s!]+/i, "").trim()
+  // Step 4: Strip leading slang/filler words
+  text = text.replace(/^(?:lmao|lol|omg|wtf|bruh|bro|dude|yo|ok|okay|well|so|uh|um|hmm|like|basically|literally|honestly|seriously|actually|wait|hey|hi|hello)[,\s!]+/i, "").trim()
 
-  // Step 3: Expand contractions
+  // Step 5: Detect and strip ELI5 prefix
+  let wantsSimple = false
+  const eli5Match = ELI5_PREFIX.exec(text)
+  if (eli5Match) {
+    text = text.slice(eli5Match[0].length).trim()
+    wantsSimple = true
+  }
+
+  // Step 6: Expand contractions (now that apostrophes are ASCII and text is lowercase)
   text = expandContractions(text)
 
-  // Step 4: Strip trailing ?!. characters
-  text = text.replace(/[?!.]+$/, "")
+  // Step 7: Strip trailing punctuation
+  text = text.replace(/[?!.,]+$/, "").trim()
 
-  // Step 5: Collapse whitespace
+  // Step 8: Collapse whitespace
   text = text.replace(/\s+/g, " ").trim()
 
   const normalized = text
 
-  // Step 6: Detect and strip one leading scaffold
+  // Step 9: Detect and strip one leading scaffold
   let scaffoldKind: string | null = null
   let residual = normalized
 
   for (const [pattern, kind] of SCAFFOLDS) {
     const match = pattern.exec(normalized)
     if (match) {
-      // For patterns that match the whole string (like "what does X mean"), use the captured group
-      // Otherwise strip the matched prefix
       const stripped = normalized.slice(match[0].length).trim()
-
-      // Only accept if there's still content after stripping
       if (stripped.length > 0) {
         scaffoldKind = kind
         residual = stripped
@@ -74,5 +119,5 @@ export function normalize(raw: string): NormalizeResult {
     }
   }
 
-  return { normalized, scaffoldKind, residual }
+  return { normalized, scaffoldKind, residual, wantsSimple }
 }

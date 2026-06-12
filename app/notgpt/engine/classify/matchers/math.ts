@@ -1,5 +1,6 @@
 import * as mathjs from "mathjs"
 import { MatchResult } from "./index"
+import { NUMBER_WORDS } from "../normalize"
 
 // Create a restricted math instance
 const math = mathjs.create(mathjs.all)
@@ -34,6 +35,12 @@ function stripMathScaffold(text: string): string {
   // Strip trailing "=" or "?" or "= ?"
   s = s.replace(/\s*=\s*\??$/, "").trim()
   s = s.replace(/\?$/, "").trim()
+
+  // Expand number words to digits BEFORE operator replacement
+  // "two plus two" → "2 plus 2" → "2 + 2"
+  for (const [pattern, digit] of NUMBER_WORDS) {
+    s = s.replace(pattern, digit)
+  }
 
   // Replace common words with math equivalents
   s = s

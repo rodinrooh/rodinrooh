@@ -17,11 +17,55 @@ type RawStatement = {
   };
 };
 
+/**
+ * Parse a Wikidata statement value from the REST API format.
+ * The REST API (v1) wraps everything in {"type": "value", "content": ...}
+ * where content can be a string Q-id (entity ref), or an object (quantity/time/string).
+ * The old JSONV2 format used explicit type names; the REST API does not.
+ */
 function parseDatavalue(content: unknown, type: string): WikidataValue | null {
+  // REST API wraps all values: {"type": "value", "content": ...}
+  // Detect format by checking if type === "value" and unwrapping.
+  let actualContent = content;
+  if (type === "value") {
+    actualContent = content; // content IS the payload in REST API
+    // Distinguish entity (Q-id string), quantity (has "amount"), time (has "time"), string
+    if (typeof actualContent === "string") {
+      // Q-id reference: "Q3114"
+      if (/^Q\d+$/.test(actualContent)) {
+        return { type: "entity", id: actualContent };
+      }
+      return { type: "string", value: actualContent };
+    }
+    if (typeof actualContent === "object" && actualContent !== null) {
+      const obj = actualContent as Record<string, unknown>;
+      if ("amount" in obj) {
+        const amountStr = String(obj.amount ?? "0").replace(/^\+/, "");
+        const amount = parseFloat(amountStr);
+        const unitUri = typeof obj.unit === "string" ? obj.unit : null;
+        let unitQid: string | null = null;
+        if (unitUri && unitUri !== "1") {
+          const match = unitUri.match(/Q\d+$/);
+          if (match) unitQid = match[0];
+        }
+        return { type: "quantity", amount, unit: null, unitQid };
+      }
+      if ("time" in obj) {
+        const timeStr = String(obj.time ?? "");
+        const precision = typeof obj.precision === "number" ? obj.precision : 11;
+        return { type: "time", isoDate: timeStr, precision };
+      }
+      if ("id" in obj) {
+        return { type: "entity", id: String(obj.id) };
+      }
+    }
+    return null;
+  }
+
+  // Legacy JSONV2 format (kept for compatibility)
   if (type === "string" && typeof content === "string") {
     return { type: "string", value: content };
   }
-
   if (type === "quantity" && typeof content === "object" && content !== null) {
     const q = content as Record<string, unknown>;
     const amountStr = String(q.amount ?? "0").replace(/^\+/, "");
@@ -34,19 +78,13 @@ function parseDatavalue(content: unknown, type: string): WikidataValue | null {
     }
     return { type: "quantity", amount, unit: null, unitQid };
   }
-
   if (type === "time" && typeof content === "object" && content !== null) {
     const t = content as Record<string, unknown>;
     const timeStr = String(t.time ?? "");
     const precision = typeof t.precision === "number" ? t.precision : 11;
     return { type: "time", isoDate: timeStr, precision };
   }
-
-  if (
-    type === "wikibase-entityid" &&
-    typeof content === "object" &&
-    content !== null
-  ) {
+  if (type === "wikibase-entityid" && typeof content === "object" && content !== null) {
     const e = content as Record<string, unknown>;
     const id = String(e.id ?? "");
     return { type: "entity", id };
@@ -79,6 +117,8 @@ export async function fetchStatement(
   if (!statement.value) return null;
 
   const { type, content } = statement.value;
+  // The REST API wraps all values as {"type": "value", "content": ...}
+  // Pass both the type and the content to parseDatavalue
   return parseDatavalue(content, type);
 }
 
