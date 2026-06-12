@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 
 export default function Home() {
   const [bgColor, setBgColor] = useState("hsl(30, 65%, 38%)")
@@ -39,14 +39,8 @@ export default function Home() {
           <ProjectRow
             href="/notgpt"
             date="June 2026"
-            title="chatGPT (GPT struck through)"
-            desc="Looks like ChatGPT. No AI inside. Every answer is Wikipedia, a dictionary, or a calculator — sourced and timestamped."
-          />
-          <ProjectRow
-            href="/waypoints"
-            date="June 2026"
-            title="Every Name in the Sky"
-            desc="Type any word and see if it's a real FAA waypoint floating over America"
+            title={<>chat<s>GPT</s></>}
+            desc="Looks like ChatGPT. No AI — just Wikipedia, a dictionary, and a calculator."
           />
           <ProjectRow
             href="/sf-muni"
@@ -92,7 +86,7 @@ export default function Home() {
   )
 }
 
-function ProjectRow({ href, date, title, desc }: { href: string; date: string; title: string; desc: string }) {
+function ProjectRow({ href, date, title, desc }: { href: string; date: string; title: React.ReactNode; desc: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" className="home-press-row" style={{ textDecoration: "none", color: "inherit" }}>
       <div className="home-press-date">{date} · {title}</div>
