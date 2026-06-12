@@ -26,15 +26,35 @@ function stripOpinionTerms(residual: string): string {
   return stripped
 }
 
+// Hypothetical/counterfactual patterns — route to unanswerable_prediction
+const HYPOTHETICAL_PATTERNS = [
+  /\bwhat\s+(?:would|will|could|might)\s+happen\s+if\b/i,
+  /\bwhat\s+if\s+(?:the|a|an)?\s*\w/i,
+  /\bif\s+(?:the\s+)?\w+\s+(?:disappeared|stopped|didn't exist|ceased|exploded|vanished)/i,
+  /\bcould\s+(?:humans?|people|we|you)\s+(?:ever|possibly|theoretically)\b/i,
+]
+
 /**
  * Opinion / subjective query matcher.
- * Detects requests for recommendations, opinions, and value judgments.
+ * Also catches hypothetical/counterfactual questions that no reference source can answer.
  */
 export function matchOpinion(
   residual: string,
   normalized: string
 ): MatchResult | null {
   const haystack = normalized.toLowerCase()
+
+  // Hypotheticals — sub-typed as prediction so the pipeline uses UNANSWERABLE_PREDICTION copy
+  for (const pattern of HYPOTHETICAL_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return {
+        intent: "opinion",
+        confidence: 0.9,
+        slots: { topic: residual, trigger: "hypothetical", subtype: "prediction" },
+        consumed: true,
+      }
+    }
+  }
 
   let triggeredBy: string | null = null
 

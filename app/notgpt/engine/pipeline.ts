@@ -695,7 +695,7 @@ export async function* runPipeline(
   if (classified.intent === "opinion") {
     const slots = classified.slots;
     const isAdvice = /should i|advice|recommend/i.test(raw);
-    const isPrediction = /will|predict|future|going to/i.test(raw);
+    const isPrediction = classified.slots.subtype === "prediction" || /will|predict|future|going to|what would happen/i.test(raw);
 
     let variants: string[];
     let categoryId: string;
@@ -1135,23 +1135,37 @@ export async function* runPipeline(
       // "X of Y" → also try Y alone ("symptoms of adhd" → "adhd", "history of rome" → "rome")
       const ofPattern = q.match(/^(?:\w+\s+)+of\s+(.+)$/i);
       if (ofPattern) terms.push(ofPattern[1].trim());
-      // Vocabulary expansion: informal/descriptive phrases → canonical Wikipedia terms
-      // This is NOT hardcoding answers — it maps descriptive language to canonical article names
-      const vocabMap: Array<[RegExp, string[]]> = [
-        [/\bgravitational\s+pull\b|\bsucks\s+in\s+everything\b|\bnothing\s+escapes\b/i, ["black hole", "gravitational field"]],
-        [/\bgravitational\b/i, ["gravity", "gravitational field"]],
-        [/\blight\s+bends\b|\bspace\s+warps\b|\bspace\s+time\b|\bspacetime\b/i, ["general relativity"]],
-        [/\bplant\s+food\b|\b(?:plants?|trees?)\s+(?:make|produce|use)\s+food\b/i, ["photosynthesis"]],
-        [/\bright\s+ascension\b|\bdeclination\b/i, ["celestial coordinate system"]],
-        [/\bblood\s+pumped\b|\bheart\s+beats?\b/i, ["heart", "cardiac cycle"]],
-        [/\bvirus\s+spread\b|\bhow\s+(?:viruses?|diseases?)\s+spread\b/i, ["viral disease", "infection"]],
-        [/\bmoney\s+worth\s+less\b|\bprices\s+go\s+up\b/i, ["inflation"]],
-        [/\bthunder\b.*\blightning\b|\blightning\b.*\bthunder\b/i, ["thunder", "lightning"]],
-      ];
-      for (const [pattern, synonyms] of vocabMap) {
-        if (pattern.test(q)) {
-          for (const s of synonyms) if (!terms.includes(s)) terms.push(s);
-        }
+      // General content-word extraction: strip English stopwords, search remaining key nouns.
+      // This handles informal/descriptive queries ("the thing in space with gravitational pull"
+      // → "space gravitational pull" → Wikipedia finds "Gravity") without hardcoding mappings.
+      const STOPWORDS = new Set([
+        "a","an","the","is","are","was","were","be","been","being","have","has","had",
+        "do","does","did","will","would","could","should","may","might","shall","can",
+        "of","in","on","at","to","for","with","by","from","up","about","into","through",
+        "during","before","after","above","below","between","out","off","over","under",
+        "this","that","these","those","it","its","and","or","but","not","very","just",
+        "most","other","some","such","than","too","also","any","all","both","each","few",
+        "more","no","so","yet","either","one","what","which","who","when","where","why",
+        "how","i","me","we","you","he","she","they","my","your","his","her","our","their",
+        "us","him","them","if","then","else","get","got","go","goes","went","come","came",
+        "take","give","see","know","think","want","use","used","make","made","like","just",
+        "there","here","now","then","than","into","onto","upon","since","while","although",
+        "because","as","after","before","behind","between","among","around","along","across",
+        "really","quite","rather","pretty","fairly","somewhat","much","many","few","little",
+        "tell","let","put","set","show","find","found","look","say","said","said",
+        "thing","things","kind","sort","type","way","ways","something","anything","everything",
+        "nothing","someone","anyone","everyone","nobody","somewhere","anywhere","everywhere",
+      ])
+      const contentWords = q.split(/\s+/).filter(w => w.length > 2 && !STOPWORDS.has(w.toLowerCase()))
+      const contentQuery = contentWords.join(" ")
+      if (contentQuery && contentQuery !== q && contentQuery.length > 2) {
+        terms.push(contentQuery)
+      }
+      // Also try the longest individual content word — often the most specific technical term
+      // ("gravitational" → Wikipedia finds "Gravity"; "petroleum" handles "oil" synonyms)
+      if (contentWords.length > 1) {
+        const longest = contentWords.reduce((a, b) => a.length >= b.length ? a : b)
+        if (longest.length > 4 && !terms.includes(longest)) terms.push(longest)
       }
       // Strip leading article/adj: "the sky blue" → "sky blue"
       const noLeadingThe = q.replace(/^(?:the|a|an)\s+/i, "").trim();
@@ -1172,20 +1186,20 @@ export async function* runPipeline(
       : baseSearchTerms;
 
     // Score a Wikipedia search hit against our query for relevance (higher = better match)
-    // Penalizes titles with extra words not in the query (e.g. "Ocean sunfish" vs "Ocean")
     const scoreHit = (hitTitle: string, q: string): number => {
       const titleLower = hitTitle.toLowerCase();
       const STOP = new Set(["the","a","an","is","are","was","were","of","in","to","do","does","and","or","for","with","by","from"]);
       const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       const titleTokens = titleLower.split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       if (!qTokens.length || !titleTokens.length) return 0;
-      const matches = qTokens.filter(t => titleLower.includes(t)).length;
-      // Recall: fraction of query tokens found in title
+      // Use first 6 chars as pseudo-stem: "gravity"→"gravit", "gravitational"→"gravit" → match
+      const stem = (w: string) => w.slice(0, Math.min(w.length, 6));
+      const tokenMatches = (a: string, b: string) =>
+        a.includes(b) || b.includes(a) || stem(a) === stem(b);
+      const matches = qTokens.filter(qt => titleTokens.some(tt => tokenMatches(qt, tt))).length;
       const recall = matches / qTokens.length;
-      // Precision: fraction of title tokens that are in query (penalizes extra words)
-      const titleMatches = titleTokens.filter(t => q.toLowerCase().includes(t)).length;
+      const titleMatches = titleTokens.filter(tt => qTokens.some(qt => tokenMatches(qt, tt))).length;
       const precision = titleMatches / titleTokens.length;
-      // F1-style combined score
       return recall > 0 && precision > 0 ? 2 * recall * precision / (recall + precision) : 0;
     };
 
@@ -1194,7 +1208,11 @@ export async function* runPipeline(
     // Try each search term in order, use first that gets a real Wikipedia hit
     let summary = null;
     let usedTerm = query;
-    for (const term of searchTerms) {
+    for (let termIdx = 0; termIdx < searchTerms.length; termIdx++) {
+      const term = searchTerms[termIdx];
+      // First (most exact) search term uses stricter threshold; fallbacks are more permissive
+      const MIN_SCORE = termIdx === 0 ? 0.35 : 0.15;
+
       const [direct, searched] = await Promise.all([
         withTimeout(fetchWikiSummary(term)),
         withTimeout(searchWiki(term, 5)),
@@ -1207,14 +1225,12 @@ export async function* runPipeline(
         break;
       }
 
-      // Score search hits and fetch best-matching one (avoid iterating all = too slow)
+      // Score search hits and fetch best-matching one
       if (searched?.hits.length) {
         const scored = searched.hits
           .map(h => ({ hit: h, score: scoreHit(h.title, term) }))
           .sort((a, b) => b.score - a.score);
         const best = scored[0];
-        // Only accept if minimum relevance threshold met (avoids "Ocean sunfish" for "ocean" queries)
-        const MIN_SCORE = 0.4;  // Require at least 40% token overlap — avoids "Ocean sunfish" for "ocean"
         if (best.score >= MIN_SCORE) {
           const candidate = await withTimeout(fetchWikiSummary(best.hit.title));
           if (candidate?.extract && candidate.type !== "disambiguation") {

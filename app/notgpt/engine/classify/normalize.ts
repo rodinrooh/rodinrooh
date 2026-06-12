@@ -39,6 +39,10 @@ export function normalize(raw: string): NormalizeResult {
   // Step 2: Lowercase
   text = text.toLowerCase()
 
+  // Step 2b: Strip leading slang/filler words that prevent scaffold detection
+  // "lmao what is karma" → "what is karma", "omg who is elon musk" → "who is elon musk"
+  text = text.replace(/^(?:lmao|lol|omg|wtf|bruh|bro|dude|yo|ok|okay|well|so|uh|um|hmm|like|basically|literally|honestly|seriously|actually|wait)[,\s!]+/i, "").trim()
+
   // Step 3: Expand contractions
   text = expandContractions(text)
 
