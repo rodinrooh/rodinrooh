@@ -27,13 +27,11 @@ export default function NotGPTLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} h-full`} suppressHydrationWarning>
-      <body
-        className="h-full bg-white dark:bg-[#212121] text-[#0d0d0d] dark:text-[#ececec]"
-        style={{ fontFamily: "var(--font-inter), Inter, sans-serif" }}
-      >
-        {children}
-      </body>
-    </html>
+    <div
+      className={`${inter.className} h-full`}
+      style={{ fontFamily: inter.style.fontFamily }}
+    >
+      {children}
+    </div>
   );
 }
