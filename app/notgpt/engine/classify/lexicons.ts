@@ -676,6 +676,14 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     properties: ["P2043", "P2047"],
     entityGroup: 1,
   },
+  // "first [person] in/on X" — historical firsts (first human in space, first woman on the moon)
+  // Properties empty — pipeline uses Wikipedia search with full raw query
+  {
+    pattern: /^(?:who\s+was\s+(?:the\s+)?)?first\s+(?:person|human|man|woman|animal|country|nation|team)\s+(?:to\s+|in\s+|on\s+)(.+)$/i,
+    label: "first",
+    properties: [],
+    entityGroup: 1,
+  },
   // "who is the current/new/reigning X" — current holder of a position
   // Properties empty: pipeline will do a Wikipedia search for "current [role]" instead of Wikidata
   {

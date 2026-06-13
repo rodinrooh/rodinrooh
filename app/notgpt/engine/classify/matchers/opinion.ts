@@ -59,7 +59,10 @@ export function matchOpinion(
   let triggeredBy: string | null = null
 
   for (const term of OPINION_TERMS) {
-    if (haystack.includes(term.toLowerCase())) {
+    // Use word-boundary matching so "rate" doesn't match "migrate", "overrated" doesn't match "graded"
+    const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(`(?<![a-z])${escaped}(?![a-z])`, "i")
+    if (re.test(haystack)) {
       triggeredBy = term
       break
     }

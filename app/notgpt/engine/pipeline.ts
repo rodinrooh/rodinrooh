@@ -37,6 +37,7 @@ import {
   FLIRTING,
   PROFANITY_FRAMING,
   ROAST_ME,
+  NEUTRAL_ACK,
 } from "./persona/copy/social";
 import {
   NOT_FOUND,
@@ -199,17 +200,101 @@ function resolveMetaSubintent(subintent: string): string[] {
   }
 }
 
-// ----- Social intent detection from raw -----
+// ----- Social intent detection -----
+// General algorithmic detector — not a hardcoded word list.
+// Detects: short input + no factual content words + no question structure.
 
+// Social signals: words that are positive indicators of conversational (not factual) intent.
+// This list covers the most common cases — the ALGORITHM handles the long tail.
+const SOCIAL_SIGNALS = new Set([
+  // Greetings
+  "hi","hey","hello","howdy","sup","yo","hiya","heya",
+  // Reactions/acknowledgments
+  "ok","okay","k","lol","lmao","omg","wtf","bruh","bro","dude","yikes","ugh",
+  "wow","whoa","woah","hmm","hm","uh","um","ah","oh","err","pfft","yay","oops",
+  // Affirmations/negations as standalone
+  "yeah","yep","yup","nah","nope","sure","fine","cool","nice","great","sweet",
+  "awesome","alright","gotcha","understood","noted","same","damn","dang","geez",
+  // Closings
+  "bye","cya","goodbye","later","peace","farewell","night","goodnight","later",
+  // Thanks/sorry
+  "thanks","thx","ty","cheers","sry","np","welcome",
+  // Discourse
+  "wait","so","then","like","basically","literally","actually",
+]);
+
+// Question words that — combined with a noun — signal factual intent (not conversational).
+// If these appear AND there's a content word after them, it's NOT conversational.
+const QUESTION_WORDS = new Set(["what","who","how","why","when","where","which"]);
+
+// Stop words that are not factual content.
+const CONV_STOP = new Set([
+  "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
+  "and","or","but","for","with","by","from","as","that","this","these","those",
+  "i","me","we","you","he","she","they","it","my","your","his","her","our","their",
+  "have","has","had","will","would","could","should","be","been","not","very","just",
+  "can","may","might","shall","up","out","off","down","too","also","so","yet","both",
+  "each","any","all","one","its","about","into","than","through",
+]);
+
+/**
+ * Returns true if the input is conversational (filler, greeting, reaction, acknowledgment)
+ * rather than a factual query. Detected algorithmically:
+ * - Short input (≤ 5 words)
+ * - 0–1 "factual content words" (words that are NOT stopwords, NOT social signals,
+ *   NOT question words, AND are long enough to be a real noun/concept)
+ * - If 1 content word: it must be very short (≤ 4 chars), ruling out concepts like "gravity"
+ */
+function isConversationalInput(raw: string): boolean {
+  const words = raw.trim().toLowerCase()
+    .replace(/[!?.,']+/g, " ").trim()
+    .split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) return true;
+  if (words.length > 5) return false;
+
+  // Count factual content words: real nouns/concepts that aren't social signals or stop words
+  const factualWords = words.filter(w => {
+    const clean = w.replace(/[^a-z]/g, "");
+    if (clean.length <= 2) return false;                // too short to be factual
+    if (CONV_STOP.has(clean)) return false;              // grammatical word
+    if (SOCIAL_SIGNALS.has(clean)) return false;         // known social signal
+    if (QUESTION_WORDS.has(clean)) return false;         // question word
+    return true;                                         // candidate factual word
+  });
+
+  // No factual content → definitely conversational
+  if (factualWords.length === 0) return true;
+
+  // One short factual word with short overall input → probably conversational
+  // "bye", "yes", "wait" etc. These are ≤ 4 chars and not in SOCIAL_SIGNALS
+  if (factualWords.length === 1 && words.length <= 3 && factualWords[0].replace(/[^a-z]/g, "").length <= 4) {
+    return true;
+  }
+
+  // Two+ factual words → it's a query, not a reaction
+  return false;
+}
+
+/**
+ * If the input is conversational, return the appropriate response variants.
+ * Uses simple pattern detection for routing within social; falls back to NEUTRAL_ACK.
+ */
 function detectSocialFromRaw(raw: string): string[] | null {
+  if (!isConversationalInput(raw)) return null;
+
   const low = raw.trim().toLowerCase().replace(/[!?.]+$/, "");
-  if (/^(hi|hello|hey|howdy|sup|what'?s up|yo)\b/.test(low)) return GREETINGS;
-  if (/\b(thank|thanks|thx|ty|appreciate)\b/.test(low)) return THANKS;
-  if (/^(bye|goodbye|goodnight|good night|see ya|later|cya|farewell)\b/.test(low)) return GOODBYES;
-  if (/\bhow are you\b|\bare you ok\b|\bare you doing\b/.test(low)) return HOW_ARE_YOU;
-  if (/\bi love you\b|\bi like you\b|\byou'?re cute\b|\bflirt\b|\bdate me\b/.test(low)) return FLIRTING;
+
+  // Route to specific social copy based on signals
+  if (/^(hi|hello|hey|howdy|sup|hiya|heya|yo+)\b|^what.?s up/.test(low)) return GREETINGS;
+  if (/\b(thank|thanks|thx|ty|appreciate|cheers)\b/.test(low)) return THANKS;
+  if (/^(bye|goodbye|goodnight|good night|see ya|later|cya|farewell|peace)\b/.test(low)) return GOODBYES;
+  if (/\bhow are you\b|\bare you ok\b|\bare you doing\b|\bhow.?re you\b/.test(low)) return HOW_ARE_YOU;
+  if (/\bi love you\b|\bi like you\b|\byou.?re cute\b|\bflirt\b|\bdate me\b/.test(low)) return FLIRTING;
   if (/\broast me\b|\binsult me\b|\bmake fun of me\b/.test(low)) return ROAST_ME;
-  return null;
+
+  // Everything else that passed the conversational filter → neutral acknowledgment
+  return NEUTRAL_ACK;
 }
 
 // ----- Main pipeline -----
@@ -293,6 +378,8 @@ export async function* runPipeline(
   if (socialVariants && classified.intent !== "safety") {
     const msg = pickVariant(socialVariants, "social", memory, seed);
     yield* streamText(msg, seed);
+    // Add local provenance so buildEnvelope sets verdict="answered" not "declined"
+    provenance.push({ source: "local-computation", url: "", label: "social response", fetchedAt: new Date().toISOString() });
     yield { event: "done", data: buildEnvelope(classified.intent, blocks, provenance, startMs) };
     return;
   }
@@ -1067,6 +1154,33 @@ export async function* runPipeline(
     const label = classified.slots.property ?? classified.slots.label ?? "fact";
     const properties = (classified.slots.wikidata_properties ?? classified.slots.properties ?? "").split(",").filter(Boolean);
 
+    // "first" label: historical firsts — search Wikipedia with full raw query
+    // "who was the first person in space" → avoids "first-person shooter" via full query search
+    if (label === "first") {
+      yield* status(`Looking up ${entity}...`, "wikipedia");
+      const firstSearch = await withTimeout(searchWiki(raw, 5));
+      const bestHit = firstSearch?.hits?.find(h =>
+        !h.title.toLowerCase().includes("first-person") &&
+        !h.title.toLowerCase().includes("shooter") &&
+        !h.title.toLowerCase().includes("game")
+      ) ?? firstSearch?.hits?.[0];
+      const firstArticle = bestHit ? await withTimeout(fetchWikiSummary(bestHit.title)) : null;
+      if (firstArticle?.extract && firstArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(firstArticle.extract);
+        provenance.push({ ...wikiProvenance(firstArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: firstArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "block", data: blocks[blocks.length - 1] };
+      } else {
+        memory.failureStreak++;
+        yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
+      }
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
+
     // "count" label: how many X does Y have — search Wikipedia directly (no Wikidata property)
     if (label === "count") {
       yield* status(`Looking up ${entity}...`, "wikipedia");
@@ -1314,21 +1428,39 @@ export async function* runPipeline(
           rust: "corrosion",
           melt: "melting point", melts: "melting point",
           boil: "boiling point", boils: "boiling point",
+          // Life/death verbs — point to scientific processes, not entertainment titles
+          die: "death", dies: "death", died: "death",
+          age: "aging", ages: "aging", aged: "aging",
+          form: "formation", forms: "formation",
+          collapse: "gravitational collapse", collapses: "gravitational collapse",
+          shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
+          float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
         }
         const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
         if (lastWord && VERB_TO_CONCEPT[lastWord]) {
           const concept = VERB_TO_CONCEPT[lastWord]
-          if (!terms.includes(concept)) terms.push(concept)
-          // Also "[subject noun] [concept]": "airplane flight"
           const firstWord = q.split(/\s+/)[0]
+          // Push compound FIRST (more specific: "stars death") then lone concept as fallback
           if (firstWord && firstWord !== lastWord) {
             const combined = `${firstWord} ${concept}`
             if (!terms.includes(combined)) terms.push(combined)
           }
+          if (!terms.includes(concept)) terms.push(concept)
         }
+        // For "X [verb] on/in/through Y" patterns, add the SUBJECT X FIRST (before compound terms)
+      // "ice float on water" → "ice" should be the primary search, not "ice cream float"
+      // "fish swim in ocean" → "fish"
+      const onInMatch = q.match(/^(\w+)\s+\w+\s+(?:on|in|through|into|across|over|under|with)\s+\w+$/i)
+      if (onInMatch) {
+        const subject = onInMatch[1]
+        // Insert at position 0 so the unambiguous subject is tried FIRST
+        // "ice float on water" → "ice" → direct fetch "Ice" article → correct
+        // (before "ice float on water" which finds "ice cream float")
+        if (!terms.includes(subject)) terms.splice(0, 0, subject)
+      }
       }
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved)\s*$/i, "").trim();
+      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|formed|appear|appears)\s*$/i, "").trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
       const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
@@ -1391,14 +1523,15 @@ export async function* runPipeline(
     const fullQuery = classified.normalized;  // full cleaned query e.g. "why is the sky blue"
     const baseSearchTerms = extractSearchTerm(queryForSearch);   // residual-derived fallbacks
 
-    // HOW-DO mechanism queries ("how do planes fly", "how does fire burn"):
-    //   Put derived/nominalized terms FIRST. Wikipedia's search for "how do X verb" reliably
-    //   returns films/songs. The verb-nominalization ("flight") finds the right article directly.
-    // WHY / WHAT / other natural-language queries:
-    //   Full normalized query FIRST. Wikipedia handles "why is the sky blue" correctly.
-    const isHowDoQuery = /^how\s+(?:do|does|did)\s/i.test(raw);
+    // Query ordering strategy:
+    // HOW-DO / WHY-DO (action queries): derived terms first — verb-nominalization finds the
+    //   scientific concept ("flight" for "planes fly", "death" for "stars die"). Wikipedia's
+    //   search for "how do X verb" / "why do X verb" reliably returns films/songs.
+    // WHY-IS / WHAT / other (property/state queries): full query first — Wikipedia handles
+    //   "why is the sky blue" → "Diffuse sky radiation" correctly.
+    const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can't|doesn't))\s/i.test(raw);
     const searchTerms: string[] = [];
-    if (isHowDoQuery) {
+    if (isActionQuery) {
       for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
       if (fullQuery && !searchTerms.includes(fullQuery)) searchTerms.push(fullQuery);
     } else {
@@ -1422,6 +1555,9 @@ export async function* runPipeline(
 
       // TV show season format: "The Boys season 5", "Stranger Things Season 4"
       if (/\bseason\s+\d+\b|\bseries\s+\d+\b/i.test(title)) return true
+
+      // Exclamation-mark titles: "Airplane!", "Grease!", "Oklahoma!" — almost always entertainment
+      if (/!+$/.test(title)) return true
 
       // Business/strategy books when query is about natural phenomena
       // "Blue Ocean Strategy" for "why is the ocean blue" — query has nature words but title has business
@@ -1497,8 +1633,8 @@ export async function* runPipeline(
         withTimeout(searchWiki(term, 5)),
       ]);
 
-      // Direct hit takes priority if it's a real article
-      if (direct?.extract && direct.type !== "disambiguation") {
+      // Direct hit takes priority if it's a real article AND not entertainment
+      if (direct?.extract && direct.type !== "disambiguation" && !isEntertainmentTitle(direct.title, term)) {
         summary = direct;
         usedTerm = term;
         break;

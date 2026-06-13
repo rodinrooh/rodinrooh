@@ -57,6 +57,19 @@ export const PROFANITY_FRAMING: string[] = [
   "I've looked it up. Wiktionary has it, as it has most things. Verbatim:",
 ];
 
+// NEUTRAL ACKNOWLEDGMENT — reactions, affirmations, filler inputs ("ok", "cool", "lol", "yes", "k")
+// The bot acknowledges without pretending to have feelings about it.
+export const NEUTRAL_ACK: string[] = [
+  "Ask me something.",
+  "I'm here.",
+  "Go ahead.",
+  "Ready.",
+  "I'm listening, in the sense that I'm processing input.",
+  "If that was the whole message, I'm waiting for the next one.",
+  "Understood. I think.",
+  "Noted. Do you have a question?",
+];
+
 // ROAST ME — 5 variants
 export const ROAST_ME: string[] = [
   "I'd need verified facts about you to roast you, and unlike certain chatbots, I refuse to invent flaws.",

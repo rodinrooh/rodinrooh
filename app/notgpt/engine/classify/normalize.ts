@@ -92,6 +92,18 @@ export function normalize(raw: string): NormalizeResult {
     wantsSimple = true
   }
 
+  // Step 5b: Strip inline slang intensifiers that add no factual content.
+  // "how tf does wifi work" → "how does wifi work"
+  // "what the heck is dark matter" → "what is dark matter"
+  // Runs BEFORE contraction expansion so the cleaned text feeds scaffold detection correctly.
+  text = text
+    .replace(/\b(?:tf|af|rn|ngl|imo|tbh|fwiw|smh|idk|idek|tho|tbt|btw|fyi|fr|lowkey|highkey|deadass|literally|honestly|actually|basically|genuinely)\b/gi, " ")
+    .replace(/\bthe\s+(?:heck|hel+|freaking|freakin|bloody|damn|dang|darn)\b/gi, " ")
+    // Strip placeholder/filler nouns before relative clauses: "the dude who", "the guy that"
+    // "whos the dude who invented the telephone" → "whos who invented the telephone"
+    .replace(/\b(?:the\s+)?(?:dude|guy|gal|girl|person|man|woman|folk|fella|bloke|chap)\s+(?:who|that|which)\b/gi, "who")
+    .replace(/\s+/g, " ").trim()
+
   // Step 6: Expand contractions (now that apostrophes are ASCII and text is lowercase)
   text = expandContractions(text)
 

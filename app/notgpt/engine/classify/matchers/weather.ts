@@ -39,6 +39,10 @@ export function matchWeather(
 
   if (!hasStrongWeatherWord && !hasWeatherPattern) return null
 
+  // Don't fire for conceptual/comparison queries ("difference between weather and climate")
+  // These are about understanding the concepts, not asking about current conditions
+  if (/\bdifference\s+between\b|\bvs\.?\b|\bversus\b|\bcompare\b/i.test(lower)) return null
+
   // Try to extract a location
   let location = ""
   for (const pattern of WEATHER_IN_LOCATION) {
