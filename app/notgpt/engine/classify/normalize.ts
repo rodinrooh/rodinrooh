@@ -82,7 +82,8 @@ export function normalize(raw: string): NormalizeResult {
   text = text.toLowerCase()
 
   // Step 4: Strip leading slang/filler words
-  text = text.replace(/^(?:lmao|lol|omg|wtf|bruh|bro|dude|yo|ok|okay|well|so|uh|um|hmm|like|basically|literally|honestly|seriously|actually|wait|hey|hi|hello)[,\s!]+/i, "").trim()
+  // Extended slang/filler prefix strip — runs once
+  text = text.replace(/^(?:lmao|lol|omg|wtf|bruh|bro|dude|yo|ok|okay|well|so|uh|um|hmm|like|basically|literally|honestly|seriously|actually|wait|hey|hi|hello|ugh|eww|wow|omfg|holy\s+(?:shit|moly|cow|crap)|fr|ngl|tbh|lowkey|highkey)[,\s!]+/i, "").trim()
 
   // Step 5: Detect and strip ELI5 prefix
   let wantsSimple = false

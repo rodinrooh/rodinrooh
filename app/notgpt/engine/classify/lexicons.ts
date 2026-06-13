@@ -159,6 +159,7 @@ export const SCAFFOLDS: Array<[RegExp, string]> = [
   [/^i\s+'d\s+like\s+to\s+know\s+(?:about\s+)?/i, "tell"],
   [/^i\s+need\s+to\s+know\s+(?:about\s+)?/i, "tell"],
   [/^explain\s+(?:to\s+me\s+)?(?:what\s+is\s+|what\s+are\s+)?/i, "tell"],
+  [/^how\s+come\s+/i, "what"],
   [/^describe\s+(?:to\s+me\s+)?/i, "tell"],
   [/^define\s+/i, "define"],
   [/^what\s+does\s+.+?\s+mean\b/i, "define"],

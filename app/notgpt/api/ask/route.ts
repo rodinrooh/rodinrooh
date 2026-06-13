@@ -44,6 +44,33 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       "blood","clot","dark","cell","bone","skin","nerve","muscle","organ","limb","gland",
       "difference","differences","similar","similarity","climate","weather","temperature",
       "steel","metal","wood","glass","paper","plastic","concrete","rubber","fabric","cloth",
+      // Taste/sensory adjectives — commonly spell-corrected to unrelated words
+      "salty","sweet","sour","bitter","spicy","acidic","alkaline","toxic","edible",
+      "alive","dead","awake","asleep","tired","exhausted","hungry","thirsty","bored",
+      // Famous people names that spell correction corrupts to other surnames
+      "einstein","newton","darwin","galileo","shakespeare","beethoven","mozart","tesla","edison",
+      "aristotle","socrates","plato","napoleon","cleopatra","columbus","alexander","caesar",
+      "quasar","quasars","pulsar","nebula","supernova","neutrino","proton","neutron","electron",
+      "photon","lepton","boson","quark","fermion","baryon","hadron","meson","gluon",
+      "detox","purge","cleanse","yawn","snore","sneeze","hiccup","burp","sweat",
+      "liver","kidney","spleen","pancreas","gallbladder","thyroid","adrenal","pituitary",
+      "mitosis","meiosis","osmosis","diffusion","respiration","transpiration","fermentation",
+      "entropy","momentum","torque","velocity","acceleration","inertia","friction","buoyancy",
+      // Scientific/technical words spell correction commonly corrupts
+      "lightning","thunder","recognize","recognizes","recognized","recognition",
+      "neurons","neuron","molecule","molecules","chromosome","chromosomes","protein","proteins",
+      "antibody","antibodies","antigen","antigens","enzyme","enzymes","hormone","hormones",
+      "bacteria","virus","viruses","vaccine","vaccines","immune","immunity","organism",
+      // Geography/history words that get corrupted to unrelated proper nouns
+      "mayans","mayan","aztecs","aztec","incas","inca","vikings","viking","mongols","mongol",
+      "pharaoh","pharaohs","pyramid","pyramids","colosseum","parthenon","pantheon",
+      // Common words that spell correction corrupts
+      "mars","moon","sun","earth","saturn","venus","jupiter","neptune","uranus",
+      "coffee","sugar","salt","bread","water","milk","rice","meat","fish","fruit","grain",
+      "deep","ocean","sea","lake","river","mountain","desert","forest","island","valley",
+      // Words that Wikipedia phrase suggestion changes in unhelpful ways
+      "different","difference","similar","similar","various","several","multiple",
+      "human","humans","animal","animals","plant","plants","species","organism","organisms",
       // Core English
       "will","can","but","how","who","when","where","why","which","all","been","were","got",
       // Commonly mistyped factual words

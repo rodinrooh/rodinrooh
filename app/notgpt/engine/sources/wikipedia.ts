@@ -136,9 +136,15 @@ export async function searchAndFetch(
   query: string,
   revalidate = 3600
 ): Promise<WikiSummary | null> {
-  const result = await searchWiki(query, 1);
-  if (!result.hits.length) return null;
-  return fetchWikiSummary(result.hits[0].title, revalidate);
+  // Try direct fetch first — much more reliable for known concepts.
+  // "electricity" → direct → "Electricity" article (not "Nigerian Electricity Regulatory Commission")
+  const [direct, searchResult] = await Promise.all([
+    fetchWikiSummary(query, revalidate),
+    searchWiki(query, 1),
+  ])
+  if (direct?.extract && direct.type !== "disambiguation") return direct
+  if (!searchResult.hits.length) return null
+  return fetchWikiSummary(searchResult.hits[0].title, revalidate)
 }
 
 export function wikiProvenance(summary: WikiSummary): ProvenanceEntry {

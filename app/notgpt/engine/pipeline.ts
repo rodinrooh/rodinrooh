@@ -268,7 +268,9 @@ function isConversationalInput(raw: string): boolean {
 
   // One short factual word with short overall input → probably conversational
   // "bye", "yes", "wait" etc. These are ≤ 4 chars and not in SOCIAL_SIGNALS
-  if (factualWords.length === 1 && words.length <= 3 && factualWords[0].replace(/[^a-z]/g, "").length <= 4) {
+  // Only treat as conversational if single factual word is very short (≤2 chars like "k", "ok")
+  // NOT "dna" (3), "mars" (4), "gps" (3) — those are real subjects
+  if (factualWords.length === 1 && words.length <= 3 && factualWords[0].replace(/[^a-z]/g, "").length <= 2) {
     return true;
   }
 
@@ -1407,6 +1409,94 @@ export async function* runPipeline(
       .trim() || query;
     const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
 
+    // ---- SUBJECT EXTRACTION ----
+    // The single most important function: identify the NOUN PHRASE being asked about,
+    // not the question scaffold around it. "yo wtf is the bermuda triangle" → "bermuda triangle".
+    // "can humans survive on mars" → "mars". "is coffee bad for you" → "coffee".
+    // This prevents slang/filler/opinion words from polluting the Wikipedia search.
+    const SUBJECT_STOP = new Set([
+      // Slang and filler
+      "yo","wtf","tf","af","lol","omg","bruh","dude","bro","huh","smh","ngl","tbh",
+      "lowkey","highkey","literally","basically","honestly","actually","seriously","wait",
+      // Question words and scaffolds
+      "what","who","how","why","when","where","which","whose","whom",
+      "whats","whos","hows","whys","wheres","whens",
+      // Modal and auxiliary verbs
+      "is","are","was","were","be","been","being","am",
+      "can","could","should","would","will","shall","may","might","must",
+      "do","does","did","have","has","had",
+      // Common action verbs — when used as question structure (not subject)
+      "invented","invent","invents","discovered","discover","made","make","makes",
+      "died","die","dies","born","killed","kill","kills","went","go","goes","gone",
+      "survive","survived","survives","created","create","creates","found","find",
+      "mean","means","happened","happen","works","work","form","forms","came","come",
+      "become","became","get","got","gotten","turn","turned","turning","start","started",
+      "cause","caused","causes","produce","produced","produces","affect","affects",
+      "part","section","piece","area","region","place","thing","stuff","matter",
+      // Motion/state verbs — not subjects in typical question context
+      "run","runs","ran","heal","heals","healed","healing","float","floats","sink","sinks",
+      "hurt","hurts","break","breaks","broke","grow","grows","grew","fight","fights",
+      "stay","stays","stayed","keep","keeps","kept","hold","holds","held",
+      "fall","falls","fell","rise","rises","rose","drop","drops","dropped",
+      "spin","spins","spun","turn","turns","turned","move","moves","moved",
+      "own","themselves","itself","myself","yourself","ourselves","yourselves",
+      // Directional particles — never subject nouns
+      "up","down","out","away","back","around","together","apart","open","shut",
+      // Temporal filler
+      "now","then","soon","later","today","yesterday","tomorrow","always","never",
+      "sometimes","often","usually","generally","normally","typically","basically",
+      // Opinion / evaluative words — never the subject
+      "bad","good","best","worst","better","worse","great","terrible","awful","amazing",
+      "richer","rich","poorer","poor","safe","unsafe","healthy","unhealthy","dangerous",
+      "useful","useless","important","unimportant","true","false","right","wrong",
+      // Filler/generic nouns that aren't subjects
+      "humans","human","people","person","someone","anyone","everyone","nobody",
+      "you","me","we","us","they","them","he","she","it","one",
+      "things","thing","objects","object","stuff","items","item","examples","example",
+      "owners","owner","users","user","viewers","viewer","readers","reader",
+      "everyone","anyone","nobody","somebody","themselves",
+      // Action nouns that appear as question scaffolding but aren't subjects
+      "crash","crashes","crashing","collision","accident","disaster","incident",
+      // Evaluative state/emotion adjectives — not the subject entity
+      "tired","exhausted","sleepy","hungry","thirsty","bored","sick","healthy","alive","dead",
+      "happy","sad","angry","scared","excited","nervous","anxious","depressed","lonely","upset",
+      "crazy","weird","strange","normal","natural","artificial","organic","digital","virtual",
+      // Negation words
+      "not","never","no","none","neither","nor","without","except","unless","hardly","barely",
+      // Articles, prepositions, conjunctions
+      "the","a","an","of","in","on","at","to","for","with","by","from","about","into",
+      "through","during","before","after","above","below","between","out","off","over",
+      "and","or","but","nor","yet","so","both","either","neither","than","then",
+      // Common adverbs used as filler
+      "just","only","really","very","quite","too","also","still","already","always",
+      "never","often","ever","even","enough","kind","sort","type","way","bit",
+      // Comparative/superlative fillers (the noun after these is the subject)
+      "most","least","more","less","much","many","few","little","some","any","all",
+      "largest","biggest","smallest","tallest","shortest","fastest","slowest","oldest",
+      "newest","heaviest","lightest","deepest","highest","lowest","longest","widest",
+      // Descriptive/evaluative adjectives — not the subject noun
+      // "is coffee bad for you" → "bad" removed → "coffee"
+      // "why is the ocean salty" → "salty" removed → "ocean"
+      "bad","good","safe","unsafe","dangerous","harmful","healthy","unhealthy","toxic",
+      "salty","sweet","sour","bitter","spicy","hot","cold","warm","cool","wet","dry",
+      "deep","shallow","wide","narrow","thick","thin","heavy","light","rough","smooth",
+      "hard","soft","fast","slow","quick","strong","weak","bright","dark","loud","quiet",
+      "clean","dirty","fresh","stale","raw","cooked","alive","dead","sick","well","fit",
+      "big","small","large","tiny","huge","vast","giant","massive","enormous","microscopic",
+      // These appear as evaluative framing, not subject:
+      "for","you","bad","good","safe","dangerous","harmful","unhealthy","healthy","useful",
+    ])
+
+    // Extract the subject noun phrase from a query by removing all non-subject words
+    const extractSubject = (rawQ: string): string => {
+      const tokens = rawQ.toLowerCase()
+        .replace(/[?!.,'"]+/g, " ")
+        .split(/\s+/)
+        .filter(t => t.length > 1)
+      const content = tokens.filter(t => !SUBJECT_STOP.has(t.replace(/[^a-z]/g, "")))
+      return content.join(" ").trim()
+    }
+
     // Extract the best searchable term from the raw query.
     // For how-to queries ("how do you make pasta"), extract the object noun phrase.
     // For superlative queries ("what is the tallest building"), extract the core noun.
@@ -1467,6 +1557,7 @@ export async function* runPipeline(
           collapse: "gravitational collapse", collapses: "gravitational collapse",
           shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
           float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
+          stay: "aerodynamics", stays: "aerodynamics",       // how planes stay up → aerodynamics
         }
         const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
         if (lastWord && VERB_TO_CONCEPT[lastWord]) {
@@ -1531,6 +1622,22 @@ export async function* runPipeline(
       // General content-word extraction: strip English stopwords, search remaining key nouns.
       // This handles informal/descriptive queries ("the thing in space with gravitational pull"
       // → "space gravitational pull" → Wikipedia finds "Gravity") without hardcoding mappings.
+      // Subject extraction using the comprehensive SUBJECT_STOP set.
+      // This is the primary fix for "yo wtf is the bermuda triangle" → "bermuda triangle",
+      // "can humans survive on mars" → "mars", "is coffee bad for you" → "coffee", etc.
+      // It strips ALL non-subject words (slang, opinion, modals, filler nouns) leaving
+      // only the noun phrase being asked about.
+      const subjectPhrase = extractSubject(q)
+      // Only insert as first term if it's a meaningful subject:
+      // - Multi-word phrase (e.g. "bermuda triangle") → always insert
+      // - Single word with ≥4 chars (e.g. "mars", "coffee") → insert; avoids short ambiguous words
+      //   like "age" (→ "The Age" newspaper) or "run" (→ track/river context)
+      const subjectWords = subjectPhrase.split(/\s+/).filter(Boolean)
+      const subjectMeaningful = subjectWords.length >= 2 || (subjectWords.length === 1 && subjectPhrase.length >= 4)
+      if (subjectPhrase && subjectPhrase !== q && subjectMeaningful && !terms.includes(subjectPhrase)) {
+        terms.splice(0, 0, subjectPhrase)
+      }
+
       const STOPWORDS = new Set([
         "a","an","the","is","are","was","were","be","been","being","have","has","had",
         "do","does","did","will","would","could","should","may","might","shall","can",

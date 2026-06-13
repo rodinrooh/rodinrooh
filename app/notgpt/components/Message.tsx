@@ -5,7 +5,7 @@ import type {
   Block,
   ProvenanceEntry,
 } from "../engine/envelope";
-import SourcedBlock from "./blocks/SourcedBlock";
+// SourcedBlock removed — wikipedia text streams as delta events, "Source →" link in ProvenanceFooter
 import ComparisonTable from "./blocks/ComparisonTable";
 import WeatherCard from "./blocks/WeatherCard";
 import PoemBlock from "./blocks/PoemBlock";

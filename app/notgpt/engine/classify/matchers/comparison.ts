@@ -9,6 +9,9 @@ const DIFFERENCE_PATTERN = /^(?:what(?:'s|\s+is)?\s+the\s+)?difference\s+between
 // "compare X and/to/with Y"
 const COMPARE_PATTERN = /^compare\s+(.+?)\s+(?:and|to|with|versus|vs\.?)\s+(.+)$/i
 
+// "who is richer/better/older X or Y" — case-insensitive, works after normalize lowercases names
+const COMPARATIVE_OR_PATTERN = /\b(?:richer|poorer|taller|shorter|older|younger|smarter|faster|stronger|bigger|smaller)\b.*?(\w+(?:\s+\w+)?)\s+or\s+(\w+(?:\s+\w+)?)$/i
+
 // "X or Y" can be comparison sometimes, but too ambiguous — skip
 
 // "X and Y comparison"
@@ -34,6 +37,7 @@ export function matchComparison(
       DIFFERENCE_PATTERN,
       COMPARE_PATTERN,
       AND_COMPARISON_PATTERN,
+      COMPARATIVE_OR_PATTERN,
     ]
 
     for (const pattern of patterns) {
