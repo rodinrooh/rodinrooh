@@ -1147,12 +1147,24 @@ export async function* runPipeline(
     return;
   }
 
+  // Entertainment description detector — checks Wikipedia's description field, not just title.
+  // Defined here (before structured_fact AND lookup) because both handlers use it.
+  // Pattern matches article descriptions that indicate entertainment/commercial content.
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|drink|beverage|cocktail|food dish|cuisine|snack|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon))/i
+  const isEntertainmentDescription = (description: string | undefined): boolean => {
+    if (!description) return false
+    return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
+  }
+
   // ------------------------------------------------------------------
   // STRUCTURED FACT (height, age, population, capital, etc.)
   // ------------------------------------------------------------------
 
   if (classified.intent === "structured_fact") {
-    const entity = classified.slots.entity ?? classified.residual;
+    // Strip leading articles from entity: "the airplane" → "airplane", "a computer" → "computer"
+    // This prevents searchAndFetch("the airplane") → Airplane! film instead of aircraft article
+    const entity = (classified.slots.entity ?? classified.residual)
+      .replace(/^(?:the|a|an)\s+/i, "").trim();
     const label = classified.slots.property ?? classified.slots.label ?? "fact";
     const properties = (classified.slots.wikidata_properties ?? classified.slots.properties ?? "").split(",").filter(Boolean);
 
@@ -1170,7 +1182,8 @@ export async function* runPipeline(
         ) ?? search?.hits?.[0];
         if (hit) {
           const candidate = await withTimeout(fetchWikiSummary(hit.title));
-          if (candidate?.extract && candidate.type !== "disambiguation") {
+          if (candidate?.extract && candidate.type !== "disambiguation" &&
+              !isEntertainmentDescription(candidate.description)) {
             discArticle = candidate;
             break;
           }
@@ -1287,13 +1300,22 @@ export async function* runPipeline(
     // Detect historical events and route them to lookup instead.
     const isHistoricalEvent = /\b(war|battle|revolution|conflict|empire|dynasty|kingdom|republic|independence|colony|colonization|conquest|invasion|treaty|alliance|siege|uprising|rebellion|movement|campaign|crisis|pandemic|plague|disaster|famine)\b/i.test(entity);
     if (isHistoricalEvent && (label === "founded by" || label === "corporate leader")) {
-      // Re-route to lookup — let it search naturally
-      // Fall through by not handling and letting the classification chain continue
+      // Re-route to lookup — fetch the entity article directly, not a "who started X" search
+      // Searching "who started cold war" returns "Cold War 1994" (2026 film) before the historical article.
       yield* status(`Searching for ${entity}...`, "wikipedia");
-      const searchRes = await withTimeout(searchWiki(`${label === "founded by" ? "who started" : "who led"} ${entity}`, 3));
-      const bestHit = searchRes?.hits?.[0];
-      const histArticle = bestHit ? await withTimeout(fetchWikiSummary(bestHit.title)) : null;
-      if (histArticle?.extract && histArticle.type !== "disambiguation") {
+      const [directArticle, searchRes] = await Promise.all([
+        withTimeout(fetchWikiSummary(entity)),
+        withTimeout(searchWiki(entity, 3)),
+      ]);
+      // Use the direct article if it's clean; otherwise use best non-entertainment search hit
+      const searchHits = searchRes?.hits ?? [];
+      const bestHit = !directArticle?.extract || directArticle.type === "disambiguation"
+        ? searchHits.find(h => !isEntertainmentDescription(h.description))
+        : null;
+      const histArticle = bestHit
+        ? await withTimeout(fetchWikiSummary(bestHit.title))
+        : (directArticle?.type !== "disambiguation" && directArticle?.extract ? directArticle : null);
+      if (histArticle?.extract && histArticle.type !== "disambiguation" && !isEntertainmentDescription(histArticle.description)) {
         const { truncated } = truncateExtract(histArticle.extract);
         provenance.push({ ...wikiProvenance(histArticle), latencyMs: Date.now() - startMs });
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: histArticle.title });
@@ -1532,6 +1554,9 @@ export async function* runPipeline(
       .trim() || query;
     const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
 
+    // Mechanism query detection — for how/why/what causes/who discovered/invented queries
+    const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was))/i.test(raw)
+
     // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
     // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
     // "north star" → redirects to "Polaris", not "Fist of the North Star" manga.
@@ -1540,7 +1565,17 @@ export async function* runPipeline(
       const prefetch = await withTimeout(fetchWikiSummary(queryForSearch));
       const prefetchIsClean = prefetch?.extract &&
         prefetch.type !== "disambiguation" &&
-        !/\(film\)|\(song\)|\(TV\s*series\)|\(manga\)|\(anime\)|\(video\s*game\)/i.test(prefetch.title);
+        !/\(film\)|\(song\)|\(TV\s*series\)|\(manga\)|\(anime\)|\(video\s*game\)/i.test(prefetch.title) &&
+        // For mechanism queries: reject entertainment descriptions AND require some description
+        // "memory work" has NO description → for mechanism queries, skip it so we can find
+        // the actual "Memory" (brain) article via the search loop instead
+        !(isMechanismQuery && (
+          isEntertainmentDescription(prefetch?.description) ||
+          !prefetch?.description ||  // no description = likely niche/methodological article
+          // Single-word description = bare category label ("Color", "Shade", "Drink")
+          // These are article stubs or category redirects, not what a mechanism query wants
+          prefetch.description.trim().split(/\s+/).length === 1
+        ));
       if (prefetchIsClean) {
         const { truncated, wasTruncated } = truncateExtract(prefetch!.extract);
         provenance.push({ ...wikiProvenance(prefetch!), latencyMs: Date.now() - startMs });
@@ -1919,9 +1954,12 @@ export async function* runPipeline(
     ])
 
     // Score a Wikipedia search hit against our query for relevance (higher = better match)
-    const scoreHit = (hitTitle: string, q: string): number => {
-      // Immediately reject entertainment disambiguation when query is not about entertainment
+    const scoreHit = (hitTitle: string, q: string, hitDescription?: string): number => {
+      // Reject entertainment titles unconditionally
       if (isEntertainmentTitle(hitTitle, q)) return 0
+      // For mechanism queries, also reject by description
+      // "Goosebumps" title alone doesn't flag it, but "Series of children's horror novels" does
+      if (isMechanismQuery && isEntertainmentDescription(hitDescription)) return 0
       const titleLower = hitTitle.toLowerCase();
       // Extended STOP set — question words and pronouns must not drive scores.
       // Without this, "Why Don't We" scores 0.57 for "why do we have seasons"
@@ -1985,21 +2023,42 @@ export async function* runPipeline(
       ]);
 
       // Direct hit takes priority if it's a real article AND not entertainment
-      if (direct?.extract && direct.type !== "disambiguation" && !isEntertainmentTitle(direct.title, term)) {
+      // For mechanism queries: reject entertainment descriptions AND no-description articles
+      // (no description = niche/methodological article like "Memory work" — not the science topic)
+      // For MULTI-WORD terms: also reject single-word descriptions ("Color" for "sky blue")
+      // For SINGLE-WORD terms: allow single-word descriptions ("Reflex" for "yawn" is valid)
+      const termIsMultiWord = term.trim().split(/\s+/).length >= 2
+      const directIsEntertainment = direct && (
+        isEntertainmentTitle(direct.title, term) ||
+        (isMechanismQuery && (
+          isEntertainmentDescription(direct.description) ||
+          !direct.description ||
+          (termIsMultiWord && direct.description.trim().split(/\s+/).length === 1)
+        ))
+      )
+      if (direct?.extract && direct.type !== "disambiguation" && !directIsEntertainment) {
         summary = direct;
         usedTerm = term;
         break;
       }
 
       // Score search hits and fetch best-matching one
+      // Pass description to scoreHit for mechanism queries — blocks "Goosebumps", "Bubble tea" etc.
       if (searched?.hits.length) {
         const scored = searched.hits
-          .map(h => ({ hit: h, score: scoreHit(h.title, term) }))
+          .map(h => ({ hit: h, score: scoreHit(h.title, term, h.description) }))
           .sort((a, b) => b.score - a.score);
         const best = scored[0];
         if (best.score >= MIN_SCORE) {
           const candidate = await withTimeout(fetchWikiSummary(best.hit.title));
-          if (candidate?.extract && candidate.type !== "disambiguation") {
+          // For mechanism queries, reject by description (entertainment OR absent)
+          // Also reject single-word descriptions for multi-word search terms
+          if (candidate?.extract && candidate.type !== "disambiguation" &&
+              !(isMechanismQuery && (
+                isEntertainmentDescription(candidate.description) ||
+                !candidate.description ||
+                (termIsMultiWord && candidate.description.trim().split(/\s+/).length === 1)
+              ))) {
             summary = candidate;
             usedTerm = term;
             break;
@@ -2009,7 +2068,8 @@ export async function* runPipeline(
       }
 
       // Keep disambiguation as a last resort if nothing better found
-      if (!summary && direct) {
+      // But never fall back to an entertainment article for mechanism queries
+      if (!summary && direct && !directIsEntertainment) {
         summary = direct;
         usedTerm = term;
       }
