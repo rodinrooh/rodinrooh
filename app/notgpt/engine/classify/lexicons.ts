@@ -589,6 +589,13 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     properties: ["P61"],
     entityGroup: 1,
   },
+  // Discovery / exploration — "who discovered America" → search "discovery of America", not just "America"
+  {
+    pattern: /^(?:who\s+(?:discovered|explored|first\s+discovered|colonized|first\s+explored)\s+)(.+)$/i,
+    label: "discovery",
+    properties: [],
+    entityGroup: 1,
+  },
   // Net worth
   {
     pattern: /^(?:net\s+worth\s+of\s+|how\s+(?:rich|wealthy)\s+is\s+|what\s+(?:is\s+)?the\s+net\s+worth\s+of\s+)(.+)$/i,
@@ -698,10 +705,17 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     properties: ["P2043", "P2047"],
     entityGroup: 1,
   },
-  // "first [person] in/on X" — historical firsts (first human in space, first woman on the moon)
+  // "first [person] in/on X" or "who first verb X" — historical firsts
   // Properties empty — pipeline uses Wikipedia search with full raw query
   {
     pattern: /^(?:who\s+was\s+(?:the\s+)?)?first\s+(?:person|human|man|woman|animal|country|nation|team)\s+(?:to\s+|in\s+|on\s+)(.+)$/i,
+    label: "first",
+    properties: [],
+    entityGroup: 1,
+  },
+  {
+    // "who first climbed everest" → "who first VERB X" pattern
+    pattern: /^who\s+(?:first|originally|initially)\s+(?:climbed|scaled|reached|discovered|explored|invented|created|built|founded|conquered|crossed|mapped|sailed|flew)\s+(.+)$/i,
     label: "first",
     properties: [],
     entityGroup: 1,

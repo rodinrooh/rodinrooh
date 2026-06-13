@@ -44,11 +44,22 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       "blood","clot","dark","cell","bone","skin","nerve","muscle","organ","limb","gland",
       "difference","differences","similar","similarity","climate","weather","temperature",
       "steel","metal","wood","glass","paper","plastic","concrete","rubber","fabric","cloth",
+      // Core concept words that Wikipedia suggestions corrupt to unrelated words
+      // "life"→"time", "inflation"→"flation", "love"→"live", etc.
+      "life","death","love","hate","fear","hope","faith","truth","meaning","purpose","soul",
+      "mind","body","heart","brain","blood","bone","skin","eyes","ears","nose","mouth","hands",
+      "inflation","deflation","recession","depression","capitalism","socialism","democracy",
+      "gravity","velocity","momentum","frequency","amplitude","entropy","evolution","mutation",
+      "religion","spirituality","consciousness","unconscious","subconscious","meditation",
+      "philosophy","psychology","sociology","anthropology","archaeology","astronomy",
       // Common English words that spell correction mis-corrects (usually plurals → singulars)
       "birds","humans","animals","plants","insects","mammals","reptiles","bacteria","viruses",
       "trees","leaves","flowers","roots","stems","cells","atoms","molecules","proteins",
       "rivers","oceans","mountains","forests","deserts","glaciers","volcanoes","earthquakes",
       "cannot","wont","dont","doesnt","arent","isnt","wasnt","shouldnt","wouldnt","couldnt",
+      // Number words and quantity words that spell correction may alter
+      "one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve",
+      "hundred","thousand","million","billion","trillion","percent","percentage",
       // Taste/sensory adjectives — commonly spell-corrected to unrelated words
       "salty","sweet","sour","bitter","spicy","acidic","alkaline","toxic","edible",
       "alive","dead","awake","asleep","tired","exhausted","hungry","thirsty","bored",

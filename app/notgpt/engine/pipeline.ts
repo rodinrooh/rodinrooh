@@ -1156,6 +1156,43 @@ export async function* runPipeline(
     const label = classified.slots.property ?? classified.slots.label ?? "fact";
     const properties = (classified.slots.wikidata_properties ?? classified.slots.properties ?? "").split(",").filter(Boolean);
 
+    // "discovery" label: "who discovered X" → search "discovery of X" or "X explorer"
+    // "who discovered america" → "discovery of America" → Christopher Columbus / Leif Erikson
+    if (label === "discovery") {
+      yield* status(`Looking up discovery of ${entity}...`, "wikipedia");
+      const discoveryTerms = [`discovery of ${entity}`, `${entity} discovery`, raw];
+      let discArticle = null;
+      for (const term of discoveryTerms) {
+        const search = await withTimeout(searchWiki(term, 3));
+        const hit = search?.hits?.find(h =>
+          /discovery|explorer|discovered|coloniz|expedition|voyage|exploration/i.test(h.title) ||
+          (!h.title.toLowerCase().includes("united states") && !h.title.toLowerCase().includes("united kingdom"))
+        ) ?? search?.hits?.[0];
+        if (hit) {
+          const candidate = await withTimeout(fetchWikiSummary(hit.title));
+          if (candidate?.extract && candidate.type !== "disambiguation") {
+            discArticle = candidate;
+            break;
+          }
+        }
+      }
+      if (discArticle) {
+        const { truncated } = truncateExtract(discArticle.extract);
+        provenance.push({ ...wikiProvenance(discArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: discArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "provenance", data: { sources: provenance } };
+        yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+        return;
+      }
+      memory.failureStreak++;
+      yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
+
     // "first" label: historical firsts — search Wikipedia with full raw query
     // "who was the first person in space" → avoids "first-person shooter" via full query search
     if (label === "first") {
@@ -1546,6 +1583,10 @@ export async function* runPipeline(
       // Negation words
       "not","never","no","none","neither","nor","without","except","unless","hardly","barely",
       "cannot","cant","wont","dont","doesnt","didnt","arent","isnt","wasnt","wouldnt","couldnt",
+      // Number/quantity words and ordinals — not subject nouns
+      "one","two","three","four","five","six","seven","eight","nine","ten",
+      "both","each","every","many","few","several","multiple","single",
+      "first","second","third","fourth","fifth","last","next","previous",
       // Articles, prepositions, conjunctions
       "the","a","an","of","in","on","at","to","for","with","by","from","about","into",
       "through","during","before","after","above","below","between","out","off","over",
