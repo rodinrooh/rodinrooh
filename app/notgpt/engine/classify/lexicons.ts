@@ -635,11 +635,31 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     properties: ["P277"],
     entityGroup: 1,
   },
-  // CEO
+  // CEO / corporate leadership — handles "who runs X", "who leads X", "who heads X",
+  // "who is in charge of X", "who founded X" (founder), "who is the boss of X", etc.
+  // All route to the same Wikidata P169 (CEO) + P112 (founder) lookup.
   {
-    pattern: /^(?:who\s+is\s+the\s+(?:ceo|chief\s+executive\s+officer)\s+of\s+|ceo\s+of\s+)(.+)$/i,
-    label: "chief executive officer",
-    properties: ["P169"],
+    pattern: /^(?:who\s+is\s+the\s+(?:ceo|chief\s+executive\s+officer|boss|head|leader|president|director|chair(?:man|woman|person)?)\s+of\s+|ceo\s+of\s+)(.+)$/i,
+    label: "corporate leader",
+    properties: ["P169", "P112"],
+    entityGroup: 1,
+  },
+  {
+    pattern: /^(?:who\s+(?:runs|leads|heads|owns|controls|manages|directs|operates|chairs)\s+)(.+)$/i,
+    label: "corporate leader",
+    properties: ["P169", "P112"],
+    entityGroup: 1,
+  },
+  {
+    pattern: /^(?:who\s+is\s+in\s+charge\s+of\s+|who\s+is\s+running\s+|who\s+is\s+leading\s+|who\s+is\s+behind\s+)(.+)$/i,
+    label: "corporate leader",
+    properties: ["P169", "P112"],
+    entityGroup: 1,
+  },
+  {
+    pattern: /^(?:who\s+founded\s+|founder\s+of\s+|who\s+started\s+|who\s+created\s+|who\s+built\s+|who\s+made\s+)(.+)$/i,
+    label: "founded by",
+    properties: ["P112", "P169"],
     entityGroup: 1,
   },
   // Headquarters

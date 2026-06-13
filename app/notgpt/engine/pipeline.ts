@@ -814,7 +814,7 @@ export async function* runPipeline(
         provenance.push({ ...wikiProvenance(wikiResult), latencyMs: Date.now() - startMs });
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated, title: wikiResult.title });
         yield* streamText(`\n\nFor context, here's what Wikipedia says about **${wikiResult.title}**:\n\n${truncated}`, seed);
-        yield { event: "block", data: blocks[blocks.length - 1] };
+        // REMOVED: wikipedia text already in delta stream, no block event needed;
       }
     } else {
       yield* streamText(msg, seed);
@@ -1173,7 +1173,7 @@ export async function* runPipeline(
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: firstArticle.title });
         memory.failureStreak = 0;
         yield* streamText(truncated, seed);
-        yield { event: "block", data: blocks[blocks.length - 1] };
+        // REMOVED: wikipedia text already in delta stream, no block event needed;
       } else {
         memory.failureStreak++;
         yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
@@ -1196,7 +1196,7 @@ export async function* runPipeline(
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: countArticle.title });
         memory.failureStreak = 0;
         yield* streamText(truncated, seed);
-        yield { event: "block", data: blocks[blocks.length - 1] };
+        // REMOVED: wikipedia text already in delta stream, no block event needed;
       } else {
         memory.failureStreak++;
         yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
@@ -1233,11 +1233,71 @@ export async function* runPipeline(
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: distArticle.title });
         memory.failureStreak = 0;
         yield* streamText(truncated, seed);
-        yield { event: "block", data: blocks[blocks.length - 1] };
+        // REMOVED: wikipedia text already in delta stream, no block event needed;
       } else {
         memory.failureStreak++;
         yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
       }
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
+
+    // "corporate leader" label: who runs/leads/heads/is CEO of a company
+    // Uses Wikidata P169 (CEO), P112 (founder) on the company entity.
+    if (label === "corporate leader" || (label === "founded by" && properties.includes("P112"))) {
+      yield* status(`Looking up ${entity}...`, "wikipedia");
+      // Try the entity search, but if it resolves to a PERSON article, also try "[entity] company"
+      const orgArticle = await withTimeout(searchAndFetch(entity));
+      // Detect if we got a person article instead of a company (by description)
+      const gotPerson = orgArticle?.description?.match(/\b(inventor|scientist|physicist|engineer|mathematician|philosopher|artist|musician|actor|writer|politician)\b/i);
+      const companyArticle = gotPerson
+        ? await withTimeout(searchAndFetch(`${entity} company`))
+        : orgArticle;
+
+      let leaderArticle = null;
+      if (companyArticle?.wikibaseItem) {
+        // Try CEO first, then founder
+        const leaderProps = label === "founded by" ? ["P112", "P169"] : ["P169", "P112", "P488"];
+        const leaderValue = await withTimeout(fetchFirstProperty(companyArticle.wikibaseItem, leaderProps));
+        if (leaderValue?.type === "entity") {
+          const personLabel = await withTimeout(fetchLabel(leaderValue.id));
+          if (personLabel) {
+            leaderArticle = await withTimeout(fetchWikiSummary(personLabel));
+          }
+        }
+      }
+      // Fallback: search "[entity] CEO/founder" and pick a PERSON article, not the company
+      if (!leaderArticle?.extract) {
+        const fallbackTerm = label === "founded by" ? `${entity} founder` : `${entity} CEO`;
+        const fallbackSearch = await withTimeout(searchWiki(fallbackTerm, 5));
+        // Skip company articles (those that contain the entity name + Inc/Corp/Ltd or are just the company)
+        const entityLower = entity.toLowerCase();
+        const bestHit = fallbackSearch?.hits?.find(h => {
+          const titleLower = h.title.toLowerCase();
+          // Skip if it's just the company article
+          if (titleLower === entityLower || titleLower === `${entityLower}, inc.` ||
+              /\b(inc\.|corp\.|ltd\.|llc|company|corporation|group)\b/i.test(h.title)) return false;
+          // Prefer person articles or CEO/founder articles
+          return /CEO|chief|executive|founder|president|director|creator|owner/i.test(h.title) ||
+            (/\b(born|businessman|businesswoman|entrepreneur|executive)\b/i.test(h.snippet || "")) ||
+            // Take any hit that isn't obviously the company
+            (!titleLower.startsWith(entityLower.split(/\s+/)[0]));
+        }) ?? fallbackSearch?.hits?.[1]; // skip first if it's likely company
+        if (bestHit) leaderArticle = await withTimeout(fetchWikiSummary(bestHit.title));
+      }
+      if (leaderArticle?.extract && leaderArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(leaderArticle.extract);
+        provenance.push({ ...wikiProvenance(leaderArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: leaderArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "provenance", data: { sources: provenance } };
+        yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+        return;
+      }
+      memory.failureStreak++;
+      yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
       yield { event: "provenance", data: { sources: provenance } };
       yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
       return;
@@ -1282,7 +1342,7 @@ export async function* runPipeline(
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: holderArticle.title });
         const leadIn = pickVariant(FACT_LEAD_INS, "fact-lead-in", memory, seed);
         yield* streamFramingAndText(leadIn, truncated);
-        yield { event: "block", data: blocks[blocks.length - 1] };
+        // REMOVED: wikipedia text already in delta stream, no block event needed;
       } else {
         memory.failureStreak++;
         yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
@@ -1391,7 +1451,7 @@ export async function* runPipeline(
           blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: assArticle.title })
           memory.failureStreak = 0
           yield* streamText(truncated, seed)
-          yield { event: "block", data: blocks[blocks.length - 1] }
+          // REMOVED: wikipedia text already in delta stream, no block event needed
           yield { event: "provenance", data: { sources: provenance } }
           yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) }
           return
@@ -1408,6 +1468,28 @@ export async function* runPipeline(
       .replace(/\s+(?:does|do|did|is|are|was|were|have|has)\s+/g, " ")  // "moons does jupiter" → "moons jupiter"
       .trim() || query;
     const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
+
+    // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
+    // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
+    // "north star" → redirects to "Polaris", not "Fist of the North Star" manga.
+    // Only for multi-word residuals — single words are handled in the search loop below.
+    if (queryForSearch.split(/\s+/).length >= 2) {
+      const prefetch = await withTimeout(fetchWikiSummary(queryForSearch));
+      const prefetchIsClean = prefetch?.extract &&
+        prefetch.type !== "disambiguation" &&
+        !/\(film\)|\(song\)|\(TV\s*series\)|\(manga\)|\(anime\)|\(video\s*game\)/i.test(prefetch.title);
+      if (prefetchIsClean) {
+        const { truncated, wasTruncated } = truncateExtract(prefetch!.extract);
+        provenance.push({ ...wikiProvenance(prefetch!), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated, title: prefetch!.title });
+        memory.failureStreak = 0;
+        const leadIn = pickVariant(FACT_LEAD_INS, "fact-lead-in", memory, seed);
+        yield* streamFramingAndText(leadIn, truncated);
+        yield { event: "provenance", data: { sources: provenance } };
+        yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) };
+        return;
+      }
+    }
 
     // ---- SUBJECT EXTRACTION ----
     // The single most important function: identify the NOUN PHRASE being asked about,
@@ -1698,10 +1780,27 @@ export async function* runPipeline(
     //   "why is the sky blue" → "Diffuse sky radiation" correctly.
     const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can't|doesn't))\s/i.test(raw);
     const searchTerms: string[] = [];
+
+    // Extract subject phrase (first element of baseSearchTerms if it was inserted by SUBJECT_STOP)
+    const subjectPhrase = baseSearchTerms[0] !== queryForSearch ? baseSearchTerms[0] : null;
+    const subjectIsMultiWord = subjectPhrase && subjectPhrase.split(/\s+/).length >= 2;
+
     if (isActionQuery) {
+      // Action queries (how do, why do): derived/nominalized terms first, full query last
       for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
       if (fullQuery && !searchTerms.includes(fullQuery)) searchTerms.push(fullQuery);
+    } else if (subjectIsMultiWord) {
+      // "what is X" with a clear multi-word subject (e.g. "north star", "great barrier reef"):
+      // Try the subject phrase FIRST via direct fetch — avoids "Fist of the North Star" beating
+      // "Polaris" when the full query "what is the north star" is searched and both words match.
+      // Direct fetch of "north star" → "Polaris" (via Wikipedia redirect) is always correct.
+      searchTerms.push(subjectPhrase);
+      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery);
+      for (const t of baseSearchTerms) {
+        if (!searchTerms.includes(t)) searchTerms.push(t);
+      }
     } else {
+      // Other queries: full query first
       if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery);
       for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
     }
@@ -1766,6 +1865,12 @@ export async function* runPipeline(
         "have","has","had","will","would","could","should","may","might","can",
         "be","been","being","not","no","nor","very","just","also",
         "do","don't","doesn't","didn't","won't","can't","isn't","aren't","wasn't",
+        // Descriptive adjectives — when asked "why is fire HOT", "hot" shouldn't match "Hot Space"
+        "hot","cold","warm","cool","big","small","large","tiny","fast","slow",
+        "dark","bright","light","heavy","hard","soft","loud","quiet","deep","high",
+        "red","blue","green","black","white","yellow","orange","purple","gray",
+        "old","new","young","long","short","far","near","good","bad","great",
+        "wet","dry","sharp","dull","thick","thin","full","empty","clean","dirty",
       ]);
       const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       const titleTokens = titleLower.split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
@@ -1792,7 +1897,11 @@ export async function* runPipeline(
       // Wikipedia's search ranking is good; "Diffuse sky radiation" is the right answer for
       // "why is the sky blue" even though token overlap is only 0.4.
       // Derived/simplified terms: strict (0.55) to block films/songs with partial noun matches.
-      const isFullQuery = term === fullQuery;
+      // isFullQuery: true only when the full original query (with question scaffold intact) is being
+      // searched. This gets the permissive MIN_SCORE=0.3 because Wikipedia's natural language search
+      // handles it well. When fullQuery===queryForSearch (no scaffold was stripped, residual IS the
+      // query), we use strict threshold to block entertainment false positives like "Hot Space".
+      const isFullQuery = term === fullQuery && fullQuery !== queryForSearch;
       const MIN_SCORE = isFullQuery ? 0.3 : 0.55;
 
       const [direct, searched] = await Promise.all([

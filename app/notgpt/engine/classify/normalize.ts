@@ -108,6 +108,11 @@ export function normalize(raw: string): NormalizeResult {
     .replace(/\b(?:the\s+)?(?:dude|guy|gal|girl|person|man|woman|folk|fella|bloke|chap)\s+(?:who|that|which)\b/gi, "who")
     .replace(/\s+/g, " ").trim()
 
+  // Step 5d: Normalize "how come" → "why" so they route identically.
+  // "how come fire is hot" → "why fire is hot" → scaffold/pipeline handles normally.
+  // Preserve the rest of the query exactly — don't guess "does" vs "is" vs "do".
+  text = text.replace(/^how\s+come\s+/i, "why ").trim()
+
   // Step 6: Expand contractions (now that apostrophes are ASCII and text is lowercase)
   text = expandContractions(text)
 

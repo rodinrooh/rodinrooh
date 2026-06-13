@@ -103,8 +103,7 @@ function AssistantAvatar() {
 function BlockRenderer({ block }: { block: Block }) {
   switch (block.type) {
     case "wikipedia":
-      // Wikipedia text is already rendered as delta stream. No box needed.
-      return null;
+      return null; // text is in delta stream, no box
     case "comparison-table":
       return <ComparisonTable block={block} />;
     case "weather-card":
