@@ -202,6 +202,7 @@ export const CONTRACTIONS: Record<string, string> = {
   "dont": "do not",
   "doesn't": "does not",
   "doesnt": "does not",
+  "dos": "does",  // common deletion typo: "how dos X work" → "how does X work"
   "didn't": "did not",
   "didnt": "did not",
   "can't": "cannot",

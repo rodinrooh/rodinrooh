@@ -8,8 +8,168 @@ import { runPipeline } from "../../engine/pipeline";
 import { encodeSSE, SSEEvent } from "../../engine/sse";
 import { createSessionMemory } from "../../engine/persona/engine";
 import { SessionMemory } from "../../engine/persona/bits";
-import { TurnContext } from "../../engine/classify/coref";
+import { TurnContext, EntityRef } from "../../engine/classify/coref";
 import { TEMPORAL_TERMS } from "../../engine/classify/lexicons";
+import { searchWiki } from "../../engine/sources/wikipedia";
+
+/**
+ * Spell-correct the query BEFORE intent classification.
+ * Uses Wikipedia's search suggestion for phrase-level correction ("tiem in tokyo" → "time in tokyo"),
+ * and falls back to Datamuse word-by-word correction for individual typos ("balck" → "black").
+ *
+ * Critical: classification must see corrected input or intent detection fails
+ * ("tiem" never matches the time pattern; "balck" finds German generals).
+ */
+async function getSpellingCorrection(q: string): Promise<string | null> {
+  const words = q.trim().split(/\s+/)
+  if (words.length === 0) return null
+
+  try {
+    // Strategy 1 (first): Transposition correction — handles single adjacent-swap typos.
+    // Run FIRST so that "balck" → "black" is handled before Wikipedia can suggest "balch home".
+
+    // Strategy 2: Transposition correction — no external API needed.
+    // Handles "balck" → "black" (adjacent letter swap) using a compact common-word list.
+    // Datamuse's ?sp= treats "balck" as a valid word (score 145039), so it's useless here.
+    const COMMON_WORDS = new Set([
+      // Tech/modern words that Wikipedia might "correct" to unrelated words
+      "wifi","gps","cpu","gpu","dna","rna","atp","nfl","nba","nfl","url","app","pdf","ai",
+      "ml","tv","dvd","usb","atm","mpg","mph","kph","fps","hd","uhd","vr","ar","iot","api",
+      // Common words Wikipedia might "correct" to unrelated titles/names
+      "karma","yoga","anime","manga","sushi","pizza","taco","dude","sick","even","night",
+      "gravity","motion","force","mass","void","soul","mind","dark","heat","sound","wave",
+      "capital","capitals","tides","tide","steel","strong","affect","effect","does","done",
+      "moon","tidal","alloy","brain","nerve","organ","cause","causes","effects","facts",
+      "confused","confuse","memory","sleep","drunk","alcohol","cancer","tumor","malaria",
+      "blood","clot","dark","cell","bone","skin","nerve","muscle","organ","limb","gland",
+      "difference","differences","similar","similarity","climate","weather","temperature",
+      "steel","metal","wood","glass","paper","plastic","concrete","rubber","fabric","cloth",
+      // Core English
+      "will","can","but","how","who","when","where","why","which","all","been","were","got",
+      // Commonly mistyped factual words
+      "black","white","blue","dark","light","time","work","make","word","year","line","side",
+      "form","hole","star","moon","earth","space","water","fire","bone","heart","mind","body",
+      "food","color","shape","size","atom","gene","cell","acid","mass","heat","sound","wave",
+      "force","power","energy","ocean","river","leaf","tree","fish","bird","virus","blood",
+      "brain","nerve","skin","muscle","plant","human","animal","science","theory","history",
+      "nature","system","number","level","state","place","point","world","right","small","large",
+      "short","long","high","deep","free","full","open","real","true","clear","close","early",
+      "late","slow","fast","hard","soft","warm","cold","hot","bright","heavy","light",
+      "gold","iron","salt","iron","carbon","oxygen","nitrogen","hydrogen","silver","copper",
+    ])
+
+    const stopWords = new Set(["a","an","the","is","are","was","were","of","in","on","at",
+      "to","do","does","and","or","what","who","how","why","when","where","which","i","my"])
+
+    function swapVariants(word: string): string[] {
+      const letters = word.split("")
+      return letters.slice(0, -1).map((_, i) => {
+        const s = [...letters];
+        [s[i], s[i + 1]] = [s[i + 1], s[i]]
+        return s.join("")
+      })
+    }
+
+    // Strategy 1: Two-pass word-level correction (runs together, not early-exit per pass).
+    // Pass A: Transposition — "captial"→"capital", "strnog"→"strong" (in-memory, no API)
+    // Pass B: Single-word Wikipedia suggestion for non-transposable typos: "stell"→"steel", "afect"→"affect"
+    // Both passes run; fixes are combined. Early return only after BOTH passes.
+    const transpFixes: { word: string; fix: string }[] = []
+    for (const word of words) {
+      const clean = word.toLowerCase().replace(/[^a-z]/g, "")
+      if (clean.length <= 3 || stopWords.has(clean) || COMMON_WORDS.has(clean)) continue
+      const transpFix = swapVariants(clean).find(v => COMMON_WORDS.has(v))
+      if (transpFix) transpFixes.push({ word, fix: transpFix })
+    }
+
+    // After collecting transposition fixes, find words still needing correction
+    const alreadyFixedWords = new Set(transpFixes.map(f => f.word.toLowerCase()))
+    const suspectWords = words.filter(w => {
+      const clean = w.toLowerCase().replace(/[^a-z]/g, "")
+      if (clean.length <= 4 || stopWords.has(clean) || COMMON_WORDS.has(clean)) return false
+      if (alreadyFixedWords.has(clean)) return false  // already fixed by transposition
+      return /[bcdfghjklmnpqrstvwxyz]{4,}/.test(clean) ||
+        /phto|lck|shs|blck|lcak|afec|strn|stell/.test(clean)
+    })
+
+    const wikiWordFixes: { word: string; fix: string }[] = []
+    if (suspectWords.length > 0) {
+      const corrections = await Promise.all(suspectWords.map(async (word) => {
+        const clean = word.toLowerCase().replace(/[^a-z]/g, "")
+        try {
+          const r = await searchWiki(clean, 1)
+          const sug = r?.suggestion
+          if (sug && !sug.includes(" ") && sug.toLowerCase() !== clean && sug.length <= clean.length + 3) {
+            return { word, fix: sug }
+          }
+        } catch { /* ignore */ }
+        return null
+      }))
+      wikiWordFixes.push(...corrections.filter(Boolean) as { word: string; fix: string }[])
+    }
+
+    const allWordFixes = [...transpFixes, ...wikiWordFixes]
+    if (allWordFixes.length > 0) {
+      let correctedQuery = q
+      for (const c of allWordFixes) {
+        correctedQuery = correctedQuery.replace(
+          new RegExp(`\\b${c.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+          c.fix
+        )
+      }
+      // After word-level fixes, try Wikipedia phrase suggestion on corrected query
+      // "how dos the moon affect tides" → "how does the moon affect tides"
+      try {
+        const r2 = await searchWiki(correctedQuery, 1)
+        const sug2 = r2?.suggestion
+        if (sug2 && sug2.toLowerCase() !== correctedQuery.toLowerCase()) {
+          const origW2 = correctedQuery.toLowerCase().split(/\s+/)
+          const sugW2 = sug2.split(/\s+/)
+          let changedToProperNoun2 = false, anyChangedWordWasValid2 = false, cnt2 = 0
+          for (let i = 0; i < Math.min(origW2.length, sugW2.length); i++) {
+            if (origW2[i] !== sugW2[i].toLowerCase()) {
+              cnt2++
+              if (/^[A-Z]/.test(sugW2[i])) changedToProperNoun2 = true
+              if (COMMON_WORDS.has(origW2[i])) anyChangedWordWasValid2 = true
+            }
+          }
+          if (cnt2 <= 2 && !changedToProperNoun2 && !anyChangedWordWasValid2) return sug2
+        }
+      } catch { /* ignore */ }
+      return correctedQuery
+    }
+
+    // Strategy 2 (fallback): Wikipedia phrase-level suggestion.
+    // Good for multi-word corrections ("french revoluion" → "French Revolution"),
+    // but unreliable for single-word typos where it suggests unrelated proper nouns.
+    const wikiResult = await searchWiki(q, 1)
+    const wikiSuggestion = wikiResult?.suggestion
+    if (wikiSuggestion && wikiSuggestion.toLowerCase() !== q.toLowerCase()) {
+      const origWords = q.toLowerCase().split(/\s+/)
+      const sugParts = wikiSuggestion.split(/\s+/)
+      let anyChange = false
+      let changedToProperNoun = false
+      let anyChangedWordWasValid = false
+      for (let i = 0; i < Math.min(origWords.length, sugParts.length); i++) {
+        if (origWords[i] !== sugParts[i].toLowerCase()) {
+          anyChange = true
+          if (/^[A-Z]/.test(sugParts[i])) changedToProperNoun = true
+          // If the original word is already in COMMON_WORDS, it's a valid word — don't "correct" it
+          // ("gravity" → "gavity" is wrong; "dude" → "duke" is wrong)
+          if (COMMON_WORDS.has(origWords[i])) anyChangedWordWasValid = true
+        }
+      }
+      // Count how many words changed — if many change, the suggestion might be unreliable
+      const changedCount = origWords.filter((w, i) => sugParts[i] && w !== sugParts[i].toLowerCase()).length
+      // Only accept if: ≤ 2 words changed, none are proper nouns, and no already-valid word was changed
+      if (anyChange && changedCount <= 2 && !changedToProperNoun && !anyChangedWordWasValid) return wikiSuggestion
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
 
 type RequestBody = {
   message: string;
@@ -108,8 +268,30 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  // Classify the message
-  const classified = classify(message, context);
+  // Spell correction: run BEFORE intent classification.
+  // "tiem in tokyo" → suggest "time in tokyo" → time intent fires correctly.
+  // "balck hole" → "black hole" → correct lookup.
+  // Run in parallel with memory deserialization to minimize latency.
+  const normalizedContext = (context ?? []).map((turn) => ({
+    ...turn,
+    entities: (turn.entities ?? []).map((e: unknown) => {
+      if (typeof e === "string") return { title: e, kind: "thing" as const };
+      const obj = e as Record<string, unknown>;
+      return {
+        title: String(obj.title || obj.label || ""),
+        kind: ((obj.kind as EntityRef["kind"]) || "thing"),
+        gender: obj.gender as EntityRef["gender"],
+        qid: obj.qid as string | undefined,
+      } satisfies EntityRef;
+    }),
+  })) as TurnContext[];
+
+  const [corrected] = await Promise.all([
+    getSpellingCorrection(message),
+  ]);
+  const messageToClassify = corrected || message;
+
+  const classified = classify(messageToClassify, normalizedContext);
   const isRecentQuery = detectRecency(message);
 
   // Deserialize or create session memory
@@ -149,11 +331,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         };
         controller.enqueue(encoder.encode(encodeSSE(intentEvent)));
 
-        // Run the pipeline
+        // Run the pipeline — use corrected spelling if available
         for await (const event of runPipeline(
-          message,
+          messageToClassify,
           classified,
-          context,
+          normalizedContext,
           memory,
           isRecentQuery
         )) {

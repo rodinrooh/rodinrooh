@@ -103,21 +103,8 @@ function AssistantAvatar() {
 function BlockRenderer({ block }: { block: Block }) {
   switch (block.type) {
     case "wikipedia":
-      return (
-        <SourcedBlock
-          content={block.content}
-          wasTruncated={block.wasTruncated}
-          fullContent={block.fullContent}
-          provenance={[
-            {
-              source: "wikipedia",
-              url: "",
-              label: block.title,
-              fetchedAt: new Date().toISOString(),
-            },
-          ]}
-        />
-      );
+      // Wikipedia text is already rendered as delta stream. No box needed.
+      return null;
     case "comparison-table":
       return <ComparisonTable block={block} />;
     case "weather-card":
@@ -237,43 +224,25 @@ function StreamingDots() {
 }
 
 // ---- Provenance footer ----
+// Shows a single unobtrusive "Source →" link. Multiple sources get comma-separated links.
 function ProvenanceFooter({ provenance }: { provenance: ProvenanceEntry[] }) {
-  if (!provenance.length) return null;
+  // Only show links to real external sources (not local-computation, social responses, etc.)
+  const externalSources = provenance.filter(
+    (p) => p.url && p.source !== "local-computation" && p.source !== "static-dataset"
+  );
+  if (!externalSources.length) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-      {provenance.map((p, i) => (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+      {externalSources.map((p, i) => (
         <a
           key={i}
           href={p.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] text-[#9ca3af] dark:text-[#6b7280] hover:text-[#6b7280] dark:hover:text-[#9ca3af] transition-colors no-underline"
+          className="text-[11px] text-[#9ca3af] dark:text-[#6b7280] hover:text-[#6b7280] dark:hover:text-[#9ca3af] transition-colors no-underline"
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="none"
-            className="flex-shrink-0"
-          >
-            <circle
-              cx="5"
-              cy="5"
-              r="4"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            />
-            <path
-              d="M5 3v2.5L6.5 7"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span>
-            {p.label || p.source}
-          </span>
+          Source →
         </a>
       ))}
     </div>

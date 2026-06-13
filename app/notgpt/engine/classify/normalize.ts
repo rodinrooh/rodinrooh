@@ -92,7 +92,10 @@ export function normalize(raw: string): NormalizeResult {
     wantsSimple = true
   }
 
-  // Step 5b: Strip inline slang intensifiers that add no factual content.
+  // Step 5b: Strip possessive "'s" so "plane's engine" doesn't get spell-corrected to "planet engine"
+  text = text.replace(/(\w+)'s\b/g, "$1")
+
+  // Step 5c: Strip inline slang intensifiers that add no factual content.
   // "how tf does wifi work" → "how does wifi work"
   // "what the heck is dark matter" → "what is dark matter"
   // Runs BEFORE contraction expansion so the cleaned text feeds scaffold detection correctly.

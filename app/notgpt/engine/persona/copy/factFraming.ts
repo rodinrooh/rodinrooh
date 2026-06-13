@@ -1,34 +1,10 @@
-// Lead-ins for successful factual answers (rotate to feel non-canned)
-// Weight toward plainest — several blank entries to let the block speak for itself
-// For Wikipedia/general fact lookups
-export const FACT_LEAD_INS: string[] = [
-  "",
-  "",
-  "",
-  "According to Wikipedia — the actual one, retrieved just now:",
-  "Straight from the source, untouched:",
-  "From Wikipedia, word for word — the chip below links to the exact revision:",
-  "Here's what Wikipedia's editors wrote:",
-  "",
-];
+// Lead-ins: mostly empty — the answer speaks for itself. Source link appears separately.
+export const FACT_LEAD_INS: string[] = ["", "", "", "", "", "", "", ""];
 
-// For dictionary lookups specifically
-export const DICT_LEAD_INS: string[] = [
-  "Wiktionary says, verbatim:",
-  "According to the dictionary:",
-  "",
-  "The definition, verbatim:",
-];
+export const DICT_LEAD_INS: string[] = ["", "", "", ""];
 
-// Hedge framing (before a low-confidence answer)
-// Slot: {title} — keep short; source chip already shows the article name
-export const HEDGE_FRAMING: string[] = [
-  "",
-  "",
-  "On **{title}**:",
-  "**{title}**, from Wikipedia:",
-  "",
-];
+// Hedge framing: empty — the answer speaks for itself
+export const HEDGE_FRAMING: string[] = ["", "", "", "", ""];
 
 // "It gets technical from here" truncation affordance — 4 variants
 export const TRUNCATION_AFFORDANCE: string[] = [

@@ -1365,10 +1365,42 @@ export async function* runPipeline(
 
     yield* status("Searching Wikipedia...", "wikipedia");
 
-    // Clean up residuals left by scaffold stripping that still have leading auxiliary verbs.
+    // --- Pre-search query normalization ---
+
+    // 1. "who killed/shot/assassinated X" → route to "[X] assassination" or "[X] death"
+    //    This catches "who killed JFK" → "John F. Kennedy assassination"
+    //    rather than finding the "Killing" disambiguation page.
+    const assassinMatch = query.match(/^(?:who\s+)?(?:killed|shot|assassinated|murdered|executed)\s+(.+)$/i)
+    if (assassinMatch) {
+      const target = assassinMatch[1].trim()
+      const eventQuery = `${target} assassination`
+      // Short-circuit: search for the assassination event directly
+      yield* status(`Looking up ${target}...`, "wikipedia")
+      const assSearch = await withTimeout(searchWiki(eventQuery, 3))
+      const bestAss = assSearch?.hits?.find(h =>
+        /assassination|killing|death|murder/i.test(h.title) ||
+        h.title.toLowerCase().includes(target.toLowerCase().split(/\s+/).pop() ?? "")
+      ) ?? assSearch?.hits?.[0]
+      if (bestAss) {
+        const assArticle = await withTimeout(fetchWikiSummary(bestAss.title))
+        if (assArticle?.extract && assArticle.type !== "disambiguation") {
+          const { truncated } = truncateExtract(assArticle.extract)
+          provenance.push({ ...wikiProvenance(assArticle), latencyMs: Date.now() - startMs })
+          blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: assArticle.title })
+          memory.failureStreak = 0
+          yield* streamText(truncated, seed)
+          yield { event: "block", data: blocks[blocks.length - 1] }
+          yield { event: "provenance", data: { sources: provenance } }
+          yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) }
+          return
+        }
+      }
+      // Fall through if no good result
+    }
+
+    // 2. Clean up residuals left by scaffold stripping that still have leading auxiliary verbs.
     // "why do we have seasons" → scaffold strips "why do we" → residual "have seasons"
     // → strip leading "have/has/do/does/did/get/need/contain" → "seasons"
-    // This runs on the query (residual) before building search terms.
     const cleanedQuery = query
       .replace(/^(?:have|has|had|do|does|did|get|gets|got|need|needs|contain|contains|include|includes)\s+/i, "")
       .replace(/\s+(?:does|do|did|is|are|was|were|have|has)\s+/g, " ")  // "moons does jupiter" → "moons jupiter"
@@ -1453,14 +1485,42 @@ export async function* runPipeline(
       const onInMatch = q.match(/^(\w+)\s+\w+\s+(?:on|in|through|into|across|over|under|with)\s+\w+$/i)
       if (onInMatch) {
         const subject = onInMatch[1]
-        // Insert at position 0 so the unambiguous subject is tried FIRST
-        // "ice float on water" → "ice" → direct fetch "Ice" article → correct
-        // (before "ice float on water" which finds "ice cream float")
-        if (!terms.includes(subject)) terms.splice(0, 0, subject)
+        const qWords = q.split(/\s+/)
+        const nextWord = qWords[1]
+        // Try 2-word compound first (more specific): "black holes" before "black"
+        // This way "black holes in space" → "black holes" → "Black hole" article
+        // instead of "black" → "Black" (color) article
+        if (nextWord && nextWord !== subject) {
+          const compound = `${subject} ${nextWord}`
+          if (!terms.includes(compound)) terms.splice(0, 0, compound)
+          if (!terms.includes(subject)) terms.splice(1, 0, subject)
+        } else {
+          if (!terms.includes(subject)) terms.splice(0, 0, subject)
+        }
       }
       }
+      // For "why do X verb Y" queries: extract X (the subject) as a standalone search term.
+      // "vaccines cure diseases" → "vaccines" finds the Vaccine article (mechanism).
+      // "leaves change color" → "leaves" as subject, but also try "autumn leaf color" (phenomenon).
+      // Pattern: subject verb object (2+ content words, middle is a verb)
+      const svoMatch = q.match(/^(\w+(?:\s+\w+)?)\s+(?:cure|cures|prevent|prevents|cause|causes|fight|fights|destroy|destroys|affect|affects|change|changes|turn|turns|produce|produces|create|creates|kill|kills|help|helps|protect|protects)\s+(.+)$/i)
+      if (svoMatch) {
+        const subject = svoMatch[1].trim()
+        const object = svoMatch[2].trim()
+        // Add "[subject] [object]" as phenomenon search (e.g. "leaves color" → "autumn leaf color")
+        if (!terms.includes(subject)) terms.push(subject)
+        // For color-change queries: try the specific phenomenon "autumn leaf color"
+        // "leaves change color" → "autumn leaf color" is a real Wikipedia article
+        if (/color|colour|orange|red|yellow|green|brown/i.test(object) ||
+            /change|turn|become/i.test(svoMatch[0].split(/\s+/)[1] || "")) {
+          const singular = subject.replace(/s$/, "")  // leaves → leaf
+          terms.push(`autumn ${singular} color`)
+          terms.push(`${subject} color change`)
+        }
+      }
+
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|formed|appear|appears)\s*$/i, "").trim();
+      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|formed|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills)\s*$/i, "").trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
       const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
