@@ -1282,6 +1282,29 @@ export async function* runPipeline(
 
     // "corporate leader" label: who runs/leads/heads/is CEO of a company
     // Uses Wikidata P169 (CEO), P112 (founder) on the company entity.
+    // "founded by"/"corporate leader" should only fire for actual companies/organizations.
+    // "who started world war one" matches "who started X" but "world war one" is not a company.
+    // Detect historical events and route them to lookup instead.
+    const isHistoricalEvent = /\b(war|battle|revolution|conflict|empire|dynasty|kingdom|republic|independence|colony|colonization|conquest|invasion|treaty|alliance|siege|uprising|rebellion|movement|campaign|crisis|pandemic|plague|disaster|famine)\b/i.test(entity);
+    if (isHistoricalEvent && (label === "founded by" || label === "corporate leader")) {
+      // Re-route to lookup — let it search naturally
+      // Fall through by not handling and letting the classification chain continue
+      yield* status(`Searching for ${entity}...`, "wikipedia");
+      const searchRes = await withTimeout(searchWiki(`${label === "founded by" ? "who started" : "who led"} ${entity}`, 3));
+      const bestHit = searchRes?.hits?.[0];
+      const histArticle = bestHit ? await withTimeout(fetchWikiSummary(bestHit.title)) : null;
+      if (histArticle?.extract && histArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(histArticle.extract);
+        provenance.push({ ...wikiProvenance(histArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: histArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "provenance", data: { sources: provenance } };
+        yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+        return;
+      }
+    }
+
     if (label === "corporate leader" || (label === "founded by" && properties.includes("P112"))) {
       yield* status(`Looking up ${entity}...`, "wikipedia");
       // Try the entity search, but if it resolves to a PERSON article, also try "[entity] company"
@@ -1555,12 +1578,14 @@ export async function* runPipeline(
       "become","became","get","got","gotten","turn","turned","turning","start","started",
       "cause","caused","causes","produce","produced","produces","affect","affects",
       "part","section","piece","area","region","place","thing","stuff","matter",
-      // Motion/state verbs — not subjects in typical question context
+      // Motion/state/action verbs — not subjects in typical question context
       "run","runs","ran","heal","heals","healed","healing","float","floats","sink","sinks",
       "hurt","hurts","break","breaks","broke","grow","grows","grew","fight","fights",
       "stay","stays","stayed","keep","keeps","kept","hold","holds","held",
       "fall","falls","fell","rise","rises","rose","drop","drops","dropped",
       "spin","spins","spun","turn","turns","turned","move","moves","moved",
+      "take","takes","took","taken","put","puts","put","get","gets","got","give","gives","gave",
+      "make","makes","made","come","comes","came","go","goes","went","see","sees","saw",
       "own","themselves","itself","myself","yourself","ourselves","yourselves",
       // Directional particles — never subject nouns
       "up","down","out","away","back","around","together","apart","open","shut",
@@ -1738,7 +1763,7 @@ export async function* runPipeline(
       }
 
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|formed|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills)\s*$/i, "").trim();
+      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes)\s*$/i, "").trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
       const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
@@ -1910,6 +1935,11 @@ export async function* runPipeline(
         "have","has","had","will","would","could","should","may","might","can",
         "be","been","being","not","no","nor","very","just","also",
         "do","don't","doesn't","didn't","won't","can't","isn't","aren't","wasn't",
+        // Common action verbs that should not drive relevance scores
+        "take","put","get","make","come","go","see","let","keep","give","set","run",
+        "try","use","work","need","want","know","think","feel","look","turn","rise",
+        // Directional/positional words that shouldn't score in relevance
+        "up","down","off","out","over","back","through","around","away","along",
         // Descriptive adjectives — when asked "why is fire HOT", "hot" shouldn't match "Hot Space"
         "hot","cold","warm","cool","big","small","large","tiny","fast","slow",
         "dark","bright","light","heavy","hard","soft","loud","quiet","deep","high",
