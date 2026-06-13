@@ -1545,6 +1545,7 @@ export async function* runPipeline(
       "crazy","weird","strange","normal","natural","artificial","organic","digital","virtual",
       // Negation words
       "not","never","no","none","neither","nor","without","except","unless","hardly","barely",
+      "cannot","cant","wont","dont","doesnt","didnt","arent","isnt","wasnt","wouldnt","couldnt",
       // Articles, prepositions, conjunctions
       "the","a","an","of","in","on","at","to","for","with","by","from","about","into",
       "through","during","before","after","above","below","between","out","off","over",

@@ -44,11 +44,21 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       "blood","clot","dark","cell","bone","skin","nerve","muscle","organ","limb","gland",
       "difference","differences","similar","similarity","climate","weather","temperature",
       "steel","metal","wood","glass","paper","plastic","concrete","rubber","fabric","cloth",
+      // Common English words that spell correction mis-corrects (usually plurals → singulars)
+      "birds","humans","animals","plants","insects","mammals","reptiles","bacteria","viruses",
+      "trees","leaves","flowers","roots","stems","cells","atoms","molecules","proteins",
+      "rivers","oceans","mountains","forests","deserts","glaciers","volcanoes","earthquakes",
+      "cannot","wont","dont","doesnt","arent","isnt","wasnt","shouldnt","wouldnt","couldnt",
       // Taste/sensory adjectives — commonly spell-corrected to unrelated words
       "salty","sweet","sour","bitter","spicy","acidic","alkaline","toxic","edible",
       "alive","dead","awake","asleep","tired","exhausted","hungry","thirsty","bored",
+      // Company names — must not be spell-corrected ("sony"→"song", "uber"→"user", etc.)
+      "google","apple","amazon","microsoft","netflix","spotify","uber","tesla","facebook",
+      "twitter","samsung","nike","paypal","airbnb","lyft","openai","youtube","instagram",
+      "whatsapp","snapchat","pinterest","linkedin","reddit","tiktok","walmart","disney",
+      "sony","honda","toyota","bmw","ford","nvidia","intel","amd","qualcomm","broadcom",
       // Famous people names that spell correction corrupts to other surnames
-      "einstein","newton","darwin","galileo","shakespeare","beethoven","mozart","tesla","edison",
+      "einstein","newton","darwin","galileo","shakespeare","beethoven","mozart","edison",
       "aristotle","socrates","plato","napoleon","cleopatra","columbus","alexander","caesar",
       "quasar","quasars","pulsar","nebula","supernova","neutrino","proton","neutron","electron",
       "photon","lepton","boson","quark","fermion","baryon","hadron","meson","gluon",
