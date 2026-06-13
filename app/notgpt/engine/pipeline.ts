@@ -1285,7 +1285,10 @@ export async function* runPipeline(
     if (label === "corporate leader" || (label === "founded by" && properties.includes("P112"))) {
       yield* status(`Looking up ${entity}...`, "wikipedia");
       // Try the entity search, but if it resolves to a PERSON article, also try "[entity] company"
-      const orgArticle = await withTimeout(searchAndFetch(entity));
+      // Also try "[entity] Platforms" for cases like "meta" → "Meta Platforms"
+      const orgArticle = await withTimeout(searchAndFetch(entity)) ||
+        await withTimeout(searchAndFetch(`${entity} platforms`)) ||
+        await withTimeout(searchAndFetch(`${entity} company`));
       // Detect if we got a person article instead of a company (by description)
       const gotPerson = orgArticle?.description?.match(/\b(inventor|scientist|physicist|engineer|mathematician|philosopher|artist|musician|actor|writer|politician)\b/i);
       const companyArticle = gotPerson
@@ -1947,7 +1950,7 @@ export async function* runPipeline(
       const MIN_SCORE = isFullQuery ? 0.3 : 0.55;
 
       const [direct, searched] = await Promise.all([
-        withTimeout(fetchWikiSummary(term)),
+        withTimeout(fetchWikiSummary(term), 5000),  // 5s for direct fetch — Wikipedia CDN is usually fast
         withTimeout(searchWiki(term, 5)),
       ]);
 

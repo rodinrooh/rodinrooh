@@ -68,6 +68,7 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       "twitter","samsung","nike","paypal","airbnb","lyft","openai","youtube","instagram",
       "whatsapp","snapchat","pinterest","linkedin","reddit","tiktok","walmart","disney",
       "sony","honda","toyota","bmw","ford","nvidia","intel","amd","qualcomm","broadcom",
+      "meta","alphabet","shopify","stripe","palantir","databricks","figma","notion","slack",
       // Famous people names that spell correction corrupts to other surnames
       "einstein","newton","darwin","galileo","shakespeare","beethoven","mozart","edison",
       "aristotle","socrates","plato","napoleon","cleopatra","columbus","alexander","caesar",
