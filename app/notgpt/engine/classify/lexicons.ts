@@ -144,9 +144,13 @@ export const SCAFFOLDS: Array<[RegExp, string]> = [
   [/^who\s+(?:exactly\s+)?(?:is|was)\s+/i, "who"],
   [/^where\s+(?:is|are|was|were)\s+/i, "what"],
   [/^when\s+(?:is|are|was|were|did|does|do)\s+/i, "what"],
-  [/^why\s+(?:is|are|was|were|did|does|do)\s+/i, "what"],
+  // WHY: strip pronouns too ("why do we have seasons" → "have seasons" → further cleaned)
+  [/^why\s+(?:is|are|was|were|did|does|do)\s+(?:(?:we|you|i|they|it|one|people|humans?|animals?|things?)\s+)?/i, "what"],
   [/^how\s+(?:is|are|was|were|did|does|do)\s+(?:(?:you|i|we|one|they|it|he|she)\s+)?/i, "what"],
-  [/^how\s+(?:many|much|long|far|old|big|tall|wide|deep|high)\s+(?:is|are|was|were)?\s*/i, "what"],
+  // HOW MANY/MUCH/FAR/FAST/LONG — strip the quantifier + optional aux verb
+  [/^how\s+(?:many|much|long|far|fast|quickly|slowly|often|old|big|tall|wide|deep|high|heavy|large|small)\s+(?:(?:is|are|was|were|does|do|did)\s+)?/i, "what"],
+  // WHAT LANGUAGES — strip so residual is the entity
+  [/^what\s+(?:language|languages)\s+(?:do(?:es)?\s+)?(?:they\s+|people\s+)?speak\s+(?:in\s+)?/i, "what"],
   [/^tell\s+me\s+(?:about|more\s+about|all\s+about)\s+/i, "tell"],
   [/^can\s+you\s+tell\s+me\s+(?:about\s+)?/i, "tell"],
   [/^could\s+you\s+tell\s+me\s+(?:about\s+)?/i, "tell"],
@@ -641,6 +645,35 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     pattern: /^(?:headquarters\s+of\s+|where\s+(?:is|are)\s+)(.+?)(?:['']s?\s+headquarters|\s+headquartered|\s+based)$/i,
     label: "headquarters location",
     properties: ["P159"],
+    entityGroup: 1,
+  },
+  // HOW MANY — capture everything after "how many" as the entity (used for display only;
+  // the pipeline count handler always uses the full raw query for Wikipedia search)
+  {
+    pattern: /^how\s+many\s+(.+)$/i,
+    label: "count",
+    properties: [],
+    entityGroup: 1,
+  },
+  // HOW FAR → distance lookup
+  {
+    pattern: /^how\s+far\s+(?:is|are|was|were|away)?\s*(?:from\s+.+?\s+to\s+|between\s+.+?\s+and\s+)?(.+)$/i,
+    label: "distance",
+    properties: ["P2583"],
+    entityGroup: 1,
+  },
+  // HOW FAST / HOW QUICKLY → speed lookup
+  {
+    pattern: /^how\s+(?:fast|quickly|slow|slowly)\s+(?:does|do|is|can|did)?\s*(.+?)(?:\s+(?:travel|move|go|fly|spin|rotate))?\s*$/i,
+    label: "speed",
+    properties: ["P2052"],
+    entityGroup: 1,
+  },
+  // HOW LONG → length/duration
+  {
+    pattern: /^how\s+long\s+(?:is|was|does|did|will|has)?\s*(.+)$/i,
+    label: "length",
+    properties: ["P2043", "P2047"],
     entityGroup: 1,
   },
   // "who is the current/new/reigning X" — current holder of a position

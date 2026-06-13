@@ -1067,6 +1067,66 @@ export async function* runPipeline(
     const label = classified.slots.property ?? classified.slots.label ?? "fact";
     const properties = (classified.slots.wikidata_properties ?? classified.slots.properties ?? "").split(",").filter(Boolean);
 
+    // "count" label: how many X does Y have — search Wikipedia directly (no Wikidata property)
+    if (label === "count") {
+      yield* status(`Looking up ${entity}...`, "wikipedia");
+      // Search with the full original query — Wikipedia search handles natural language well
+      const countSearch = await withTimeout(searchWiki(raw, 3));
+      const bestHit = countSearch?.hits?.[0];
+      const countArticle = bestHit ? await withTimeout(fetchWikiSummary(bestHit.title)) : null;
+      if (countArticle?.extract && countArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(countArticle.extract);
+        provenance.push({ ...wikiProvenance(countArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: countArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "block", data: blocks[blocks.length - 1] };
+      } else {
+        memory.failureStreak++;
+        yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
+      }
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
+
+    // "distance"/"speed"/"length" label: Wikidata property lookup, fallback to Wikipedia search
+    if (label === "distance" || label === "speed" || label === "length") {
+      yield* status(`Looking up ${entity}...`, "wikipedia");
+      const wikiRes = await withTimeout(searchAndFetch(entity));
+      if (wikiRes?.wikibaseItem && properties.length) {
+        const factValue = await withTimeout(fetchFirstProperty(wikiRes.wikibaseItem, properties));
+        if (factValue) {
+          const formatted = await formatValue(factValue);
+          provenance.push({ ...wikiProvenance(wikiRes), latencyMs: Date.now() - startMs });
+          provenance.push({ ...wikidataProvenance(wikiRes.wikibaseItem), latencyMs: Date.now() - startMs });
+          memory.failureStreak = 0;
+          yield* streamText(`**${wikiRes.title}** — ${label}: **${formatted}**`, seed);
+          yield { event: "provenance", data: { sources: provenance } };
+          yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+          return;
+        }
+      }
+      // Fallback: search Wikipedia with full raw query
+      const distSearch = await withTimeout(searchWiki(raw, 3));
+      const bestHit = distSearch?.hits?.[0];
+      const distArticle = bestHit ? await withTimeout(fetchWikiSummary(bestHit.title)) : null;
+      if (distArticle?.extract && distArticle.type !== "disambiguation") {
+        const { truncated } = truncateExtract(distArticle.extract);
+        provenance.push({ ...wikiProvenance(distArticle), latencyMs: Date.now() - startMs });
+        blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: distArticle.title });
+        memory.failureStreak = 0;
+        yield* streamText(truncated, seed);
+        yield { event: "block", data: blocks[blocks.length - 1] };
+      } else {
+        memory.failureStreak++;
+        yield* streamText(pickVariant(NOT_FOUND, "not-found", memory, seed), seed);
+      }
+      yield { event: "provenance", data: { sources: provenance } };
+      yield { event: "done", data: buildEnvelope("structured_fact", blocks, provenance, startMs) };
+      return;
+    }
+
     // "current holder" label: find via Wikidata P1308 (officeholder), P35 (head of state),
     // P6 (head of government) on the role entity — avoids guessing the person's name
     if (label === "current holder") {
@@ -1191,6 +1251,16 @@ export async function* runPipeline(
 
     yield* status("Searching Wikipedia...", "wikipedia");
 
+    // Clean up residuals left by scaffold stripping that still have leading auxiliary verbs.
+    // "why do we have seasons" → scaffold strips "why do we" → residual "have seasons"
+    // → strip leading "have/has/do/does/did/get/need/contain" → "seasons"
+    // This runs on the query (residual) before building search terms.
+    const cleanedQuery = query
+      .replace(/^(?:have|has|had|do|does|did|get|gets|got|need|needs|contain|contains|include|includes)\s+/i, "")
+      .replace(/\s+(?:does|do|did|is|are|was|were|have|has)\s+/g, " ")  // "moons does jupiter" → "moons jupiter"
+      .trim() || query;
+    const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
+
     // Extract the best searchable term from the raw query.
     // For how-to queries ("how do you make pasta"), extract the object noun phrase.
     // For superlative queries ("what is the tallest building"), extract the core noun.
@@ -1310,20 +1380,32 @@ export async function* runPipeline(
 
     // For "why"/"how" scaffold queries, add the scaffold word back as a search prefix
     // so Wikipedia's ranking finds explanatory articles, not entertainment titles.
-    // "how do planes fly" → also search "how planes fly" → finds "Lift (force)", "Bernoulli's principle"
-    // "why is the sky blue" → also search "why sky blue" → finds "Diffuse sky radiation"
+    // The full normalized query is always the FIRST search term — Wikipedia's search handles
+    // natural language very well and "why is the sky blue" → "Diffuse sky radiation" is correct,
+    // while searching the stripped residual "sky blue" finds the color article.
+    // We use a PERMISSIVE threshold for this term (0.3) since Wikipedia's top result is usually
+    // relevant even when token overlap is partial (function words stripped from the score).
+    // Derived/simplified terms use a STRICT threshold (0.45) to block false positives like films.
     const scaffoldKind = classified.scaffoldKind;
-    const normalizedLower = classified.residual ? raw.toLowerCase() : "";
-    const baseSearchTerms = extractSearchTerm(query);
-    let searchTerms: string[];
-    if (raw.toLowerCase().startsWith("why ")) {
-      searchTerms = [`why ${query}`, ...baseSearchTerms];
-    } else if (raw.toLowerCase().match(/^how\s+(?:do|does|did|is|are|was|were|can|could)\s/i)) {
-      searchTerms = [`how ${query}`, ...baseSearchTerms];
+    void scaffoldKind;
+    const fullQuery = classified.normalized;  // full cleaned query e.g. "why is the sky blue"
+    const baseSearchTerms = extractSearchTerm(queryForSearch);   // residual-derived fallbacks
+
+    // HOW-DO mechanism queries ("how do planes fly", "how does fire burn"):
+    //   Put derived/nominalized terms FIRST. Wikipedia's search for "how do X verb" reliably
+    //   returns films/songs. The verb-nominalization ("flight") finds the right article directly.
+    // WHY / WHAT / other natural-language queries:
+    //   Full normalized query FIRST. Wikipedia handles "why is the sky blue" correctly.
+    const isHowDoQuery = /^how\s+(?:do|does|did)\s/i.test(raw);
+    const searchTerms: string[] = [];
+    if (isHowDoQuery) {
+      for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
+      if (fullQuery && !searchTerms.includes(fullQuery)) searchTerms.push(fullQuery);
     } else {
-      searchTerms = baseSearchTerms;
+      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery);
+      for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
     }
-    void normalizedLower; // suppress unused warning
+    if (!searchTerms.length) searchTerms.push(queryForSearch);
 
     // Returns true if a search result title looks like entertainment that should be
     // deprioritized when the query is about a concept, mechanism, or process
@@ -1335,18 +1417,53 @@ export async function* runPipeline(
       // Explicit disambiguation markers
       if (/\(film\)|\(TV\s*series\)|\(song\)|\(album\)|\(band\)|\(video\s*game\)|\(book\)|\(novel\)|\(TV\s*show\)|\(miniseries\)|\(soundtrack\)/i.test(title)) return true
 
-      // "Planes 2", "Cars 3", etc. — numbered sequel format often entertainment
+      // "Planes 2", "Cars 3", etc. — numbered sequel format
       if (/^[A-Z][a-z]+\s+\d+:/.test(title)) return true
+
+      // TV show season format: "The Boys season 5", "Stranger Things Season 4"
+      if (/\bseason\s+\d+\b|\bseries\s+\d+\b/i.test(title)) return true
+
+      // Business/strategy books when query is about natural phenomena
+      // "Blue Ocean Strategy" for "why is the ocean blue" — query has nature words but title has business
+      const naturalPhenomenonQ = /\b(sky|ocean|sea|water|ice|fire|snow|rain|sun|moon|earth|cloud|wind|color|colour|plant|animal|human|body|cell|atom|bone|muscle|organ|blood|light|sound|heat|cold|warm|energy)\b/i
+      const businessTitle = /\b(strategy|strategies|management|marketing|corporate|business|economy|economics|investment|brand|startup|entrepreneur|leadership|company|companies|market|finance|financial)\b/i
+      if (businessTitle.test(title) && naturalPhenomenonQ.test(q) && !businessTitle.test(q)) return true
+
+      // "Planes: Fire & Rescue" — query's main noun + colon + capitalized subtitle
+      // Catches entertainment spin-offs that don't have explicit "(film)" disambiguation
+      const queryNounToken = q.toLowerCase().split(/\s+/)
+        .filter(t => t.length > 3 && !STOP.has(t))
+        .find(t => title.toLowerCase().startsWith(t) || title.toLowerCase().startsWith(t.slice(0, -1)))
+      if (queryNounToken && title.includes(':')) return true
 
       return false
     }
+    // STOP used in isEntertainmentTitle (same as scoreHit for consistency)
+    const STOP = new Set([
+      "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
+      "and","or","but","for","with","by","from","what","which","who","when","where","why","how",
+      "i","me","we","us","you","he","him","she","her","they","them","it","its",
+      "my","your","his","our","their","this","that",
+    ])
 
     // Score a Wikipedia search hit against our query for relevance (higher = better match)
     const scoreHit = (hitTitle: string, q: string): number => {
       // Immediately reject entertainment disambiguation when query is not about entertainment
       if (isEntertainmentTitle(hitTitle, q)) return 0
       const titleLower = hitTitle.toLowerCase();
-      const STOP = new Set(["the","a","an","is","are","was","were","of","in","to","do","does","and","or","for","with","by","from"]);
+      // Extended STOP set — question words and pronouns must not drive scores.
+      // Without this, "Why Don't We" scores 0.57 for "why do we have seasons"
+      // because "why" and "we" appear in both. With these in STOP, they're filtered out.
+      const STOP = new Set([
+        "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
+        "and","or","but","for","with","by","from","as","into","than","so","yet","if",
+        "what","which","who","whom","whose","when","where","why","how",
+        "i","me","we","us","you","he","him","she","her","they","them","it","its",
+        "my","your","his","our","their","this","that","these","those",
+        "have","has","had","will","would","could","should","may","might","can",
+        "be","been","being","not","no","nor","very","just","also",
+        "do","don't","doesn't","didn't","won't","can't","isn't","aren't","wasn't",
+      ]);
       const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       const titleTokens = titleLower.split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       if (!qTokens.length || !titleTokens.length) return 0;
@@ -1368,11 +1485,12 @@ export async function* runPipeline(
     let usedTerm = query;
     for (let termIdx = 0; termIdx < searchTerms.length; termIdx++) {
       const term = searchTerms[termIdx];
-      // First term: 0.55 — requires strong title match.
-      // Fallback terms: 0.45 — blocks "Planes: Fire & Rescue" (F1=0.40 < 0.45) while allowing
-      // legitimate derived searches. Verb nominalization terms ("flight") match their search term
-      // at F1=1.0 via direct fetch, bypassing the score check entirely.
-      const MIN_SCORE = termIdx === 0 ? 0.55 : 0.45;
+      // Full natural language query (term 0): permissive threshold (0.3).
+      // Wikipedia's search ranking is good; "Diffuse sky radiation" is the right answer for
+      // "why is the sky blue" even though token overlap is only 0.4.
+      // Derived/simplified terms: strict (0.55) to block films/songs with partial noun matches.
+      const isFullQuery = term === fullQuery;
+      const MIN_SCORE = isFullQuery ? 0.3 : 0.55;
 
       const [direct, searched] = await Promise.all([
         withTimeout(fetchWikiSummary(term)),
