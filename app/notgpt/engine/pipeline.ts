@@ -1178,7 +1178,7 @@ export async function* runPipeline(
   // "English country pop group" (Remember Monday) → pop group (also in ENT filter)
   // "Play by William Shakespeare" → play by
   // "Manufacturer in the Philippines" (MyPhone) → manufacturer in
-  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic)/i
+  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece)/i
   const isNonPhenomenonDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return NON_PHENOMENON_DESCRIPTIONS_RE.test(description)
@@ -1845,11 +1845,12 @@ export async function* runPipeline(
       "big","small","large","tiny","huge","vast","giant","massive","enormous","microscopic",
       // These appear as evaluative framing, not subject:
       "for","you","bad","good","safe","dangerous","harmful","unhealthy","healthy","useful",
-      // Body symptom/effect words — when someone says "X makes me poop/sick/tired",
-      // the SUBJECT is X (not poop/sick). Strip these so they don't attract wrong articles.
-      "poop","pee","sick","vomit","nausea","tired","anxious","headache","diarrhea",
-      "constipated","bloated","gassy","sweaty","itchy","drowsy","dizzy","jittery",
-      "nauseous","queasy","lethargic","sluggish","wired","energized","jittery",
+      // EFFECT words for "X makes me [effect]" — the subject is X, not the effect.
+      // "coffee makes me poop" → subject=coffee, poop=effect → keep poop in STOP.
+      // "can you get sick from cold" → "sick" stripped so subject is "cold" (not contaminating search)
+      // Keep: words that don't redirect to useful articles or cause worse article matches when subject
+      // Remove: words where subject redirect IS useful (dizzy→Dizziness, headache→Headache, nausea→Nausea)
+      "poop","pee","vomit","sick","tired",
     ])
 
     // Extract the subject noun phrase from a query by removing all non-subject words
@@ -1923,7 +1924,10 @@ export async function* runPipeline(
           shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
           float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
           stay: "aerodynamics", stays: "aerodynamics",       // how planes stay up → aerodynamics
-          sleep: "sleep deprivation", sleeps: "sleep deprivation",  // what if you don't sleep → deprivation
+          // sleep removed: causes "some sleep deprivation" for "talk in sleep" queries.
+          // Sleep deprivation is handled via the full-question search path when needed.
+          hibernate: "hibernation", hibernates: "hibernation", hibernated: "hibernation",
+          glow: "bioluminescence", glows: "bioluminescence", glowed: "bioluminescence",
           break: "fracture", breaks: "fracture", broke: "fracture", broken: "fracture",
           shatter: "fracture", shatters: "fracture", shattered: "fracture",
           // "crack" removed: "my joints crack" means a popping sound, not a break.
@@ -2022,50 +2026,10 @@ export async function* runPipeline(
         }
       }
 
-      // Health/symptom concept expansion: maps query patterns to specific Wikipedia articles.
-      // Checked against classified.normalized (full query with context), not just residual.
-      // Fires unconditionally — adds concept as first search term so it beats ambiguous matches.
-      // Covers cases where the correct article can't be found from residual words alone because
-      // they're synonyms ("tired" → "Fatigue") or descriptive phrases ("clicking noise from car").
-      if (isMechanismQuery) {
-        const fullQ = classified.normalized  // use full query for better context
-        const HEALTH_CONCEPTS: Array<[RegExp, string]> = [
-          // Illness/cold queries
-          [/\bsick\b.*\bcold\b|\bcold\b.*\bsick\b/i, "Common cold"],
-          [/\bsick\b.*\bflu\b|\bflu\b.*\bsick\b/i, "Influenza"],
-          [/\bsick\b.*\bbad\b.*\bcold\b|\bcold\b.*\bget.*sick\b/i, "Common cold"],
-          // Fatigue/tiredness — these words don't lexically match "Fatigue" article
-          [/\b(?:always|constantly|chronically|perpetually|so|all the time)\b.*\b(?:tired|exhausted|fatigued|sleepy)\b|\b(?:tired|exhausted|fatigued)\b.*\b(?:all the time|always|constantly|so much)\b/i, "Fatigue"],
-          [/\bwhy\b.*\b(?:i am|i'm|am i)\b.*\b(?:tired|exhausted|fatigued)\b/i, "Fatigue"],
-          // Dizziness
-          [/\b(?:dizzy|lightheaded|faint)\b.*\b(?:stand|sit|rise|get up)\b|\borthostatic\b/i, "Orthostatic hypotension"],
-          // Body processes
-          [/\bskin\b.*\bwrinkle\b|\bwrinkle\b.*\bskin\b|\bage\b.*\bwrinkle\b/i, "Skin aging"],
-          [/\brun(?:ning)?\b.+\bday\b|\bdaily\b.+\brun/i, "Physical exercise"],
-          [/\bsit(?:ting)?\b.+\ball day\b|\bsedent/i, "Sedentary lifestyle"],
-          [/\bsleep\b.+\b(?:too much|all day|excess)\b/i, "Hypersomnia"],
-          [/\beyes?\b.+\bwater\b|\bwater\b.+\beyes?\b/i, "Tears"],
-          [/\bfinger\b.+\bprune\b|\bprune\b.+\bfinger\b/i, "Aquaporin"],
-          // Mechanical/car sounds — "clicking noise from car" → engine knock
-          [/\b(?:clicking|ticking|knocking|tapping)\b.*\b(?:car|engine|vehicle|motor)\b|\b(?:car|engine|vehicle|motor)\b.*\b(?:clicking|ticking|knocking|tapping)\b/i, "Engine knock"],
-          // Engine smoke (not tobacco smoking)
-          [/\b(?:engine|car|vehicle|motor)\b.*\bsmok(?:e|es|ing)\b|\bsmok(?:e|es|ing)\b.*\b(?:engine|car|vehicle|motor)\b/i, "Exhaust gas"],
-          // Rubber/plastic degradation → Polymer degradation (not Land degradation)
-          [/\b(?:rubber|plastic|polymer|silicone|latex)\b.*\bdegrad/i, "Polymer degradation"],
-          // Phone/device overheating
-          [/\bphone\b.*\b(?:hot|heat|overheat|warm|burning)\b|\b(?:hot|heat|overheat|warm)\b.*\bphone\b/i, "Thermal management of electronics"],
-          // Cold feet (physical — blood vessel constriction, not the hesitation idiom)
-          [/\bwhy\b.*\b(?:feet?|toes?)\b.*\b(?:cold|freezing|numb|ice)\b|\bcold\b.*\bfeet?\b.*\b(?:why|how|cause)/i, "Raynaud syndrome"],
-          // Memory/infant
-          [/\bremember\b.*\bbab(?:y|ies|yhood)\b|\bbab(?:y|ies)\b.*\bremember\b|\binfantile amnesia\b/i, "Infantile amnesia"],
-        ]
-        for (const [pattern, concept] of HEALTH_CONCEPTS) {
-          if (pattern.test(fullQ) && !terms.includes(concept)) {
-            terms.splice(0, 0, concept)
-            break
-          }
-        }
-      }
+      // HEALTH_CONCEPTS removed: per-query concept tables are the wrong architecture.
+      // Fixes are now general: VERB_TO_CONCEPT (hibernate→hibernation, glow→bioluminescence),
+      // symptom words removed from SUBJECT_STOP so they become subjects that can redirect,
+      // and the title-length tiebreaker in scoring.
 
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
       // Also strip trailing verb+particle: "planes stay up" → "planes", "stars burn out" → "stars"
@@ -2291,8 +2255,9 @@ export async function* runPipeline(
       // Normalize hyphens before tokenizing: "wi-fi" → "wifi", "x-ray" → "xray"
       // Without this, "Wi-Fi" never matches query "wifi" (different strings after splitting)
       const normalizeHyphens = (s: string) => s.replace(/-/g, "")
-      const qTokens = normalizeHyphens(q.toLowerCase()).split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
-      const titleTokens = normalizeHyphens(titleLower).split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
+      // Allow 1-char tokens that aren't stop words — "V formation" needs "v" to score correctly
+      const qTokens = normalizeHyphens(q.toLowerCase()).split(/\s+/).filter(t => t.length >= 1 && !STOP.has(t) && (t.length > 1 || /[a-z]/.test(t)));
+      const titleTokens = normalizeHyphens(titleLower).split(/\s+/).filter(t => t.length >= 1 && !STOP.has(t) && (t.length > 1 || /[a-z]/.test(t)));
       if (!qTokens.length || !titleTokens.length) return 0;
       // Use first 6 chars as pseudo-stem: "gravity"→"gravit", "gravitational"→"gravit" → match
       const stem = (w: string) => w.slice(0, Math.min(w.length, 6));
@@ -2380,7 +2345,15 @@ export async function* runPipeline(
       if (searched?.hits.length) {
         const scored = searched.hits
           .map(h => ({ hit: h, score: scoreHit(h.title, term, h.description) }))
-          .sort((a, b) => b.score - a.score);
+          .sort((a, b) => {
+            const diff = b.score - a.score;
+            if (Math.abs(diff) > 0.001) return diff;
+            // Equal scores: for mechanism/personal queries, prefer longer (more specific) titles.
+            // "Hibernation" (11 chars) beats "Bear" (4 chars) for "why do bears hibernate".
+            // Longer titles are less likely to be generic subject articles.
+            if (isMechanismQuery || isPersonalQuery) return b.hit.title.length - a.hit.title.length;
+            return 0;
+          });
         const best = scored[0];
         // Iterate scored results in order (best first). If the top result is entertainment,
         // try the next one — don't give up on the entire search term.

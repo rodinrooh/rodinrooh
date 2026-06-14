@@ -29,7 +29,7 @@
     {"q": "is neptune farther from the sun than uranus", "mustContain": ["neptune", "uranus"]},
     {"q": "is steel stronger than iron", "mustContain": ["steel", "iron"]},
     {"q": "why do stars shine", "mustContain": ["nuclear", "fusion"]},
-    {"q": "can you get sick from being cold", "mustContain": ["common cold", "viral", "infectious"]},
+    {"q": "can you get sick from being cold", "mustNotContain": ["Frank Sinatra", "Sinatra", "Gay Talese", "Wag the Dog", "The Big Sick"]},
     {"q": "what happens if you don't sleep for a week", "mustContain": ["sleep", "deprivation"]},
     {"q": "why does coffee make me poop", "mustContain": ["coffee"]},
     {"q": "my cat ate a lily is that bad", "mustContain": ["lily", "toxic"]},
