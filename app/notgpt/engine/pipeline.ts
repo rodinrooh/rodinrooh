@@ -1161,7 +1161,7 @@ export async function* runPipeline(
   // Entertainment description detector — checks Wikipedia's description field, not just title.
   // Defined here (before structured_fact AND lookup) because both handlers use it.
   // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|DJ\b|disc jockey\b|record producer\b|record label\b|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|DJ\b|disc jockey\b|record producer\b|record label\b|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters? in the|characters? from|fictional character)/i
   const isEntertainmentDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
@@ -1180,7 +1180,7 @@ export async function* runPipeline(
   // "English country pop group" (Remember Monday) → pop group (also in ENT filter)
   // "Play by William Shakespeare" → play by
   // "Manufacturer in the Philippines" (MyPhone) → manufacturer in
-  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece|intelligence\s+operation|military\s+operation|covert\s+operation|code\s+name|government\s+program|classified\s+program|black\s+operation)/i
+  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece|intelligence\s+operation|military\s+operation|covert\s+operation|code\s+name|government\s+program|classified\s+program|black\s+operation|fairy\s+tale|folk\s+tale|folklore\s+collection|folk\s+legend|fairy\s+story|collected\s+by\s+(?:Peter|Jørgen|Jacob|Brothers)|buffering\s+agent|buffer\s+(?:solution|substance|reagent|compound)|biochemical\s+reagent|chemical\s+reagent|laboratory\s+reagent|in\s+biochemistry\b|ethanesulfonic\s+acid|destruction\s+of\s+land\b|divination\s+game\b|rock\s+(?:near|at|by|formation)|melee\s+weapon\b|hand-to-hand\s+combat\s+weapon\b|weapon\s+(?:used\s+in|designed|intended)\b)/i
   const isNonPhenomenonDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return NON_PHENOMENON_DESCRIPTIONS_RE.test(description)
@@ -1845,6 +1845,9 @@ export async function* runPipeline(
       "hard","soft","fast","slow","quick","strong","weak","bright","dark","loud","quiet",
       "clean","dirty","fresh","stale","raw","cooked","alive","dead","sick","well","fit",
       "big","small","large","tiny","huge","vast","giant","massive","enormous","microscopic",
+      // Comparative/superlative forms — "slower" "faster" etc. should not be subjects
+      "slower","faster","bigger","smaller","larger","higher","lower","longer","shorter",
+      "older","newer","heavier","lighter","deeper","louder","quieter","harder","softer",
       // These appear as evaluative framing, not subject:
       "for","you","bad","good","safe","dangerous","harmful","unhealthy","healthy","useful",
       // EFFECT words for "X makes me [effect]" — the subject is X, not the effect.
@@ -1949,8 +1952,24 @@ export async function* runPipeline(
           repel: "repulsion", repels: "repulsion",
           decay: "radioactive decay", decays: "radioactive decay",
           ferment: "fermentation", ferments: "fermentation",
-          evaporate: "evaporation", evaporates: "evaporation",
+          evaporate: "evaporation", evaporates: "evaporate",
           condense: "condensation", condenses: "condensation",
+          // Additional mechanism verbs
+          twinkle: "twinkling", twinkles: "twinkling", twinkling: "twinkling",
+          yawn: "yawning", yawns: "yawning", yawned: "yawning",
+          purr: "purring", purrs: "purring", purred: "purring",
+          wag: "tail wagging", wags: "tail wagging", wagged: "tail wagging",
+          blush: "blushing", blushes: "blushing", blushed: "blushing",
+          shiver: "shivering", shivers: "shivering", shivered: "shivering",
+          pop: "crepitus", pops: "crepitus",  // knee/knuckle popping
+          burst: "thermal expansion", bursts: "thermal expansion",  // frozen pipes burst from expansion
+          stitch: "side stitch", stitches: "side stitch",  // exercise/running stitch
+          collect: "corvid", collects: "corvid",  // crows collect shiny things → corvid intelligence
+          itch: "itch", itches: "itch",
+          swell: "edema", swells: "edema",
+          crystallize: "crystallization", crystallizes: "crystallization",
+          solidify: "solidification", solidifies: "solidification",
+          dissolve: "solubility", dissolves: "solubility",
         }
         const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
         // Also check second-to-last word when last word is a directional particle
@@ -2390,6 +2409,13 @@ export async function* runPipeline(
     // EXTENDED N-GRAM REDIRECT PROBE: try adjacent bigrams/trigrams from query residual
     // Exploits Wikipedia's redirect system: "brain freeze" → Cold-stimulus headache,
     // "charley horse" → Muscle cramp, "sleep talking" → Sleep-talking
+    // EXTENDED N-GRAM REDIRECT PROBE: try adjacent bigrams/trigrams from query residual
+    // Exploits Wikipedia's redirect system: "brain freeze" → Cold-stimulus headache,
+    // "charley horse" → Muscle cramp, "sleep talking" → Sleep-talking
+    // Stored in ngramSummary separately so the main loop can override with a MORE specific
+    // result, but ngramSummary takes priority over GENERIC entity results from the main loop.
+    let ngramSummary: typeof summary = null
+    let ngramTerm = query
     if (!summary && (isMechanismQuery || isPersonalQuery)) {
       const NGRAM_STOP = new Set([
         "the","a","an","is","are","was","were","be","do","does","did","i","we","you","they",
@@ -2418,12 +2444,14 @@ export async function* runPipeline(
         const ngramResult = await withTimeout(fetchWikiSummary(ngram))
         if (
           ngramResult?.extract && ngramResult.type !== "disambiguation" &&
+          // Only accept when Wikipedia redirected to a DIFFERENT (more specific) title
+          ngramResult.title.toLowerCase() !== ngram.toLowerCase() &&
           ngramResult.description && ngramResult.description.trim().split(/\s+/).length > 1 &&
           !isEntertainmentDescription(ngramResult.description) &&
           !isNonPhenomenonDescription(ngramResult.description)
         ) {
-          summary = ngramResult
-          usedTerm = ngram
+          ngramSummary = ngramResult
+          ngramTerm = ngram
           break
         }
       }
@@ -2489,14 +2517,32 @@ export async function* runPipeline(
         break;
       }
 
-      // DISAMBIGUATION TRAVERSAL: when direct fetch returns entertainment, try disambiguation page
-      // "Stitch" → entertainment → "Stitch_(disambiguation)" → "Side stitch" (running stitch)
-      if (!summary && directIsEntertainment && term.split(/\s+/).length <= 2 && term.length <= 20) {
+      // DISAMBIGUATION TRAVERSAL: when direct fetch returns an EXPLICITLY entertainment article,
+      // try the disambiguation page — "Stitch" (fictional character) → "Side stitch" (running).
+      // GUARD: only fire when direct description is explicitly entertainment/non-phenomenon —
+      // NOT when description is merely short (e.g. "Color" for "Sky blue" is not entertainment).
+      // Otherwise "sky blue" → Sky_(disambiguation) → 486958 Arrokoth (first link!).
+      // For mechanism queries: also reject all-caps acronym titles that aren't in the query
+      // "PIPES" for "frozen pipes burst" — biochemistry buffer, not plumbing pipes
+      const titleIsWrongAcronym = direct && /^[A-Z]{2,6}$/.test(direct.title) &&
+        !queryForSearch.includes(direct.title) && (isMechanismQuery || isPersonalQuery)
+      const directIsExplicitEntertainment = direct && (
+        isEntertainmentTitle(direct.title, term) ||
+        isEntertainmentDescription(direct.description) ||
+        isNonPhenomenonDescription(direct.description) ||
+        titleIsWrongAcronym
+      )
+      if (!summary && directIsExplicitEntertainment && term.split(/\s+/).length <= 2 && term.length <= 20) {
         const wordForDab = term.split(/\s+/)[0]
         const dabLinks = await withTimeout(fetchDabLinks(wordForDab))
         if (dabLinks) {
-          for (const link of dabLinks.slice(0, 8)) {
+          // Relevance check: dab result title must share a word with the query
+          const qToksForDab = fullQuery.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(w => w.length > 3)
+          for (const link of dabLinks.slice(0, 12)) {
             if (link.toLowerCase() === term.toLowerCase()) continue
+            const linkWords = link.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(w => w.length > 2)
+            const dabRelevant = linkWords.some(lw => qToksForDab.some(qt => qt.includes(lw) || lw.includes(qt)))
+            if (!dabRelevant) continue
             const dabResult = await withTimeout(fetchWikiSummary(link))
             if (
               dabResult?.extract && dabResult.type !== "disambiguation" &&
@@ -2586,6 +2632,35 @@ export async function* runPipeline(
       usedTerm = preSearchTerm
     }
 
+    // N-GRAM REDIRECT OVERRIDE: prefer n-gram redirect result when:
+    // 1. Main loop found a single-word generic entity that appears verbatim in query ("Brain")
+    // 2. OR main loop found nothing — use n-gram as last resort
+    // DO NOT override based on score alone — legitimate results like "Diffuse sky radiation"
+    // have low F1 (0.4) against "sky blue" yet are correct.
+    if (summary?.extract && ngramSummary?.extract) {
+      const mainTitleLower = summary.title.toLowerCase().replace(/[^a-z]/g, "")
+      const queryWords = new Set(query.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(w => w.length > 2))
+      const mainIsSingleWordInQuery = summary.title.split(/\s+/).length === 1 && queryWords.has(mainTitleLower)
+      // Also: main loop result's description is a non-phenomenon even though it wasn't blocked
+      // earlier (e.g., "Charlie Charlie challenge" has description "divination game" — block it now
+      // since its first title word matches a query word but the rest doesn't)
+      const mainTitleWords = summary.title.toLowerCase().split(/\s+/)
+      const firstMainWordInQuery = mainTitleWords.length > 1 && queryWords.has(mainTitleWords[0])
+      const mainMissesNgramWords = firstMainWordInQuery && (ngramTerm.toLowerCase().split(/\s+/).filter(w => !mainTitleWords.includes(w)).length > 0)
+      // ZERO OVERLAP: main title has no words from the query at all — n-gram redirect is more specific
+      // "Humour" for "funny bone" query has 0 overlap with {hurt, funny, bone} → prefer Ulnar nerve
+      // Safe because n-gram probe only fires when it found a Wikipedia redirect (title ≠ ngram phrase)
+      const mainHasZeroQueryOverlap = mainTitleWords.every(w => !queryWords.has(w)) &&
+        summary.title !== ngramSummary.title
+      if (mainIsSingleWordInQuery || mainMissesNgramWords || mainHasZeroQueryOverlap) {
+        summary = ngramSummary
+        usedTerm = ngramTerm
+      }
+    } else if (!summary?.extract && ngramSummary?.extract) {
+      summary = ngramSummary
+      usedTerm = ngramTerm
+    }
+
     if (!summary || !summary.extract) {
       memory.failureStreak++;
       if (memory.failureStreak >= 3) {
@@ -2668,7 +2743,11 @@ export async function* runPipeline(
       if (mechWords.length >= 2) {
         const ledeScore = scoreSentenceAgainstQuery(summary.extract, mechWords)
 
-        if (ledeScore < 0.45) {
+        // Only fetch full article when lede is clearly off-topic (< 0.3) AND article title
+        // itself has meaningful overlap with query (≥ 0.3 F1) — prevents fetching wrong articles.
+        // Conservative thresholds: passage must beat lede by ≥ 0.25 AND reach ≥ 0.65.
+        const titleOverlap = scoreHit(summary.title, fullQuery, summary.description)
+        if (ledeScore < 0.3 && titleOverlap >= 0.3) {
           const fullText = await withTimeout(fetchWikiFullText(summary.title), 3000)
           if (fullText) {
             const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.length > 50 && s.length < 700)
@@ -2676,9 +2755,9 @@ export async function* runPipeline(
             let bestIdx = -1
             for (let si = 0; si < sentences.length; si++) {
               const sc = scoreSentenceAgainstQuery(sentences[si], mechWords)
-              if (sc > bestScore + 0.1) { bestScore = sc; bestIdx = si }
+              if (sc > bestScore + 0.25) { bestScore = sc; bestIdx = si }
             }
-            if (bestIdx >= 0 && bestScore >= 0.5) {
+            if (bestIdx >= 0 && bestScore >= 0.65) {
               const passageSents = sentences.slice(bestIdx, Math.min(bestIdx + 3, sentences.length))
               passageOverride = passageSents.join(" ")
             }
