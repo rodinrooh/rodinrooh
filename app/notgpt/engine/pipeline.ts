@@ -2294,17 +2294,78 @@ export async function* runPipeline(
 
 
 
-    // PRE-SEARCH: For mechanism/personal queries, try the full natural-language question
-    // BEFORE falling into entity-direct-fetch. This is the architectural change the research
-    // called for: "Hibernation" is #1 in Wikipedia's search for "why do bears hibernate",
-    // but direct-fetch of "bears" returns "Bears" generic article first.
-    //
-    // Guard: skip results that are just the generic subject article (title ≈ extracted subject).
-    // "Bear" for "why do bears hibernate" → skip (generic subject). "Hibernation" → use.
-    // This prevents "13 Reasons Why" winning for "why do stars shine" since "13 Reasons Why"
-    // IS filtered by entertainment check, and the correct "Nuclear fusion" IS found.
     let summary = null;
     let usedTerm = query;
+
+    // FULL-QUESTION SEARCH: Try the complete natural-language question BEFORE direct entity fetch.
+    // "why do bears hibernate" → Wikipedia search finds Hibernation at #1.
+    // Direct-fetch of extracted subject "bears" → "Bears" generic, never reaches Hibernation.
+    //
+    // Critical guards (all required to prevent regressions):
+    // - Score ≥ 0.45: catches Diffuse sky radiation (0.5) for "why is the sky blue"
+    // - Subject-noun trap: skip articles where title ≤ 2 words AND title contains subject root
+    //   → rejects "Bear" for bears query, "Sky" for sky query, "Earthquake preparedness" for quakes
+    // - Qualifier check: skip "(geology)" if "geology" not in query
+    // - Sub-topic filter: skip "Preparations for X", "History of X", "List of X"
+    // - Candidate description check: reject 1-word descriptions ("Color" for Sky blue)
+    // Note: hit.description from search API is almost always EMPTY — don't filter on it here.
+    if (!summary && (isMechanismQuery || isPersonalQuery)) {
+      const subjectRootForGuard = (baseSearchTerms[0] ?? "").toLowerCase()
+        .replace(/[^a-z]/g, "").replace(/(?:es|s|ing|ed)$/, "")
+      const preSearchHits = await withTimeout(searchWiki(fullQuery, 10))
+      if (preSearchHits?.hits?.length) {
+        for (const hit of preSearchHits.hits) {
+          // Filter: entertainment or non-phenomenon
+          if (isEntertainmentTitle(hit.title, fullQuery)) continue
+          if (isEntertainmentDescription(hit.description)) continue
+          if (isNonPhenomenonDescription(hit.description)) continue
+          // Filter: sub-topic articles that answer a different question
+          if (/^(?:Preparations? for|History of|List of|Effects of|Uses of|Types of|Examples? of)\b/i.test(hit.title)) continue
+          // Filter: disambiguation qualifier not matching query
+          const qualM = hit.title.match(/\((\w+)\)\s*$/)
+          if (qualM && !fullQuery.toLowerCase().includes(qualM[1].toLowerCase())) continue
+          // Filter: title ≤ 2 words AND title contains subject root → generic subject article
+          const hitWords = hit.title.split(/\s+/)
+          if (subjectRootForGuard.length >= 3 && hitWords.length <= 2 &&
+              hit.title.toLowerCase().includes(subjectRootForGuard)) continue
+          // Score: require meaningful token overlap with the full question.
+          // Threshold adapts to query length to prevent spurious matches:
+          // - 2-token queries: F1 ≥ 0.55 (rejects "2011 Tōhoku" for "earthquakes happen")
+          // - Other queries: F1 ≥ 0.45 (catches "Diffuse sky radiation" for "why is sky blue")
+          const PRE_STOP = new Set(["the","a","an","is","are","was","were","be","been","being",
+            "have","has","had","do","does","did","will","would","could","should","may","might",
+            "of","in","on","at","to","for","with","by","from","and","or","but","not","i","me",
+            "we","you","he","she","they","my","your","his","her","our","their","what","which",
+            "who","when","where","why","how","this","that","these","those","it","its","as"])
+          const stemFn = (w: string) => w.slice(0, Math.min(w.length, 6))
+          const qToksPre = fullQuery.toLowerCase().replace(/-/g, "").split(/\s+/)
+            .filter(t => t.length > 1 && !PRE_STOP.has(t))
+          const hToksPre = hit.title.toLowerCase().replace(/-/g, "").split(/\s+/)
+            .filter(t => t.length > 1 && !PRE_STOP.has(t))
+          const tokenMatchPre = (a: string, b: string) => a === b || stemFn(a) === stemFn(b) ||
+            (a.length <= b.length ? b.includes(a) && a.length >= 0.7*b.length : a.includes(b) && b.length >= 0.7*a.length)
+          const matchCount = qToksPre.filter(qt => hToksPre.some(ht => tokenMatchPre(qt, ht))).length
+          const recallPre = qToksPre.length > 0 ? matchCount / qToksPre.length : 0
+          const hitScore = scoreHit(hit.title, fullQuery, hit.description)
+          const minF1 = qToksPre.length === 2 ? 0.55 : 0.45  // stricter for 2-token: avoid specific events
+          if (hitScore < minF1) continue
+          if (recallPre < 0.5) continue
+          // Fetch and verify the full article (search API descriptions are unreliable/empty)
+          const candidate = await withTimeout(fetchWikiSummary(hit.title))
+          if (!candidate?.extract || candidate.type === "disambiguation") continue
+          if (isEntertainmentDescription(candidate.description)) continue
+          if (isNonPhenomenonDescription(candidate.description)) continue
+          // Reject bare category labels ("Color", "Mineral") — not mechanism answers
+          if (!candidate.description || candidate.description.trim().split(/\s+/).length < 2) continue
+          // Reject disambiguation-qualified articles not matching query context
+          const candQual = candidate.title.match(/\((\w+)\)\s*$/)
+          if (candQual && !fullQuery.toLowerCase().includes(candQual[1].toLowerCase())) continue
+          summary = candidate
+          usedTerm = fullQuery
+          break
+        }
+      }
+    }
 
     // REDIRECT LOOKUP on fuller residual BEFORE subject-stripping.
     // Wikipedia's redirect system already bridges casual→technical mappings:
@@ -2330,6 +2391,13 @@ export async function* runPipeline(
     // V formation and the other improvements come from the existing search term ordering
     // (isFullMechQuery path with MIN_SCORE=0.45). The redirect lookup (above) handles
     // Wikipedia's own casual→technical phrase redirects.
+    // Store pre-search result separately — main loop runs normally and can override.
+    // Pre-search is a FALLBACK: only used when the main search loop finds nothing.
+    const preSearchSummary = summary
+    const preSearchTerm = usedTerm
+    summary = null
+    usedTerm = query
+
     for (let termIdx = 0; termIdx < searchTerms.length; termIdx++) {
       const term = searchTerms[termIdx];
       // Full natural language query (term 0): permissive threshold (0.3).
@@ -2440,6 +2508,14 @@ export async function* runPipeline(
           usedTerm = spellCheck.suggestion;
         }
       }
+    }
+
+    // If main search loop found nothing, fall back to the pre-search result (if any).
+    // Pre-search is conservative (stricter guards) and serves as a fallback when the main
+    // loop's entity-direct-fetch approach returns nothing useful.
+    if ((!summary || !summary.extract) && preSearchSummary?.extract) {
+      summary = preSearchSummary
+      usedTerm = preSearchTerm
     }
 
     if (!summary || !summary.extract) {

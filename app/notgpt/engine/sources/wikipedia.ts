@@ -70,6 +70,7 @@ export async function searchWiki(
     srsearch: query,
     srinfo: "suggestion",
     srlimit: String(limit),
+    srprop: "snippet|description",  // include description to detect entertainment results
     format: "json",
   });
   const url = `https://en.wikipedia.org/w/api.php?${params.toString()}`;
