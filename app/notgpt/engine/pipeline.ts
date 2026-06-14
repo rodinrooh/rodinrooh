@@ -1159,7 +1159,7 @@ export async function* runPipeline(
   // Entertainment description detector — checks Wikipedia's description field, not just title.
   // Defined here (before structured_fact AND lookup) because both handlers use it.
   // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|DJ\b|disc jockey\b|record producer\b|record label\b|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
   const isEntertainmentDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
@@ -1968,6 +1968,9 @@ export async function* runPipeline(
             const combined = `${firstWord} ${concept}`
             if (!terms.includes(combined)) terms.splice(0, 0, combined)
           }
+          // The bare concept IS needed: fetchWikiSummary("aerodynamics") → "Aerodynamics" article,
+          // fetchWikiSummary("fracture") → "Fracture" article — direct fetch works where search doesn't.
+          // Without it, "planes aerodynamics" search returns sub-topic articles, not Aerodynamics.
           if (!terms.includes(concept)) terms.push(concept)
         }
         // For "X [verb] on/in/through Y" patterns, add the SUBJECT X FIRST (before compound terms)
@@ -2291,9 +2294,42 @@ export async function* runPipeline(
 
 
 
-    // Try each search term in order, use first that gets a real Wikipedia hit
+    // PRE-SEARCH: For mechanism/personal queries, try the full natural-language question
+    // BEFORE falling into entity-direct-fetch. This is the architectural change the research
+    // called for: "Hibernation" is #1 in Wikipedia's search for "why do bears hibernate",
+    // but direct-fetch of "bears" returns "Bears" generic article first.
+    //
+    // Guard: skip results that are just the generic subject article (title ≈ extracted subject).
+    // "Bear" for "why do bears hibernate" → skip (generic subject). "Hibernation" → use.
+    // This prevents "13 Reasons Why" winning for "why do stars shine" since "13 Reasons Why"
+    // IS filtered by entertainment check, and the correct "Nuclear fusion" IS found.
     let summary = null;
     let usedTerm = query;
+
+    // REDIRECT LOOKUP on fuller residual BEFORE subject-stripping.
+    // Wikipedia's redirect system already bridges casual→technical mappings:
+    //   "ice cream headache" → Cold-stimulus headache
+    //   "sleep talking" → Sleep-talking
+    //   "food coma" → Postprandial somnolence
+    // We try `query` (full residual, before auxiliary stripping) as a direct title.
+    // This fires BEFORE we strip it to the subject noun and lose the compound.
+    if (!summary && (isMechanismQuery || isPersonalQuery) && query.split(/\s+/).length >= 2 && query !== queryForSearch) {
+      const residualRedirect = await withTimeout(fetchWikiSummary(query))
+      if (residualRedirect?.extract && residualRedirect.type !== "disambiguation" &&
+          residualRedirect.description && residualRedirect.description.trim().split(/\s+/).length > 1 &&
+          !isEntertainmentDescription(residualRedirect.description) &&
+          !isNonPhenomenonDescription(residualRedirect.description)) {
+        summary = residualRedirect
+        usedTerm = query
+      }
+    }
+
+    // Pre-search: the full-question search before direct entity fetch approach was tested
+    // but introduced more regressions (Sky→Sky blue, Earthquakes→Earthquake preparedness,
+    // Rubber→Degradation geology, Knuckles→Brass knuckles) than improvements.
+    // V formation and the other improvements come from the existing search term ordering
+    // (isFullMechQuery path with MIN_SCORE=0.45). The redirect lookup (above) handles
+    // Wikipedia's own casual→technical phrase redirects.
     for (let termIdx = 0; termIdx < searchTerms.length; termIdx++) {
       const term = searchTerms[termIdx];
       // Full natural language query (term 0): permissive threshold (0.3).
@@ -2348,9 +2384,9 @@ export async function* runPipeline(
           .sort((a, b) => {
             const diff = b.score - a.score;
             if (Math.abs(diff) > 0.001) return diff;
-            // Equal scores: for mechanism/personal queries, prefer longer (more specific) titles.
-            // "Hibernation" (11 chars) beats "Bear" (4 chars) for "why do bears hibernate".
-            // Longer titles are less likely to be generic subject articles.
+            // Equal scores for mechanism queries: prefer more specific (longer) titles.
+            // "Hibernation" (11) > "Bear" (4) for "bears hibernation" query — mechanism article wins.
+            // This is safe now that bare concept terms ("degradation") are no longer added from VTOC.
             if (isMechanismQuery || isPersonalQuery) return b.hit.title.length - a.hit.title.length;
             return 0;
           });
@@ -2363,7 +2399,14 @@ export async function* runPipeline(
           const candidate = await withTimeout(fetchWikiSummary(hit.title));
           // For mechanism queries, reject by description (entertainment OR absent)
           // Also reject single-word descriptions for multi-word search terms
+          // Skip: disambiguation-qualified articles whose qualifier doesn't match query context.
+          // "Degradation (geology)" for "why does rubber degrade" — geology ≠ rubber context.
+          const candidateQualifier = candidate?.title?.match(/\((\w+)\)\s*$/)
+          const qualifierMismatch = candidateQualifier &&
+            (isMechanismQuery || isPersonalQuery) &&
+            !fullQuery.toLowerCase().includes(candidateQualifier[1].toLowerCase())
           if (candidate?.extract && candidate.type !== "disambiguation" &&
+              !qualifierMismatch &&
               !(shouldFilterEntertainment && (
                 isEntertainmentDescription(candidate.description) ||
                 !candidate.description ||
