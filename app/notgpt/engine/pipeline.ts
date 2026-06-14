@@ -1554,8 +1554,16 @@ export async function* runPipeline(
       .trim() || query;
     const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
 
-    // Mechanism query detection — for how/why/what causes/who discovered/invented queries
-    const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was))/i.test(raw)
+    // Mechanism query detection — tested against classified.normalized (after slang stripping),
+    // NOT against raw. "bruh how do planes stay up" → normalized "how do planes stay up" → matches.
+    const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was))/i.test(classified.normalized)
+
+    // Entertainment filter scope: applies when the query does NOT explicitly seek entertainment.
+    // "what movie is about time travel" → has "movie" → entertainment intent → don't filter.
+    // "what country has the most people" → no entertainment markers → filter applies.
+    // "bruh how do planes stay up" → no entertainment markers → filter applies.
+    const hasEntertainmentIntent = /\b(?:movie|film|song|album|band|singer|musician|actor|actress|show|series|episode|season|book|novel|game|musical|concert|tour|release|debut|track|single|record|listen|watch|read)\b/i.test(classified.normalized)
+    const shouldFilterEntertainment = isMechanismQuery || !hasEntertainmentIntent
 
     // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
     // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
@@ -1569,7 +1577,7 @@ export async function* runPipeline(
         // For mechanism queries: reject entertainment descriptions AND require some description
         // "memory work" has NO description → for mechanism queries, skip it so we can find
         // the actual "Memory" (brain) article via the search loop instead
-        !(isMechanismQuery && (
+        !(shouldFilterEntertainment && (
           isEntertainmentDescription(prefetch?.description) ||
           !prefetch?.description ||  // no description = likely niche/methodological article
           // Single-word description = bare category label ("Color", "Shade", "Drink")
@@ -1745,15 +1753,39 @@ export async function* runPipeline(
           shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
           float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
           stay: "aerodynamics", stays: "aerodynamics",       // how planes stay up → aerodynamics
+          break: "fracture", breaks: "fracture", broke: "fracture", broken: "fracture",
+          heal: "wound healing", heals: "wound healing",
+          clot: "coagulation", clots: "coagulation",
+          divide: "cell division", divides: "cell division",
+          expand: "thermal expansion", expands: "thermal expansion",
+          contract: "contraction", contracts: "contraction",
+          conduct: "electrical conductivity", conducts: "electrical conductivity",
+          refract: "refraction", refracts: "refraction",
+          reflect: "reflection", reflects: "reflection",
+          attract: "attraction", attracts: "attraction",
+          repel: "repulsion", repels: "repulsion",
+          decay: "radioactive decay", decays: "radioactive decay",
+          ferment: "fermentation", ferments: "fermentation",
+          evaporate: "evaporation", evaporates: "evaporation",
+          condense: "condensation", condenses: "condensation",
         }
         const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
-        if (lastWord && VERB_TO_CONCEPT[lastWord]) {
-          const concept = VERB_TO_CONCEPT[lastWord]
+        // Also check second-to-last word when last word is a directional particle
+        // "planes stay up" → lastWord="up" (particle), verbWord="stay" → aerodynamics
+        const PARTICLES = new Set(["up","down","out","off","on","in","away","back","over","around","apart","together"])
+        const qWords2 = q.split(/\s+/)
+        const verbCandidates = PARTICLES.has(lastWord)
+          ? [qWords2.at(-2)?.toLowerCase() ?? lastWord, lastWord]
+          : [lastWord]
+        const foundVerb = verbCandidates.find(v => VERB_TO_CONCEPT[v])
+        if (foundVerb && VERB_TO_CONCEPT[foundVerb]) {
+          const concept = VERB_TO_CONCEPT[foundVerb]
           const firstWord = q.split(/\s+/)[0]
-          // Push compound FIRST (more specific: "stars death") then lone concept as fallback
-          if (firstWord && firstWord !== lastWord) {
+          // Insert compound at position 0 so it's tried BEFORE the bare subject.
+          // "bones break" → "bones fracture" should be tried before "bones" alone.
+          if (firstWord && firstWord !== foundVerb) {
             const combined = `${firstWord} ${concept}`
-            if (!terms.includes(combined)) terms.push(combined)
+            if (!terms.includes(combined)) terms.splice(0, 0, combined)
           }
           if (!terms.includes(concept)) terms.push(concept)
         }
@@ -1777,20 +1809,36 @@ export async function* runPipeline(
         }
       }
       }
-      // For "why do X verb Y" queries: extract X (the subject) as a standalone search term.
-      // "vaccines cure diseases" → "vaccines" finds the Vaccine article (mechanism).
-      // "leaves change color" → "leaves" as subject, but also try "autumn leaf color" (phenomenon).
-      // Pattern: subject verb object (2+ content words, middle is a verb)
-      const svoMatch = q.match(/^(\w+(?:\s+\w+)?)\s+(?:cure|cures|prevent|prevents|cause|causes|fight|fights|destroy|destroys|affect|affects|change|changes|turn|turns|produce|produces|create|creates|kill|kills|help|helps|protect|protects)\s+(.+)$/i)
+      // For "why do X verb Y" / "X verb Y" queries: extract subject and try compound searches.
+      // "vaccines cure diseases" → try "vaccines" + "cures" noun concept
+      // "leaves change color" → try "autumn leaf color"
+      // "salt melts ice" → try "ice melting point" (object + concept → phenomenon)
+      const SVO_VERBS = /(?:cure|cures|prevent|prevents|cause|causes|fight|fights|destroy|destroys|affect|affects|change|changes|turn|turns|produce|produces|create|creates|kill|kills|help|helps|protect|protects|melt|melts|dissolve|dissolves|freeze|freezes|boil|boils|evaporate|evaporates|oxidize|oxidizes|absorb|absorbs|react|reacts|repel|repels|conduct|conducts|refract|refracts)/i
+      const svoMatch = q.match(new RegExp(`^(\\w+(?:\\s+\\w+)?)\\s+${SVO_VERBS.source}\\s+(.+)$`, 'i'))
       if (svoMatch) {
         const subject = svoMatch[1].trim()
         const object = svoMatch[2].trim()
-        // Add "[subject] [object]" as phenomenon search (e.g. "leaves color" → "autumn leaf color")
+        const verb = svoMatch[0].split(/\s+/).find(w => SVO_VERBS.test(w)) ?? ""
+        // For melting/dissolving: insert specific compound at front so it beats the bare subject.
+        // "salt melts ice" → "ice melting point" should be searched before bare "salt".
+        if (/melt|dissolve|freeze|boil|evaporate/i.test(verb)) {
+          const PROCESS_CONCEPT: Record<string, string> = {
+            melt: "melting point", melts: "melting point",
+            dissolve: "solubility", dissolves: "solubility",
+            freeze: "freezing point", freezes: "freezing point",
+            boil: "boiling point", boils: "boiling point",
+            evaporate: "evaporation", evaporates: "evaporation",
+          }
+          const concept = PROCESS_CONCEPT[verb.toLowerCase()] ?? ""
+          if (concept && !terms.includes(`${object} ${concept}`)) {
+            terms.splice(0, 0, `${object} ${concept}`)  // insert at front for priority
+          }
+          if (!terms.includes(`${subject} ${object}`)) terms.push(`${subject} ${object}`)
+        }
+        // Add subject as standalone fallback
         if (!terms.includes(subject)) terms.push(subject)
         // For color-change queries: try the specific phenomenon "autumn leaf color"
-        // "leaves change color" → "autumn leaf color" is a real Wikipedia article
-        if (/color|colour|orange|red|yellow|green|brown/i.test(object) ||
-            /change|turn|become/i.test(svoMatch[0].split(/\s+/)[1] || "")) {
+        if (/color|colour|orange|red|yellow|green|brown/i.test(object)) {
           const singular = subject.replace(/s$/, "")  // leaves → leaf
           terms.push(`autumn ${singular} color`)
           terms.push(`${subject} color change`)
@@ -1798,7 +1846,11 @@ export async function* runPipeline(
       }
 
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      const noTrailingVerb = q.replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes)\s*$/i, "").trim();
+      // Also strip trailing verb+particle: "planes stay up" → "planes", "stars burn out" → "stars"
+      const noTrailingVerb = q
+        .replace(/\s+(?:up|down|out|off|on|in|away|back|around|apart|together|over)\s*$/i, "")  // strip trailing particles first
+        .replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes|stay|stays|kept|keep|break|breaks|broke|broken|heal|heals|healed|clot|clots|divide|divides|expand|expands|contract|contracts|decay|decays|ferment|ferments|evaporate|evaporates|condense|condenses)\s*$/i, "")
+        .trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
       const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
@@ -1883,7 +1935,10 @@ export async function* runPipeline(
     //   search for "how do X verb" / "why do X verb" reliably returns films/songs.
     // WHY-IS / WHAT / other (property/state queries): full query first — Wikipedia handles
     //   "why is the sky blue" → "Diffuse sky radiation" correctly.
-    const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can't|doesn't))\s/i.test(raw);
+    // Test against classified.normalized (after slang/profanity stripping), not raw.
+    // "how tf does wifi work" → normalized "how does wifi work" → isActionQuery=false (tf removed)
+    // was: test(raw) which saw "how tf does" and failed to match "^how\s+does"
+    const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can't|doesn't))\s/i.test(classified.normalized);
     const searchTerms: string[] = [];
 
     // Extract subject phrase (first element of baseSearchTerms if it was inserted by SUBJECT_STOP)
@@ -1959,7 +2014,7 @@ export async function* runPipeline(
       if (isEntertainmentTitle(hitTitle, q)) return 0
       // For mechanism queries, also reject by description
       // "Goosebumps" title alone doesn't flag it, but "Series of children's horror novels" does
-      if (isMechanismQuery && isEntertainmentDescription(hitDescription)) return 0
+      if (shouldFilterEntertainment && isEntertainmentDescription(hitDescription)) return 0
       const titleLower = hitTitle.toLowerCase();
       // Extended STOP set — question words and pronouns must not drive scores.
       // Without this, "Why Don't We" scores 0.57 for "why do we have seasons"
@@ -1985,8 +2040,11 @@ export async function* runPipeline(
         "old","new","young","long","short","far","near","good","bad","great",
         "wet","dry","sharp","dull","thick","thin","full","empty","clean","dirty",
       ]);
-      const qTokens = q.toLowerCase().split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
-      const titleTokens = titleLower.split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
+      // Normalize hyphens before tokenizing: "wi-fi" → "wifi", "x-ray" → "xray"
+      // Without this, "Wi-Fi" never matches query "wifi" (different strings after splitting)
+      const normalizeHyphens = (s: string) => s.replace(/-/g, "")
+      const qTokens = normalizeHyphens(q.toLowerCase()).split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
+      const titleTokens = normalizeHyphens(titleLower).split(/\s+/).filter(t => t.length > 1 && !STOP.has(t));
       if (!qTokens.length || !titleTokens.length) return 0;
       // Use first 6 chars as pseudo-stem: "gravity"→"gravit", "gravitational"→"gravit" → match
       const stem = (w: string) => w.slice(0, Math.min(w.length, 6));
@@ -2030,7 +2088,7 @@ export async function* runPipeline(
       const termIsMultiWord = term.trim().split(/\s+/).length >= 2
       const directIsEntertainment = direct && (
         isEntertainmentTitle(direct.title, term) ||
-        (isMechanismQuery && (
+        (shouldFilterEntertainment && (
           isEntertainmentDescription(direct.description) ||
           !direct.description ||
           (termIsMultiWord && direct.description.trim().split(/\s+/).length === 1)
@@ -2054,7 +2112,7 @@ export async function* runPipeline(
           // For mechanism queries, reject by description (entertainment OR absent)
           // Also reject single-word descriptions for multi-word search terms
           if (candidate?.extract && candidate.type !== "disambiguation" &&
-              !(isMechanismQuery && (
+              !(shouldFilterEntertainment && (
                 isEntertainmentDescription(candidate.description) ||
                 !candidate.description ||
                 (termIsMultiWord && candidate.description.trim().split(/\s+/).length === 1)

@@ -3,6 +3,8 @@ export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { classify } from "../../engine/classify/index";
 import { runPipeline } from "../../engine/pipeline";
 import { encodeSSE, SSEEvent } from "../../engine/sse";
@@ -10,225 +12,124 @@ import { createSessionMemory } from "../../engine/persona/engine";
 import { SessionMemory } from "../../engine/persona/bits";
 import { TurnContext, EntityRef } from "../../engine/classify/coref";
 import { TEMPORAL_TERMS } from "../../engine/classify/lexicons";
-import { searchWiki } from "../../engine/sources/wikipedia";
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nspellCreate = require("nspell") as (
+  aff: Buffer, dic: Buffer
+) => { correct: (w: string) => boolean; suggest: (w: string) => string[]; add: (w: string) => void }
+
+// Lazily initialized — dictionary files are ~1.5MB each; defer until first request
+let _spell: ReturnType<typeof nspellCreate> | null = null
+
+function getSpell() {
+  if (_spell) return _spell
+  const root = join(process.cwd(), "node_modules", "dictionary-en")
+  const aff = readFileSync(join(root, "index.aff"))
+  const dic = readFileSync(join(root, "index.dic"))
+  _spell = nspellCreate(aff, dic)
+  // Supplement with modern/tech words not in standard English dictionary
+  const extra = [
+    "wifi","dna","rna","cpu","gpu","gps","api","ai","ml","url","dvd","usb","atm",
+    "app","apps","pdf","ai","nfl","nba","html","css","sql","vr","ar","iot","ar",
+    "podcast","podcasts","emoji","emojis","selfie","selfies","hashtag","hashtags",
+    "bitcoin","crypto","blockchain","cryptocurrency","ethereum","nft","defi",
+    "smartphone","smartphones","chatgpt","openai","elon","musk","iphone","android",
+    "youtube","google","amazon","twitter","tesla","netflix","spotify","uber","airbnb",
+    "reddit","snapchat","whatsapp","instagram","tiktok","facebook","microsoft","nvidia",
+    "samsung","paypal","lyft","pinterest","linkedin","walmart","disney","sony",
+    "honda","toyota","bmw","ford","intel","amd","qualcomm","shopify","stripe",
+    "figma","notion","slack","meta","alphabet","palantir","databricks","broadcom",
+  ]
+  for (const w of extra) _spell.add(w)
+  return _spell
+}
+
+// Slang/internet words that should NEVER be spell-corrected — they will be stripped by
+// normalize.ts anyway. Without this, "bruh" → "brush", "lol" → "loll", etc.
+const SPELL_SLANG = new Set([
+  "bruh","bro","dude","yo","lol","lmao","omg","wtf","tf","af","rn","ngl","tbh",
+  "imo","smh","idk","idek","tho","tbt","btw","fyi","fr","lowkey","highkey","deadass",
+  "literally","honestly","actually","basically","genuinely","fr","ok","okay",
+  "lol","rofl","lmfao","omfg","ffs","smh","ngl","tbf","imo","imho","fwiw",
+  "bruh","bruv","fam","sis","bae","slay","cap","nocap","npc","sheesh","bussin",
+  "cheugy","yeet","yolo","swag","drip","mid","sus","vibe","vibes","based","cringe",
+])
+
+// Stop words: never attempt spell correction on these
+const SPELL_STOP = new Set([
+  "the","a","an","is","are","was","were","be","been","being","have","has","had",
+  "do","does","did","will","would","could","should","may","might","shall","can",
+  "of","in","on","at","to","for","with","by","from","up","and","or","but","not",
+  "i","me","we","you","he","she","they","my","your","his","her","our","their",
+  "what","which","who","whom","whose","when","where","why","how","if","so","as",
+  "this","that","these","those","it","its","get","got","go","went","come","came",
+])
+
+function swapAdjacent(word: string): string[] {
+  const letters = word.split("")
+  return letters.slice(0, -1).map((_, i) => {
+    const s = [...letters];
+    [s[i], s[i + 1]] = [s[i + 1], s[i]]
+    return s.join("")
+  })
+}
 
 /**
- * Spell-correct the query BEFORE intent classification.
- * Uses Wikipedia's search suggestion for phrase-level correction ("tiem in tokyo" → "time in tokyo"),
- * and falls back to Datamuse word-by-word correction for individual typos ("balck" → "black").
+ * Spell-correct the query BEFORE intent classification, using nspell + dictionary-en.
  *
- * Critical: classification must see corrected input or intent detection fails
- * ("tiem" never matches the time pattern; "balck" finds German generals).
+ * Key improvements over the old Wikipedia-API approach:
+ * - "bones" → valid English word → no corruption → no more "boneh break"
+ * - "blush" → valid → no more "blues"
+ * - "compas" → suggests "compass" (real word, not Wikipedia article title)
+ * - "stra" → transposition check finds "star" before nspell can suggest "strap"
+ *
+ * Only corrects words that are definitively not in the English dictionary.
  */
 async function getSpellingCorrection(q: string): Promise<string | null> {
   const words = q.trim().split(/\s+/)
   if (words.length === 0) return null
 
   try {
-    // Strategy 1 (first): Transposition correction — handles single adjacent-swap typos.
-    // Run FIRST so that "balck" → "black" is handled before Wikipedia can suggest "balch home".
+    const spell = getSpell()
+    let anyChange = false
+    const correctedWords = words.map(rawWord => {
+      const clean = rawWord.toLowerCase().replace(/[^a-z]/g, "")
+      // Skip: very short, stop/slang word, or already valid English
+      // Slang check must come before nspell to prevent "bruh"→"brush", "lol"→"loll"
+      if (clean.length < 4 || SPELL_STOP.has(clean) || SPELL_SLANG.has(clean)) return rawWord
+      if (spell.correct(clean)) return rawWord  // valid English word → never touch it
 
-    // Strategy 2: Transposition correction — no external API needed.
-    // Handles "balck" → "black" (adjacent letter swap) using a compact common-word list.
-    // Datamuse's ?sp= treats "balck" as a valid word (score 145039), so it's useless here.
-    const COMMON_WORDS = new Set([
-      // Tech/modern words that Wikipedia might "correct" to unrelated words
-      "wifi","gps","cpu","gpu","dna","rna","atp","nfl","nba","nfl","url","app","pdf","ai",
-      "ml","tv","dvd","usb","atm","mpg","mph","kph","fps","hd","uhd","vr","ar","iot","api",
-      // Common words Wikipedia might "correct" to unrelated titles/names
-      "karma","yoga","anime","manga","sushi","pizza","taco","dude","sick","even","night",
-      "gravity","motion","force","mass","void","soul","mind","dark","heat","sound","wave",
-      "capital","capitals","tides","tide","steel","strong","affect","effect","does","done",
-      "moon","tidal","alloy","brain","nerve","organ","cause","causes","effects","facts",
-      "confused","confuse","memory","sleep","drunk","alcohol","cancer","tumor","malaria",
-      "blood","clot","dark","cell","bone","skin","nerve","muscle","organ","limb","gland",
-      "difference","differences","similar","similarity","climate","weather","temperature",
-      "steel","metal","wood","glass","paper","plastic","concrete","rubber","fabric","cloth",
-      // Core concept words that Wikipedia suggestions corrupt to unrelated words
-      // "life"→"time", "inflation"→"flation", "love"→"live", etc.
-      "life","death","love","hate","fear","hope","faith","truth","meaning","purpose","soul",
-      "mind","body","heart","brain","blood","bone","skin","eyes","ears","nose","mouth","hands",
-      "inflation","deflation","recession","depression","capitalism","socialism","democracy",
-      "gravity","velocity","momentum","frequency","amplitude","entropy","evolution","mutation",
-      "religion","spirituality","consciousness","unconscious","subconscious","meditation",
-      "philosophy","psychology","sociology","anthropology","archaeology","astronomy",
-      // Common English words that spell correction mis-corrects (usually plurals → singulars)
-      "birds","humans","animals","plants","insects","mammals","reptiles","bacteria","viruses",
-      "trees","leaves","flowers","roots","stems","cells","atoms","molecules","proteins",
-      "rivers","oceans","mountains","forests","deserts","glaciers","volcanoes","earthquakes",
-      "cannot","wont","dont","doesnt","arent","isnt","wasnt","shouldnt","wouldnt","couldnt",
-      // Number words and quantity words that spell correction may alter
-      "one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve",
-      "hundred","thousand","million","billion","trillion","percent","percentage",
-      // Taste/sensory adjectives — commonly spell-corrected to unrelated words
-      "salty","sweet","sour","bitter","spicy","acidic","alkaline","toxic","edible",
-      "alive","dead","awake","asleep","tired","exhausted","hungry","thirsty","bored",
-      // Company names — must not be spell-corrected ("sony"→"song", "uber"→"user", etc.)
-      "google","apple","amazon","microsoft","netflix","spotify","uber","tesla","facebook",
-      "twitter","samsung","nike","paypal","airbnb","lyft","openai","youtube","instagram",
-      "whatsapp","snapchat","pinterest","linkedin","reddit","tiktok","walmart","disney",
-      "sony","honda","toyota","bmw","ford","nvidia","intel","amd","qualcomm","broadcom",
-      "meta","alphabet","shopify","stripe","palantir","databricks","figma","notion","slack",
-      // Transport/aviation words that get corrupted
-      "plane","planes","airplane","airplanes","aircraft","rocket","spacecraft","satellite",
-      "helicopter","submarine","torpedo","missile","cannon","rifle","pistol","bullet","tank",
-      // Common nouns that spell correction corrupts to other words
-      "world","earth","space","ocean","river","mountain","forest","desert","island","valley",
-      "battle","conflict","empire","kingdom","dynasty","republic","democracy","monarchy",
-      // Famous people names that spell correction corrupts to other surnames
-      "einstein","newton","darwin","galileo","shakespeare","beethoven","mozart","edison",
-      "aristotle","socrates","plato","napoleon","cleopatra","columbus","alexander","caesar",
-      "quasar","quasars","pulsar","nebula","supernova","neutrino","proton","neutron","electron",
-      "photon","lepton","boson","quark","fermion","baryon","hadron","meson","gluon",
-      "detox","purge","cleanse","yawn","yawning","snore","sneeze","hiccup","burp","sweat","blush","blushing","flush","flushing",
-      "contagious","contagion","infectious","infectious","disease","syndrome","disorder",
-      "rust","rusts","rusting","float","floats","floating","sink","sinks","sinking",
-      "burn","burns","burning","melt","melts","boil","boils","freeze","freezes",
-      "reef","barrier","northern","lights","aurora","borealis","polaris","equinox","solstice",
-      "liver","kidney","spleen","pancreas","gallbladder","thyroid","adrenal","pituitary",
-      "mitosis","meiosis","osmosis","diffusion","respiration","transpiration","fermentation",
-      "entropy","momentum","torque","velocity","acceleration","inertia","friction","buoyancy",
-      // Scientific/technical words spell correction commonly corrupts
-      "lightning","thunder","recognize","recognizes","recognized","recognition",
-      "neurons","neuron","molecule","molecules","chromosome","chromosomes","protein","proteins",
-      "antibody","antibodies","antigen","antigens","enzyme","enzymes","hormone","hormones",
-      "bacteria","virus","viruses","vaccine","vaccines","immune","immunity","organism",
-      // Geography/history words that get corrupted to unrelated proper nouns
-      "mayans","mayan","aztecs","aztec","incas","inca","vikings","viking","mongols","mongol",
-      "pharaoh","pharaohs","pyramid","pyramids","colosseum","parthenon","pantheon",
-      // Common words that spell correction corrupts
-      "mars","moon","sun","earth","saturn","venus","jupiter","neptune","uranus",
-      "coffee","sugar","salt","bread","water","milk","rice","meat","fish","fruit","grain",
-      "deep","ocean","sea","lake","river","mountain","desert","forest","island","valley",
-      // Words that Wikipedia phrase suggestion changes in unhelpful ways
-      "different","difference","similar","similar","various","several","multiple",
-      "human","humans","animal","animals","plant","plants","species","organism","organisms",
-      // Core English
-      "will","can","but","how","who","when","where","why","which","all","been","were","got",
-      // Commonly mistyped factual words
-      "black","white","blue","dark","light","time","work","make","word","year","line","side",
-      "form","hole","star","moon","earth","space","water","fire","bone","heart","mind","body",
-      "food","color","shape","size","atom","gene","cell","acid","mass","heat","sound","wave",
-      "force","power","energy","ocean","river","leaf","tree","fish","bird","virus","blood",
-      "brain","nerve","skin","muscle","plant","human","animal","science","theory","history",
-      "nature","system","number","level","state","place","point","world","right","small","large",
-      "short","long","high","deep","free","full","open","real","true","clear","close","early",
-      "late","slow","fast","hard","soft","warm","cold","hot","bright","heavy","light",
-      "gold","iron","salt","iron","carbon","oxygen","nitrogen","hydrogen","silver","copper",
-    ])
+      // Check adjacent-swap transpositions first (edit distance 1 via Damerau)
+      // "stra" → swaps → "star" is valid English → return "star" before nspell says "strap"
+      const swaps = swapAdjacent(clean)
+      const validSwap = swaps.find(s => spell.correct(s))
+      if (validSwap) {
+        anyChange = true
+        return rawWord.replace(clean, validSwap)
+      }
 
-    const stopWords = new Set(["a","an","the","is","are","was","were","of","in","on","at",
-      "to","do","does","and","or","what","who","how","why","when","where","which","i","my"])
+      // Fall back to nspell suggestions (covers edit distance 1-2)
+      // Allow capitalized suggestions only for clearly proper-noun-like words (6+ chars,
+      // no vowels run that would indicate a common English word). "einsten" → "Einstein" ✓
+      // "march" is valid → never reaches here. "may" is valid → never reaches here.
+      const allowProperNoun = clean.length >= 6  // short words like "march" are usually common words
+      const suggestions = spell.suggest(clean).filter(s =>
+        !s.includes(" ") &&           // single word
+        (allowProperNoun || !/^[A-Z]/.test(s)) &&  // allow proper nouns for longer typos
+        Math.abs(s.length - clean.length) <= 2  // similar length
+      )
+      if (!suggestions.length) return rawWord
 
-    function swapVariants(word: string): string[] {
-      const letters = word.split("")
-      return letters.slice(0, -1).map((_, i) => {
-        const s = [...letters];
-        [s[i], s[i + 1]] = [s[i + 1], s[i]]
-        return s.join("")
-      })
-    }
-
-    // Strategy 1: Two-pass word-level correction (runs together, not early-exit per pass).
-    // Pass A: Transposition — "captial"→"capital", "strnog"→"strong" (in-memory, no API)
-    // Pass B: Single-word Wikipedia suggestion for non-transposable typos: "stell"→"steel", "afect"→"affect"
-    // Both passes run; fixes are combined. Early return only after BOTH passes.
-    const transpFixes: { word: string; fix: string }[] = []
-    for (const word of words) {
-      const clean = word.toLowerCase().replace(/[^a-z]/g, "")
-      if (clean.length <= 3 || stopWords.has(clean) || COMMON_WORDS.has(clean)) continue
-      const transpFix = swapVariants(clean).find(v => COMMON_WORDS.has(v))
-      if (transpFix) transpFixes.push({ word, fix: transpFix })
-    }
-
-    // After collecting transposition fixes, find words still needing correction
-    const alreadyFixedWords = new Set(transpFixes.map(f => f.word.toLowerCase()))
-    const suspectWords = words.filter(w => {
-      const clean = w.toLowerCase().replace(/[^a-z]/g, "")
-      if (clean.length <= 4 || stopWords.has(clean) || COMMON_WORDS.has(clean)) return false
-      if (alreadyFixedWords.has(clean)) return false  // already fixed by transposition
-      return /[bcdfghjklmnpqrstvwxyz]{4,}/.test(clean) ||
-        /phto|lck|shs|blck|lcak|afec|strn|stell/.test(clean)
+      anyChange = true
+      return rawWord.replace(clean, suggestions[0].toLowerCase())
     })
 
-    const wikiWordFixes: { word: string; fix: string }[] = []
-    if (suspectWords.length > 0) {
-      const corrections = await Promise.all(suspectWords.map(async (word) => {
-        const clean = word.toLowerCase().replace(/[^a-z]/g, "")
-        try {
-          const r = await searchWiki(clean, 1)
-          const sug = r?.suggestion
-          if (sug && !sug.includes(" ") && sug.toLowerCase() !== clean && sug.length <= clean.length + 3) {
-            return { word, fix: sug }
-          }
-        } catch { /* ignore */ }
-        return null
-      }))
-      wikiWordFixes.push(...corrections.filter(Boolean) as { word: string; fix: string }[])
-    }
-
-    const allWordFixes = [...transpFixes, ...wikiWordFixes]
-    if (allWordFixes.length > 0) {
-      let correctedQuery = q
-      for (const c of allWordFixes) {
-        correctedQuery = correctedQuery.replace(
-          new RegExp(`\\b${c.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
-          c.fix
-        )
-      }
-      // After word-level fixes, try Wikipedia phrase suggestion on corrected query
-      // "how dos the moon affect tides" → "how does the moon affect tides"
-      try {
-        const r2 = await searchWiki(correctedQuery, 1)
-        const sug2 = r2?.suggestion
-        if (sug2 && sug2.toLowerCase() !== correctedQuery.toLowerCase()) {
-          const origW2 = correctedQuery.toLowerCase().split(/\s+/)
-          const sugW2 = sug2.split(/\s+/)
-          let changedToProperNoun2 = false, anyChangedWordWasValid2 = false, cnt2 = 0
-          for (let i = 0; i < Math.min(origW2.length, sugW2.length); i++) {
-            if (origW2[i] !== sugW2[i].toLowerCase()) {
-              cnt2++
-              if (/^[A-Z]/.test(sugW2[i])) changedToProperNoun2 = true
-              if (COMMON_WORDS.has(origW2[i])) anyChangedWordWasValid2 = true
-            }
-          }
-          if (cnt2 <= 2 && !changedToProperNoun2 && !anyChangedWordWasValid2) return sug2
-        }
-      } catch { /* ignore */ }
-      return correctedQuery
-    }
-
-    // Strategy 2 (fallback): Wikipedia phrase-level suggestion.
-    // Good for multi-word corrections ("french revoluion" → "French Revolution"),
-    // but unreliable for single-word typos where it suggests unrelated proper nouns.
-    const wikiResult = await searchWiki(q, 1)
-    const wikiSuggestion = wikiResult?.suggestion
-    if (wikiSuggestion && wikiSuggestion.toLowerCase() !== q.toLowerCase()) {
-      const origWords = q.toLowerCase().split(/\s+/)
-      const sugParts = wikiSuggestion.split(/\s+/)
-      let anyChange = false
-      let changedToProperNoun = false
-      let anyChangedWordWasValid = false
-      for (let i = 0; i < Math.min(origWords.length, sugParts.length); i++) {
-        if (origWords[i] !== sugParts[i].toLowerCase()) {
-          anyChange = true
-          if (/^[A-Z]/.test(sugParts[i])) changedToProperNoun = true
-          // If the original word is already in COMMON_WORDS, it's a valid word — don't "correct" it
-          // ("gravity" → "gavity" is wrong; "dude" → "duke" is wrong)
-          if (COMMON_WORDS.has(origWords[i])) anyChangedWordWasValid = true
-        }
-      }
-      // Count how many words changed — if many change, the suggestion might be unreliable
-      const changedCount = origWords.filter((w, i) => sugParts[i] && w !== sugParts[i].toLowerCase()).length
-      // Only accept if: ≤ 2 words changed, none are proper nouns, and no already-valid word was changed
-      if (anyChange && changedCount <= 2 && !changedToProperNoun && !anyChangedWordWasValid) return wikiSuggestion
-    }
-
-    return null
+    return anyChange ? correctedWords.join(" ") : null
   } catch {
     return null
   }
 }
+
 
 type RequestBody = {
   message: string;
