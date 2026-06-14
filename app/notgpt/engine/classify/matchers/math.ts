@@ -55,6 +55,7 @@ function stripMathScaffold(text: string): string {
     .replace(/\bcubed\b/gi, "^3")
     .replace(/\bsquare\s+root\s+of\b/gi, "sqrt(")
     .replace(/\bpercent\s+of\b/gi, "/ 100 *")
+    .replace(/%\s+of\b/gi, "/ 100 *")  // "15% of 200" → "15 / 100 * 200" = 30
     .replace(/\bmod(?:ulo)?\b/gi, "%")
     .replace(/\bx\b/gi, "*")  // common multiplication
     .replace(/(\d)\s*x\s*(\d)/gi, "$1 * $2")  // "3 x 4" → "3 * 4"

@@ -88,6 +88,13 @@ import {
 } from "./persona/copy/grayZone";
 import { TRUE_FACTS } from "./persona/copy/factsBank";
 
+// POS tagger — used as structural fallback when SUBJECT_STOP list doesn't cover a verb
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nlp = require("compromise") as (text: string) => {
+  nouns: () => { out: (format: "array") => string[] }
+  verbs: () => { out: (format: "array") => string[] }
+}
+
 // Source imports
 import {
   fetchWikiSummary,
@@ -255,6 +262,8 @@ function isConversationalInput(raw: string): boolean {
 
   // Count factual content words: real nouns/concepts that aren't social signals or stop words
   const factualWords = words.filter(w => {
+    // Words with digits are always factual: "15%", "200", "2+2", "x86", "$50"
+    if (/\d/.test(w)) return true;
     const clean = w.replace(/[^a-z]/g, "");
     if (clean.length <= 2) return false;                // too short to be factual
     if (CONV_STOP.has(clean)) return false;              // grammatical word
@@ -1150,7 +1159,7 @@ export async function* runPipeline(
   // Entertainment description detector — checks Wikipedia's description field, not just title.
   // Defined here (before structured_fact AND lookup) because both handlers use it.
   // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|drink|beverage|cocktail|food dish|cuisine|snack|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon))/i
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|drink|beverage|cocktail|food dish|cuisine|snack|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
   const isEntertainmentDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
@@ -1545,6 +1554,36 @@ export async function* runPipeline(
       // Fall through if no good result
     }
 
+    // 1b. "my [animal] ate [substance]" → route to "[substance] toxicity [animal]"
+    // "my dog ate chocolate is that bad" → "chocolate toxicity dogs" → poisoning article
+    // People searching this in panic need the actual safety information, not fiction.
+    const ateToxicityMatch = raw.match(/\bmy\s+(\w+)\s+ate\s+(\w+)/i)
+    if (ateToxicityMatch) {
+      const animal = ateToxicityMatch[1].trim()
+      const substance = ateToxicityMatch[2].trim()
+      const toxQuery = `${substance} toxicity ${animal}`
+      yield* status(`Looking up ${substance} safety for ${animal}s...`, "wikipedia")
+      const toxSearch = await withTimeout(searchWiki(toxQuery, 3))
+      const toxHit = toxSearch?.hits?.find(h =>
+        /toxic|poison|danger|safe|harm|lethal|fatal|health/i.test(h.title) ||
+        h.title.toLowerCase().includes(substance.toLowerCase())
+      ) ?? toxSearch?.hits?.[0]
+      if (toxHit) {
+        const toxArticle = await withTimeout(fetchWikiSummary(toxHit.title))
+        if (toxArticle?.extract && toxArticle.type !== "disambiguation") {
+          const { truncated } = truncateExtract(toxArticle.extract)
+          provenance.push({ ...wikiProvenance(toxArticle), latencyMs: Date.now() - startMs })
+          blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: toxArticle.title })
+          memory.failureStreak = 0
+          yield* streamText(truncated, seed)
+          yield { event: "provenance", data: { sources: provenance } }
+          yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) }
+          return
+        }
+      }
+      // Fall through if no good result
+    }
+
     // 2. Clean up residuals left by scaffold stripping that still have leading auxiliary verbs.
     // "why do we have seasons" → scaffold strips "why do we" → residual "have seasons"
     // → strip leading "have/has/do/does/did/get/need/contain" → "seasons"
@@ -1558,12 +1597,10 @@ export async function* runPipeline(
     // NOT against raw. "bruh how do planes stay up" → normalized "how do planes stay up" → matches.
     const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was))/i.test(classified.normalized)
 
-    // Entertainment filter scope: applies when the query does NOT explicitly seek entertainment.
-    // "what movie is about time travel" → has "movie" → entertainment intent → don't filter.
-    // "what country has the most people" → no entertainment markers → filter applies.
-    // "bruh how do planes stay up" → no entertainment markers → filter applies.
-    const hasEntertainmentIntent = /\b(?:movie|film|song|album|band|singer|musician|actor|actress|show|series|episode|season|book|novel|game|musical|concert|tour|release|debut|track|single|record|listen|watch|read)\b/i.test(classified.normalized)
-    const shouldFilterEntertainment = isMechanismQuery || !hasEntertainmentIntent
+    // Entertainment filter scope: ONLY apply for mechanism queries (how/why/who invented/discovered).
+    // Direct requests ("tell me about X", "what is X", "who is X") should return entertainment.
+    // Over-filtering "tell me about the simpsons" was wrong — Simpsons IS the correct answer.
+    const shouldFilterEntertainment = isMechanismQuery
 
     // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
     // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
@@ -1875,6 +1912,19 @@ export async function* runPipeline(
       const subjectMeaningful = subjectWords.length >= 2 || (subjectWords.length === 1 && subjectPhrase.length >= 4)
       if (subjectPhrase && subjectPhrase !== q && subjectMeaningful && !terms.includes(subjectPhrase)) {
         terms.splice(0, 0, subjectPhrase)
+      } else if (subjectPhrase === q && q.split(/\s+/).length <= 4) {
+        // SUBJECT_STOP didn't strip anything — try POS tagger as structural fallback.
+        // "glass shatter" → SUBJECT_STOP doesn't know "shatter" → compromise does.
+        // Only runs for short phrases where POS tagging is most reliable.
+        try {
+          const posDoc = nlp(q)
+          const posNouns = posDoc.nouns().out("array")
+            .filter((n: string) => n.length >= 3 && !n.match(/^(why|how|what|who|when|where)/i))
+            .join(" ").trim()
+          if (posNouns && posNouns !== q && posNouns.length >= 3 && !terms.includes(posNouns)) {
+            terms.splice(0, 0, posNouns)
+          }
+        } catch { /* nlp failure is not fatal */ }
       }
 
       const STOPWORDS = new Set([

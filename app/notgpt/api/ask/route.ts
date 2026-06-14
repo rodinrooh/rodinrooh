@@ -12,6 +12,7 @@ import { createSessionMemory } from "../../engine/persona/engine";
 import { SessionMemory } from "../../engine/persona/bits";
 import { TurnContext, EntityRef } from "../../engine/classify/coref";
 import { TEMPORAL_TERMS } from "../../engine/classify/lexicons";
+import { fetchWikiSummary } from "../../engine/sources/wikipedia";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nspellCreate = require("nspell") as (
@@ -92,14 +93,26 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
   try {
     const spell = getSpell()
     let anyChange = false
-    const correctedWords = words.map(rawWord => {
+
+    const correctedWords = await Promise.all(words.map(async rawWord => {
       const clean = rawWord.toLowerCase().replace(/[^a-z]/g, "")
       // Skip: very short, stop/slang word, or already valid English
-      // Slang check must come before nspell to prevent "bruh"→"brush", "lol"→"loll"
       if (clean.length < 4 || SPELL_STOP.has(clean) || SPELL_SLANG.has(clean)) return rawWord
       if (spell.correct(clean)) return rawWord  // valid English word → never touch it
 
-      // Check adjacent-swap transpositions first (edit distance 1 via Damerau)
+      // KEY: Try the literal word as a Wikipedia title BEFORE applying any correction.
+      // "banksy" → nspell says invalid, but Wikipedia has "Banksy" article → don't touch it.
+      // "floyd" → has a disambiguation page → don't "correct" to "flood".
+      // This handles ALL proper nouns/brands/pseudonyms without needing to enumerate them.
+      // Only runs for words nspell can't identify (so it doesn't slow down normal queries).
+      try {
+        const wikiCheck = await fetchWikiSummary(clean)
+        if (wikiCheck?.extract) {
+          return rawWord  // Wikipedia knows this word (including as disambiguation) → never correct it
+        }
+      } catch { /* ignore timeout/network errors — fall through to nspell */ }
+
+      // Check adjacent-swap transpositions (edit distance 1 via Damerau)
       // "stra" → swaps → "star" is valid English → return "star" before nspell says "strap"
       const swaps = swapAdjacent(clean)
       const validSwap = swaps.find(s => spell.correct(s))
@@ -109,20 +122,17 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       }
 
       // Fall back to nspell suggestions (covers edit distance 1-2)
-      // Allow capitalized suggestions only for clearly proper-noun-like words (6+ chars,
-      // no vowels run that would indicate a common English word). "einsten" → "Einstein" ✓
-      // "march" is valid → never reaches here. "may" is valid → never reaches here.
-      const allowProperNoun = clean.length >= 6  // short words like "march" are usually common words
+      const allowProperNoun = clean.length >= 6
       const suggestions = spell.suggest(clean).filter(s =>
-        !s.includes(" ") &&           // single word
-        (allowProperNoun || !/^[A-Z]/.test(s)) &&  // allow proper nouns for longer typos
-        Math.abs(s.length - clean.length) <= 2  // similar length
+        !s.includes(" ") &&
+        (allowProperNoun || !/^[A-Z]/.test(s)) &&
+        Math.abs(s.length - clean.length) <= 2
       )
       if (!suggestions.length) return rawWord
 
       anyChange = true
       return rawWord.replace(clean, suggestions[0].toLowerCase())
-    })
+    }))
 
     return anyChange ? correctedWords.join(" ") : null
   } catch {
