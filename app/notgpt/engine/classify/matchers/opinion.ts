@@ -44,6 +44,13 @@ export function matchOpinion(
 ): MatchResult | null {
   const haystack = normalized.toLowerCase()
 
+  // "Is it bad/harmful/safe to [verb]" — has factual health-research answers, NOT opinion.
+  // "is it bad to crack your knuckles" → medical research answers this definitively.
+  // Route these to lookup so the pipeline finds actual Wikipedia evidence.
+  if (/^is it\s+(?:bad|good|harmful|dangerous|risky|safe|healthy|okay|ok|unhealthy|fine|normal|common)\s+to\s+/i.test(normalized)) {
+    return null
+  }
+
   // Hypotheticals — sub-typed as prediction so the pipeline uses UNANSWERABLE_PREDICTION copy
   for (const pattern of HYPOTHETICAL_PATTERNS) {
     if (pattern.test(normalized)) {

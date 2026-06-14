@@ -112,7 +112,6 @@ export const OPINION_TERMS: string[] = [
   "most overrated",
   "is it worth",
   "is it good",
-  "is it bad",
   "worth it",
   "worth buying",
   "worth watching",

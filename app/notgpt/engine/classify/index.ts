@@ -47,7 +47,9 @@ function looksLikeComparison(text: string): boolean {
     /\bdifference\s+between\b/i.test(text) ||
     /^compare\s+/i.test(text) ||
     // "who is richer X or Y" — named comparative with "or"
-    /\b(?:richer|poorer|taller|shorter|older|younger|smarter|faster|stronger|bigger|smaller)\b.*\bor\b/i.test(text)
+    /\b(?:richer|poorer|taller|shorter|older|younger|smarter|faster|stronger|bigger|smaller)\b.*\bor\b/i.test(text) ||
+    // "is X bigger/older/stronger than Y" — question-framed comparison (any adjective + than)
+    /^is\s+.+\s+(?:bigger|smaller|larger|taller|shorter|older|younger|longer|wider|deeper|heavier|lighter|faster|slower|higher|lower|newer|hotter|colder|closer|farther|further|stronger|weaker|denser|richer|poorer|brighter|dimmer|more|less)\b.+\bthan\s+/i.test(text)
   )
 }
 

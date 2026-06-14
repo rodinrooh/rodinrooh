@@ -1159,7 +1159,7 @@ export async function* runPipeline(
   // Entertainment description detector — checks Wikipedia's description field, not just title.
   // Defined here (before structured_fact AND lookup) because both handlers use it.
   // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|drink|beverage|cocktail|food dish|cuisine|snack|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+band|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
   const isEntertainmentDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
@@ -1447,7 +1447,36 @@ export async function* runPipeline(
     }
 
     yield* status(`Looking up ${entity}...`, "wikipedia");
-    const wikiResult = await withTimeout(searchAndFetch(entity));
+    let wikiResult = await withTimeout(searchAndFetch(entity));
+
+    // For "who wrote/painted/composed X" where X is a number or bare title:
+    // "who wrote 1984" → searchAndFetch("1984") finds the calendar year, not Orwell's novel.
+    // If the entity looks like a creative work title and the Wikidata result has no author/creator
+    // property, retry with "[entity] novel", "[entity] book", "[entity] painting", etc.
+    if (wikiResult && /^(?:author|creator|directed by|directed|painted by|composed by|composer)$/i.test(label)) {
+      const entityIsNumeric = /^\d+$/.test(entity)
+      const entityIsShort = entity.split(/\s+/).length <= 3
+      const resultIsCalendarYear = /\b(?:calendar year|gregorian calendar|common era|anno domini)\b/i.test(wikiResult.description || "")
+      if ((entityIsNumeric || entityIsShort) && resultIsCalendarYear) {
+        // The entity matches a year or generic concept — try creative-work variants
+        const creativeVariants = [`${entity} novel`, `${entity} book`, `${entity} film`, `${entity} painting`, `${entity} song`, `${entity} album`]
+        for (const variant of creativeVariants) {
+          const variantResult = await withTimeout(fetchWikiSummary(variant))
+          if (variantResult?.wikibaseItem && variantResult.type !== "disambiguation") {
+            wikiResult = variantResult
+            break
+          }
+          const variantSearch = await withTimeout(searchWiki(variant, 1))
+          if (variantSearch?.hits?.[0]) {
+            const candidate = await withTimeout(fetchWikiSummary(variantSearch.hits[0].title))
+            if (candidate?.wikibaseItem && candidate.type !== "disambiguation") {
+              wikiResult = candidate
+              break
+            }
+          }
+        }
+      }
+    }
 
     if (!wikiResult || !wikiResult.wikibaseItem) {
       memory.failureStreak++;
@@ -1554,34 +1583,94 @@ export async function* runPipeline(
       // Fall through if no good result
     }
 
-    // 1b. "my [animal] ate [substance]" → route to "[substance] toxicity [animal]"
-    // "my dog ate chocolate is that bad" → "chocolate toxicity dogs" → poisoning article
-    // People searching this in panic need the actual safety information, not fiction.
-    const ateToxicityMatch = raw.match(/\bmy\s+(\w+)\s+ate\s+(\w+)/i)
-    if (ateToxicityMatch) {
-      const animal = ateToxicityMatch[1].trim()
-      const substance = ateToxicityMatch[2].trim()
-      const toxQuery = `${substance} toxicity ${animal}`
-      yield* status(`Looking up ${substance} safety for ${animal}s...`, "wikipedia")
-      const toxSearch = await withTimeout(searchWiki(toxQuery, 3))
-      const toxHit = toxSearch?.hits?.find(h =>
-        /toxic|poison|danger|safe|harm|lethal|fatal|health/i.test(h.title) ||
-        h.title.toLowerCase().includes(substance.toLowerCase())
-      ) ?? toxSearch?.hits?.[0]
-      if (toxHit) {
-        const toxArticle = await withTimeout(fetchWikiSummary(toxHit.title))
-        if (toxArticle?.extract && toxArticle.type !== "disambiguation") {
-          const { truncated } = truncateExtract(toxArticle.extract)
-          provenance.push({ ...wikiProvenance(toxArticle), latencyMs: Date.now() - startMs })
-          blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: toxArticle.title })
-          memory.failureStreak = 0
-          yield* streamText(truncated, seed)
-          yield { event: "provenance", data: { sources: provenance } }
-          yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) }
-          return
+    // 1b. Unified health-hazard detector — "is X bad/dangerous/safe for Y", "my X ate Y", "can X eat Y"
+    // All phrasings of the same question: what is the effect of [substance] on [subject]?
+    // Route ALL of them to "[substance] toxicity/effect [subject]" search.
+    // "my cat ate a lily" → lily toxicity cats
+    // "is xylitol bad for dogs" → xylitol toxicity dogs
+    // "is caffeine dangerous for cats" → caffeine toxicity cats
+    // "can dogs eat grapes" → grapes toxicity dogs
+    const healthHazardResult = (() => {
+      const r = raw
+      // Pattern A: "my [animal] ate/drank [optional-article] [substance]"
+      const ateMatch = r.match(/\bmy\s+(\w+)\s+(?:ate|drank)\s+(?:a\s+|an\s+|the\s+|some\s+)?(\w+)/i)
+      if (ateMatch) return { substance: ateMatch[2], subject: ateMatch[1] }
+      // Pattern B: "is [substance] bad/dangerous/harmful/safe/toxic for [subject]"
+      const badForMatch = r.match(/\bis\s+(\w+)\s+(?:bad|dangerous|harmful|safe|toxic|poisonous|healthy|okay|ok|good)\s+for\s+(\w+)/i)
+      if (badForMatch) return { substance: badForMatch[1], subject: badForMatch[2] }
+      // Pattern C: "can [subject] eat/drink/consume/have [optional-article] [substance]"
+      const canEatMatch = r.match(/\bcan\s+(\w+)\s+(?:eat|drink|have|consume|ingest)\s+(?:a\s+|an\s+|the\s+|some\s+)?(\w+)/i)
+      if (canEatMatch) return { substance: canEatMatch[2], subject: canEatMatch[1] }
+      // Pattern D: "is [substance] safe/okay for [subject] to eat/drink"
+      const safeForMatch = r.match(/\bis\s+(\w+)\s+(?:safe|okay|ok|good)\s+for\s+(\w+)\s+to/i)
+      if (safeForMatch) return { substance: safeForMatch[1], subject: safeForMatch[2] }
+      return null
+    })()
+
+    if (healthHazardResult) {
+      const { substance, subject } = healthHazardResult
+      // Try the SUBSTANCE article directly first — it often covers animal toxicity with extended text.
+      // "caffeine" article covers methylxanthine toxicity. "xylitol" covers dog toxicity.
+      // Then fall back to targeted searches.
+      const healthSearchTerms = [
+        substance,                                    // direct substance article (try first, extended text)
+        `${subject} ${substance} poisoning`,          // "dogs xylitol poisoning" → most specific
+        `${substance} toxicity ${subject}`,           // "xylitol toxicity dogs"
+        `substances poisonous to ${subject}`,         // "substances poisonous to dogs" broad list
+      ]
+      yield* status(`Looking up ${substance} effects on ${subject}s...`, "wikipedia")
+      let healthArticle = null
+      for (const term of healthSearchTerms) {
+        const searchRes = await withTimeout(searchWiki(term, 5))
+        if (!searchRes?.hits?.length) continue
+        // Priority 1: articles with "toxic", "poison", "danger" in title (most specific)
+        // Priority 2: articles mentioning the subject animal/person
+        // Priority 3: articles about the substance itself (fallback)
+        const toxicHit = searchRes.hits.find(h => /toxic|poison|danger|harm|lethal|fatal/i.test(h.title))
+        const subjectHit = searchRes.hits.find(h => h.title.toLowerCase().includes(subject.toLowerCase()))
+        const substanceHit = searchRes.hits.find(h => h.title.toLowerCase().includes(substance.toLowerCase()))
+        // Trust Wikipedia's own ranking for the top result — substring matching can mislead.
+        // "lily".includes("Lilium") fails (i vs y), so we'd get "Lily of the valley" instead.
+        // Prefer: toxic title > subject animal in title > Wikipedia's top result (most relevant).
+        const hit = toxicHit || subjectHit || searchRes.hits[0]
+        if (hit) {
+          const candidate = await withTimeout(fetchWikiSummary(hit.title))
+          if (candidate?.extract && candidate.type !== "disambiguation") {
+            // For health hazard queries, use a longer truncation (6 sentences / 800 chars)
+            // so that toxicity info appearing after the general description is included.
+            // "True lilies are known to be highly toxic to cats" appears at char 510.
+            const segmenter = new Intl.Segmenter("en", { granularity: "sentence" })
+            const sentences = Array.from(segmenter.segment(candidate.extract))
+              .filter(s => s.segment.trim())
+              .map(s => s.segment)
+            const extended = sentences.slice(0, 6).join("").slice(0, 800)
+            // When searching the substance directly (first term), only accept if it mentions
+            // the subject (animal). "Xylitol" doesn't mention "dogs" → skip, try next term.
+            // "Lilium" mentions "cats" at sentence 5 → accept.
+            const subjectSingular = subject.replace(/s$/, "")  // "dogs" → "dog"
+            const mentionsSubject = term === substance
+              ? (extended.toLowerCase().includes(subject.toLowerCase()) ||
+                 extended.toLowerCase().includes(subjectSingular.toLowerCase()))
+              : true  // for non-substance searches, always accept
+            if (mentionsSubject) {
+              healthArticle = { ...candidate, extract: extended }
+              break
+            }
+            // Substance article doesn't mention the animal — continue to next search term
+          }
         }
       }
-      // Fall through if no good result
+      if (healthArticle) {
+        const extract = healthArticle.extract
+        provenance.push({ ...wikiProvenance(healthArticle), latencyMs: Date.now() - startMs })
+        blocks.push({ type: "wikipedia", content: extract, wasTruncated: false, title: healthArticle.title })
+        memory.failureStreak = 0
+        yield* streamText(extract, seed)
+        yield { event: "provenance", data: { sources: provenance } }
+        yield { event: "done", data: buildEnvelope("lookup", blocks, provenance, startMs) }
+        return
+      }
+      // Fall through if no good result found
     }
 
     // 2. Clean up residuals left by scaffold stripping that still have leading auxiliary verbs.
@@ -1593,9 +1682,11 @@ export async function* runPipeline(
       .trim() || query;
     const queryForSearch = cleanedQuery !== query ? cleanedQuery : query;
 
-    // Mechanism query detection — tested against classified.normalized (after slang stripping),
-    // NOT against raw. "bruh how do planes stay up" → normalized "how do planes stay up" → matches.
-    const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was))/i.test(classified.normalized)
+    // Mechanism query detection — tested against classified.normalized (after slang stripping).
+    // Covers: how/why/what causes/who discovered/invented + health causation patterns.
+    // "can you get sick from cold" → isMechanismQuery=true → entertainment filter active.
+    // "what happens if you don't sleep" → "what happens" matches → filter active.
+    const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?|effects?|if)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was)|can\s+(?:you|a|an?|it|they|people|humans?|animals?)\s+(?:get|become|develop|catch|spread|die|survive|live)|is\s+it\s+(?:bad|good|harmful|safe|healthy|normal|common|possible|true)\s+to\s+)/i.test(classified.normalized)
 
     // Entertainment filter scope: ONLY apply for mechanism queries (how/why/who invented/discovered).
     // Direct requests ("tell me about X", "what is X", "who is X") should return entertainment.
@@ -1676,6 +1767,10 @@ export async function* runPipeline(
       "bad","good","best","worst","better","worse","great","terrible","awful","amazing",
       "richer","rich","poorer","poor","safe","unsafe","healthy","unhealthy","dangerous",
       "useful","useless","important","unimportant","true","false","right","wrong",
+      // Very common material/substance nouns that are too generic as standalone subjects
+      // "eyes water when you yawn" → "water" shouldn't be extracted as primary subject
+      // These still work as subjects in direct queries ("what is water" uses direct fetch)
+      "water","fire","air","light","energy","matter","space","time",
       // Filler/generic nouns that aren't subjects
       "humans","human","people","person","someone","anyone","everyone","nobody",
       "you","me","we","us","they","them","he","she","it","one",
@@ -1717,6 +1812,11 @@ export async function* runPipeline(
       "big","small","large","tiny","huge","vast","giant","massive","enormous","microscopic",
       // These appear as evaluative framing, not subject:
       "for","you","bad","good","safe","dangerous","harmful","unhealthy","healthy","useful",
+      // Body symptom/effect words — when someone says "X makes me poop/sick/tired",
+      // the SUBJECT is X (not poop/sick). Strip these so they don't attract wrong articles.
+      "poop","pee","sick","vomit","nausea","tired","anxious","headache","diarrhea",
+      "constipated","bloated","gassy","sweaty","itchy","drowsy","dizzy","jittery",
+      "nauseous","queasy","lethargic","sluggish","wired","energized","jittery",
     ])
 
     // Extract the subject noun phrase from a query by removing all non-subject words
@@ -1790,11 +1890,17 @@ export async function* runPipeline(
           shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
           float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
           stay: "aerodynamics", stays: "aerodynamics",       // how planes stay up → aerodynamics
+          sleep: "sleep deprivation", sleeps: "sleep deprivation",  // what if you don't sleep → deprivation
           break: "fracture", breaks: "fracture", broke: "fracture", broken: "fracture",
+          shatter: "fracture", shatters: "fracture", shattered: "fracture",
+          crack: "fracture", cracks: "fracture",
+          degrade: "degradation", degrades: "degradation", degraded: "degradation",
+          warp: "warping", warps: "warping", warped: "warping",
+          rusts: "corrosion", rusted: "corrosion",
+          shrink: "shrinkage", shrinks: "shrinkage",
           heal: "wound healing", heals: "wound healing",
           clot: "coagulation", clots: "coagulation",
           divide: "cell division", divides: "cell division",
-          expand: "thermal expansion", expands: "thermal expansion",
           contract: "contraction", contracts: "contraction",
           conduct: "electrical conductivity", conducts: "electrical conductivity",
           refract: "refraction", refracts: "refraction",
@@ -1882,11 +1988,37 @@ export async function* runPipeline(
         }
       }
 
+      // Health concept expansion — structural mapping for queries where the residual contains
+      // health symptom words but strips to nothing useful (all words in SUBJECT_STOP).
+      // "sick cold" → common cold; "sleepy tired" → fatigue; etc.
+      // This is a CONCEPT-CLASS mapping (illness symptoms → medical concept articles),
+      // analogous to VERB_TO_CONCEPT for physical processes.
+      if (isMechanismQuery && terms.length > 0 && terms[0] === q) {
+        // Only fires when no useful subject was extracted (first term is still the full query)
+        const HEALTH_CONCEPTS: Array<[RegExp, string]> = [
+          [/\bsick\b.*\bcold\b|\bcold\b.*\bsick\b/i, "Common cold"],
+          [/\bsick\b.*\bflu\b|\bflu\b.*\bsick\b/i, "Influenza"],
+          [/\bskin\b.*\bwrinkle\b|\bwrinkle\b.*\bskin\b|\bage\b.*\bwrinkle\b/i, "Skin aging"],
+          [/\bsick\b.*\bbad\b.*\bcold\b|\bcold\b.*\bget.*sick\b/i, "Common cold"],
+          [/\brun(?:ning)?\b.+\bday\b|\bdaily\b.+\brun/i, "Physical exercise"],
+          [/\bsit(?:ting)?\b.+\ball day\b|\bsedent/i, "Sedentary lifestyle"],
+          [/\bsleep\b.+\b(?:too much|all day|excess)\b/i, "Hypersomnia"],
+          [/\beyes?\b.+\bwater\b|\bwater\b.+\beyes?\b/i, "Tears"],
+          [/\bfinger\b.+\bprune\b|\bprune\b.+\bfinger\b|\bskin\b.+\bwrinkle\b.+\bwater\b/i, "Aquaporin"],
+        ]
+        for (const [pattern, concept] of HEALTH_CONCEPTS) {
+          if (pattern.test(q) && !terms.includes(concept)) {
+            terms.splice(0, 0, concept)
+            break
+          }
+        }
+      }
+
       // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
       // Also strip trailing verb+particle: "planes stay up" → "planes", "stars burn out" → "stars"
       const noTrailingVerb = q
         .replace(/\s+(?:up|down|out|off|on|in|away|back|around|apart|together|over)\s*$/i, "")  // strip trailing particles first
-        .replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes|stay|stays|kept|keep|break|breaks|broke|broken|heal|heals|healed|clot|clots|divide|divides|expand|expands|contract|contracts|decay|decays|ferment|ferments|evaporate|evaporates|condense|condenses)\s*$/i, "")
+        .replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes|stay|stays|kept|keep|break|breaks|broke|broken|shatter|shatters|shattered|degrade|degrades|degraded|warp|warps|warped|crack|cracks|cracked|shrink|shrinks|heal|heals|healed|clot|clots|divide|divides|expand|expands|contract|contracts|decay|decays|ferment|ferments|evaporate|evaporates|condense|condenses)\s*$/i, "")
         .trim();
       if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
       // Strip trailing adjectives from "the sky blue" → "sky"
@@ -1921,7 +2053,12 @@ export async function* runPipeline(
           const posNouns = posDoc.nouns().out("array")
             .filter((n: string) => n.length >= 3 && !n.match(/^(why|how|what|who|when|where)/i))
             .join(" ").trim()
-          if (posNouns && posNouns !== q && posNouns.length >= 3 && !terms.includes(posNouns)) {
+          // Don't override a more specific VERB_TO_CONCEPT compound already at position 0.
+          // "glass shatter" → terms[0]="glass fracture" → "glass fracture".startsWith("glass") → skip.
+          // Inserting "glass" before "glass fracture" would cause the generic article to win.
+          const firstTermStartsWithPosNoun = terms.length > 0 &&
+            terms[0].toLowerCase().startsWith(posNouns.toLowerCase())
+          if (posNouns && posNouns !== q && posNouns.length >= 3 && !terms.includes(posNouns) && !firstTermStartsWithPosNoun) {
             terms.splice(0, 0, posNouns)
           }
         } catch { /* nlp failure is not fatal */ }
@@ -2084,11 +2221,15 @@ export async function* runPipeline(
         // Directional/positional words that shouldn't score in relevance
         "up","down","off","out","over","back","through","around","away","along",
         // Descriptive adjectives — when asked "why is fire HOT", "hot" shouldn't match "Hot Space"
-        "hot","cold","warm","cool","big","small","large","tiny","fast","slow",
+        // Note: "cold" is kept (not in STOP) so "Common cold" can match "sick from cold" queries
+        // Note: "water" is in STOP to prevent Water H2O matching "eyes water" or "drink water" queries
+        "water","warm","cool","big","small","large","tiny","fast","slow",
         "dark","bright","light","heavy","hard","soft","loud","quiet","deep","high",
         "red","blue","green","black","white","yellow","orange","purple","gray",
         "old","new","young","long","short","far","near","good","bad","great",
         "wet","dry","sharp","dull","thick","thin","full","empty","clean","dirty",
+        // Generic process/meta words that shouldn't drive scoring — "Shit happens" matching "what happens"
+        "happens","happen","occurring","occurred","occur","resulting","result","causes","caused",
       ]);
       // Normalize hyphens before tokenizing: "wi-fi" → "wifi", "x-ray" → "xray"
       // Without this, "Wi-Fi" never matches query "wifi" (different strings after splitting)
@@ -2123,11 +2264,19 @@ export async function* runPipeline(
       // handles it well. When fullQuery===queryForSearch (no scaffold was stripped, residual IS the
       // query), we use strict threshold to block entertainment false positives like "Hot Space".
       const isFullQuery = term === fullQuery && fullQuery !== queryForSearch;
-      const MIN_SCORE = isFullQuery ? 0.3 : 0.55;
+      // For mechanism queries searching the full natural-language query (e.g. "can you get sick
+      // from being cold"), allow a slightly lower threshold even when no scaffold was stripped.
+      // This lets "Common cold" (0.5 score) win for "sick cold" without triggering on entertainment.
+      const isFullMechQuery = term === fullQuery && isMechanismQuery;
+      const MIN_SCORE = isFullQuery ? 0.3 : (isFullMechQuery ? 0.45 : 0.55);
 
+      // For mechanism queries searching the full natural language query, fetch more results.
+      // "can you get sick from being cold" → top 5 are all entertainment; "Common cold" is #6-10.
+      // Using limit 10 for mechanism full-query searches gives the real topic a chance.
+      const searchLimit = (isFullMechQuery || isFullQuery) ? 10 : 5
       const [direct, searched] = await Promise.all([
         withTimeout(fetchWikiSummary(term), 5000),  // 5s for direct fetch — Wikipedia CDN is usually fast
-        withTimeout(searchWiki(term, 5)),
+        withTimeout(searchWiki(term, searchLimit)),
       ]);
 
       // Direct hit takes priority if it's a real article AND not entertainment
@@ -2151,14 +2300,17 @@ export async function* runPipeline(
       }
 
       // Score search hits and fetch best-matching one
-      // Pass description to scoreHit for mechanism queries — blocks "Goosebumps", "Bubble tea" etc.
       if (searched?.hits.length) {
         const scored = searched.hits
           .map(h => ({ hit: h, score: scoreHit(h.title, term, h.description) }))
           .sort((a, b) => b.score - a.score);
         const best = scored[0];
-        if (best.score >= MIN_SCORE) {
-          const candidate = await withTimeout(fetchWikiSummary(best.hit.title));
+        // Iterate scored results in order (best first). If the top result is entertainment,
+        // try the next one — don't give up on the entire search term.
+        // "Sleep Is for the Week" (album) scores 1.0 but gets blocked, then "Sleep deprivation" (0.5) wins.
+        for (const { hit, score } of scored) {
+          if (score < MIN_SCORE) break;  // sorted descending — once below threshold, rest are worse
+          const candidate = await withTimeout(fetchWikiSummary(hit.title));
           // For mechanism queries, reject by description (entertainment OR absent)
           // Also reject single-word descriptions for multi-word search terms
           if (candidate?.extract && candidate.type !== "disambiguation" &&
@@ -2172,7 +2324,8 @@ export async function* runPipeline(
             break;
           }
         }
-        // Score too low — fall through to next search term
+        if (summary) break;
+        // All hits above threshold were entertainment — fall through to next search term
       }
 
       // Keep disambiguation as a last resort if nothing better found
