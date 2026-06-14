@@ -94,8 +94,24 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
     const spell = getSpell()
     let anyChange = false
 
+    // Explicit short-word typos that nspell can't detect (edit distance 1 but wrong direction).
+    // "wat"→"what": nspell suggests "watt","eat","oat" but NOT "what" because "what" needs insert.
+    // These are only the most common question-word typos — not a general typo dictionary.
+    const QUESTION_WORD_TYPOS: Record<string, string> = {
+      'wat': 'what', 'wha': 'what', 'whta': 'what',
+      'whe': 'when', 'wher': 'where', 'whre': 'where',
+      'hwo': 'how', 'hoew': 'how',
+      'wich': 'which', 'whch': 'which',
+      'woh': 'who',
+    }
+
     const correctedWords = await Promise.all(words.map(async rawWord => {
       const clean = rawWord.toLowerCase().replace(/[^a-z]/g, "")
+      // Check question-word typos FIRST — nspell won't catch these
+      if (QUESTION_WORD_TYPOS[clean]) {
+        anyChange = true
+        return rawWord.replace(clean, QUESTION_WORD_TYPOS[clean])
+      }
       // Skip: very short, stop/slang word, or already valid English
       if (clean.length < 4 || SPELL_STOP.has(clean) || SPELL_SLANG.has(clean)) return rawWord
       if (spell.correct(clean)) return rawWord  // valid English word → never touch it
@@ -103,14 +119,18 @@ async function getSpellingCorrection(q: string): Promise<string | null> {
       // KEY: Try the literal word as a Wikipedia title BEFORE applying any correction.
       // "banksy" → nspell says invalid, but Wikipedia has "Banksy" article → don't touch it.
       // "floyd" → has a disambiguation page → don't "correct" to "flood".
-      // This handles ALL proper nouns/brands/pseudonyms without needing to enumerate them.
-      // Only runs for words nspell can't identify (so it doesn't slow down normal queries).
-      try {
-        const wikiCheck = await fetchWikiSummary(clean)
-        if (wikiCheck?.extract) {
-          return rawWord  // Wikipedia knows this word (including as disambiguation) → never correct it
-        }
-      } catch { /* ignore timeout/network errors — fall through to nspell */ }
+      // IMPORTANT: Only protect words ≥ 5 chars. Short words (3-4 chars) like "wat" are almost
+      // certainly typos of common English words, even if Wikipedia has an obscure article for them.
+      // "wat" (Buddhist/Hindu temple) has a Wikipedia article but "wat" is almost certainly "what".
+      // "banksy" (6 chars) is distinctive. "wat" (3 chars) is not.
+      if (clean.length >= 5) {
+        try {
+          const wikiCheck = await fetchWikiSummary(clean)
+          if (wikiCheck?.extract) {
+            return rawWord  // Wikipedia knows this word → never correct it
+          }
+        } catch { /* ignore timeout/network errors — fall through to nspell */ }
+      }
 
       // Check adjacent-swap transpositions (edit distance 1 via Damerau)
       // "stra" → swaps → "star" is valid English → return "star" before nspell says "strap"

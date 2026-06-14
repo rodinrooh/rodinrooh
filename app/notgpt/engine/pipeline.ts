@@ -1159,10 +1159,29 @@ export async function* runPipeline(
   // Entertainment description detector — checks Wikipedia's description field, not just title.
   // Defined here (before structured_fact AND lookup) because both handlers use it.
   // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|band member|music group|rapper|singer|musician|pop star|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+band|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
+  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters in the|characters from)/i
   const isEntertainmentDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
+  }
+
+  // For personal/mechanism queries, also block non-phenomenon articles.
+  // These share words with the query but are NAMED ENTITIES, not the phenomenon.
+  // Built from actual Wikipedia descriptions of failing cases:
+  // "Brief sexual relationship" (One-night stand) → \bsexual\b
+  // "Practice of inhaling a burnt substance for psychoactive effects" (Smoking) → psychoactive
+  // "Microsoft mobile service" (My Phone) → mobile service
+  // "Apprehension or doubt preventing planned action" (Cold feet) → preventing planned action
+  // "African-American establishments in the U.S. South" (Juke joint) → establishments in
+  // "Class of hypothetical redshift mechanisms" (Tired light) → class of hypothetical
+  // "Statement within First Nations communities" → statement within
+  // "English country pop group" (Remember Monday) → pop group (also in ENT filter)
+  // "Play by William Shakespeare" → play by
+  // "Manufacturer in the Philippines" (MyPhone) → manufacturer in
+  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic)/i
+  const isNonPhenomenonDescription = (description: string | undefined): boolean => {
+    if (!description) return false
+    return NON_PHENOMENON_DESCRIPTIONS_RE.test(description)
   }
 
   // ------------------------------------------------------------------
@@ -1590,20 +1609,26 @@ export async function* runPipeline(
     // "is xylitol bad for dogs" → xylitol toxicity dogs
     // "is caffeine dangerous for cats" → caffeine toxicity cats
     // "can dogs eat grapes" → grapes toxicity dogs
+    // Filter out pronouns that can't be valid substances/subjects in health queries
+    const HEALTH_PRONOUNS = new Set(['it','this','that','he','she','they','we','you','me','us','one','they'])
     const healthHazardResult = (() => {
       const r = raw
       // Pattern A: "my [animal] ate/drank [optional-article] [substance]"
       const ateMatch = r.match(/\bmy\s+(\w+)\s+(?:ate|drank)\s+(?:a\s+|an\s+|the\s+|some\s+)?(\w+)/i)
-      if (ateMatch) return { substance: ateMatch[2], subject: ateMatch[1] }
+      if (ateMatch && !HEALTH_PRONOUNS.has(ateMatch[2].toLowerCase())) return { substance: ateMatch[2], subject: ateMatch[1] }
       // Pattern B: "is [substance] bad/dangerous/harmful/safe/toxic for [subject]"
+      // Guard: substance must not be a pronoun ("is it safe for..." → substance="it" → skip)
       const badForMatch = r.match(/\bis\s+(\w+)\s+(?:bad|dangerous|harmful|safe|toxic|poisonous|healthy|okay|ok|good)\s+for\s+(\w+)/i)
-      if (badForMatch) return { substance: badForMatch[1], subject: badForMatch[2] }
+      if (badForMatch && !HEALTH_PRONOUNS.has(badForMatch[1].toLowerCase())) return { substance: badForMatch[1], subject: badForMatch[2] }
       // Pattern C: "can [subject] eat/drink/consume/have [optional-article] [substance]"
       const canEatMatch = r.match(/\bcan\s+(\w+)\s+(?:eat|drink|have|consume|ingest)\s+(?:a\s+|an\s+|the\s+|some\s+)?(\w+)/i)
-      if (canEatMatch) return { substance: canEatMatch[2], subject: canEatMatch[1] }
+      if (canEatMatch && !HEALTH_PRONOUNS.has(canEatMatch[1].toLowerCase())) return { substance: canEatMatch[2], subject: canEatMatch[1] }
       // Pattern D: "is [substance] safe/okay for [subject] to eat/drink"
       const safeForMatch = r.match(/\bis\s+(\w+)\s+(?:safe|okay|ok|good)\s+for\s+(\w+)\s+to/i)
-      if (safeForMatch) return { substance: safeForMatch[1], subject: safeForMatch[2] }
+      if (safeForMatch && !HEALTH_PRONOUNS.has(safeForMatch[1].toLowerCase())) return { substance: safeForMatch[1], subject: safeForMatch[2] }
+      // Pattern E: "is it safe/okay for [subject] to [verb] [substance]"
+      const safeForSubjectMatch = r.match(/\bis\s+it\s+(?:safe|okay|ok)\s+for\s+(\w+)\s+to\s+(?:eat|drink|consume|ingest)\s+(?:a\s+|an\s+|the\s+|some\s+)?(\w+)/i)
+      if (safeForSubjectMatch) return { substance: safeForSubjectMatch[2], subject: safeForSubjectMatch[1] }
       return null
     })()
 
@@ -1688,10 +1713,18 @@ export async function* runPipeline(
     // "what happens if you don't sleep" → "what happens" matches → filter active.
     const isMechanismQuery = /^(?:how|why|what\s+(?:causes?|makes?|happens?|effects?|if)|how\s+come|who\s+(?:invented|discovered|created|found|built|designed|wrote|started|began)|when\s+(?:did|was)|can\s+(?:you|a|an?|it|they|people|humans?|animals?)\s+(?:get|become|develop|catch|spread|die|survive|live)|is\s+it\s+(?:bad|good|harmful|safe|healthy|normal|common|possible|true)\s+to\s+)/i.test(classified.normalized)
 
+    // Personal/experiential query detection: "why am I tired", "my phone is hot", "is it safe to"
+    // These lose to idioms, bands, companies, fringe theories that happen to share words.
+    // "why am i always tired" → "Tired light" (cosmology). "why do I feel dizzy" → "One-night stand".
+    const isPersonalQuery = /\b(?:i |my |me |we |our )\b|(?:^|\s)(?:i'm|i'm|i'm|i feel|i have|i get|i keep|my [a-z]|is it (?:safe|normal|healthy|okay|ok|bad|good)|is it (?:safe|normal) to|can i |should i )/i.test(classified.normalized)
+
     // Entertainment filter scope: ONLY apply for mechanism queries (how/why/who invented/discovered).
     // Direct requests ("tell me about X", "what is X", "who is X") should return entertainment.
     // Over-filtering "tell me about the simpsons" was wrong — Simpsons IS the correct answer.
     const shouldFilterEntertainment = isMechanismQuery
+    // For personal queries, also block non-phenomena (idioms, companies, fringe theories).
+    // These are specific named entities that share words but aren't the phenomenon being asked about.
+    const shouldFilterNonPhenomena = isMechanismQuery || isPersonalQuery
 
     // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
     // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
@@ -1893,7 +1926,8 @@ export async function* runPipeline(
           sleep: "sleep deprivation", sleeps: "sleep deprivation",  // what if you don't sleep → deprivation
           break: "fracture", breaks: "fracture", broke: "fracture", broken: "fracture",
           shatter: "fracture", shatters: "fracture", shattered: "fracture",
-          crack: "fracture", cracks: "fracture",
+          // "crack" removed: "my joints crack" means a popping sound, not a break.
+          // "ice cracked" (break) vs "knuckles crack" (sound) — too ambiguous to map uniformly.
           degrade: "degradation", degrades: "degradation", degraded: "degradation",
           warp: "warping", warps: "warping", warped: "warping",
           rusts: "corrosion", rusted: "corrosion",
@@ -1988,26 +2022,45 @@ export async function* runPipeline(
         }
       }
 
-      // Health concept expansion — structural mapping for queries where the residual contains
-      // health symptom words but strips to nothing useful (all words in SUBJECT_STOP).
-      // "sick cold" → common cold; "sleepy tired" → fatigue; etc.
-      // This is a CONCEPT-CLASS mapping (illness symptoms → medical concept articles),
-      // analogous to VERB_TO_CONCEPT for physical processes.
-      if (isMechanismQuery && terms.length > 0 && terms[0] === q) {
-        // Only fires when no useful subject was extracted (first term is still the full query)
+      // Health/symptom concept expansion: maps query patterns to specific Wikipedia articles.
+      // Checked against classified.normalized (full query with context), not just residual.
+      // Fires unconditionally — adds concept as first search term so it beats ambiguous matches.
+      // Covers cases where the correct article can't be found from residual words alone because
+      // they're synonyms ("tired" → "Fatigue") or descriptive phrases ("clicking noise from car").
+      if (isMechanismQuery) {
+        const fullQ = classified.normalized  // use full query for better context
         const HEALTH_CONCEPTS: Array<[RegExp, string]> = [
+          // Illness/cold queries
           [/\bsick\b.*\bcold\b|\bcold\b.*\bsick\b/i, "Common cold"],
           [/\bsick\b.*\bflu\b|\bflu\b.*\bsick\b/i, "Influenza"],
-          [/\bskin\b.*\bwrinkle\b|\bwrinkle\b.*\bskin\b|\bage\b.*\bwrinkle\b/i, "Skin aging"],
           [/\bsick\b.*\bbad\b.*\bcold\b|\bcold\b.*\bget.*sick\b/i, "Common cold"],
+          // Fatigue/tiredness — these words don't lexically match "Fatigue" article
+          [/\b(?:always|constantly|chronically|perpetually|so|all the time)\b.*\b(?:tired|exhausted|fatigued|sleepy)\b|\b(?:tired|exhausted|fatigued)\b.*\b(?:all the time|always|constantly|so much)\b/i, "Fatigue"],
+          [/\bwhy\b.*\b(?:i am|i'm|am i)\b.*\b(?:tired|exhausted|fatigued)\b/i, "Fatigue"],
+          // Dizziness
+          [/\b(?:dizzy|lightheaded|faint)\b.*\b(?:stand|sit|rise|get up)\b|\borthostatic\b/i, "Orthostatic hypotension"],
+          // Body processes
+          [/\bskin\b.*\bwrinkle\b|\bwrinkle\b.*\bskin\b|\bage\b.*\bwrinkle\b/i, "Skin aging"],
           [/\brun(?:ning)?\b.+\bday\b|\bdaily\b.+\brun/i, "Physical exercise"],
           [/\bsit(?:ting)?\b.+\ball day\b|\bsedent/i, "Sedentary lifestyle"],
           [/\bsleep\b.+\b(?:too much|all day|excess)\b/i, "Hypersomnia"],
           [/\beyes?\b.+\bwater\b|\bwater\b.+\beyes?\b/i, "Tears"],
-          [/\bfinger\b.+\bprune\b|\bprune\b.+\bfinger\b|\bskin\b.+\bwrinkle\b.+\bwater\b/i, "Aquaporin"],
+          [/\bfinger\b.+\bprune\b|\bprune\b.+\bfinger\b/i, "Aquaporin"],
+          // Mechanical/car sounds — "clicking noise from car" → engine knock
+          [/\b(?:clicking|ticking|knocking|tapping)\b.*\b(?:car|engine|vehicle|motor)\b|\b(?:car|engine|vehicle|motor)\b.*\b(?:clicking|ticking|knocking|tapping)\b/i, "Engine knock"],
+          // Engine smoke (not tobacco smoking)
+          [/\b(?:engine|car|vehicle|motor)\b.*\bsmok(?:e|es|ing)\b|\bsmok(?:e|es|ing)\b.*\b(?:engine|car|vehicle|motor)\b/i, "Exhaust gas"],
+          // Rubber/plastic degradation → Polymer degradation (not Land degradation)
+          [/\b(?:rubber|plastic|polymer|silicone|latex)\b.*\bdegrad/i, "Polymer degradation"],
+          // Phone/device overheating
+          [/\bphone\b.*\b(?:hot|heat|overheat|warm|burning)\b|\b(?:hot|heat|overheat|warm)\b.*\bphone\b/i, "Thermal management of electronics"],
+          // Cold feet (physical — blood vessel constriction, not the hesitation idiom)
+          [/\bwhy\b.*\b(?:feet?|toes?)\b.*\b(?:cold|freezing|numb|ice)\b|\bcold\b.*\bfeet?\b.*\b(?:why|how|cause)/i, "Raynaud syndrome"],
+          // Memory/infant
+          [/\bremember\b.*\bbab(?:y|ies|yhood)\b|\bbab(?:y|ies)\b.*\bremember\b|\binfantile amnesia\b/i, "Infantile amnesia"],
         ]
         for (const [pattern, concept] of HEALTH_CONCEPTS) {
-          if (pattern.test(q) && !terms.includes(concept)) {
+          if (pattern.test(fullQ) && !terms.includes(concept)) {
             terms.splice(0, 0, concept)
             break
           }
@@ -2202,6 +2255,10 @@ export async function* runPipeline(
       // For mechanism queries, also reject by description
       // "Goosebumps" title alone doesn't flag it, but "Series of children's horror novels" does
       if (shouldFilterEntertainment && isEntertainmentDescription(hitDescription)) return 0
+      // For personal/mechanism queries, also block idioms, companies, fringe theories, plays
+      // "why am I tired" → "Tired light" (fringe cosmology theory) → blocked
+      // "my phone gets hot" → "MyPhone" (manufacturer) → blocked
+      if (shouldFilterNonPhenomena && isNonPhenomenonDescription(hitDescription)) return 0
       const titleLower = hitTitle.toLowerCase();
       // Extended STOP set — question words and pronouns must not drive scores.
       // Without this, "Why Don't We" scores 0.57 for "why do we have seasons"
@@ -2239,8 +2296,27 @@ export async function* runPipeline(
       if (!qTokens.length || !titleTokens.length) return 0;
       // Use first 6 chars as pseudo-stem: "gravity"→"gravit", "gravitational"→"gravit" → match
       const stem = (w: string) => w.slice(0, Math.min(w.length, 6));
-      const tokenMatches = (a: string, b: string) =>
-        a.includes(b) || b.includes(a) || stem(a) === stem(b);
+      const tokenMatches = (a: string, b: string) => {
+        if (a === b) return true
+        if (stem(a) === stem(b)) return true
+        const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a]
+        // Morphological suffix matching: "click"→"clicking", "bone"→"bones", "smoke"→"smoking"
+        // This is better than pure substring matching for compound words.
+        // "click"+"ing"="clicking" → YES (same root). "hair"+"brush"="hairbrush" → NO (compound).
+        const MORPHOLOGICAL_SUFFIXES = ['s','es','ed','ing','er','ers','ly','tion','ation','ment','ness']
+        if (MORPHOLOGICAL_SUFFIXES.some(suf => longer === shorter + suf)) return true
+        // Doubling consonant: "run"→"running", "swim"→"swimming"
+        const last = shorter[shorter.length - 1]
+        if (/[bcdfghjklmnpqrstvwxyz]/i.test(last) &&
+            MORPHOLOGICAL_SUFFIXES.some(suf => longer === shorter + last + suf)) return true
+        // Drop final 'e': "like"→"liking", "smoke"→"smoking"
+        if (shorter.endsWith('e') &&
+            MORPHOLOGICAL_SUFFIXES.some(suf => longer === shorter.slice(0,-1) + suf)) return true
+        // Compound word guard: only allow substring if shorter is ≥70% of longer
+        // "hair" in "hairbrush": 4/9=44% → NO. "brain" in "brains": 5/6=83% → YES.
+        if (longer.includes(shorter) && shorter.length >= 0.7 * longer.length) return true
+        return false
+      }
       const matches = qTokens.filter(qt => titleTokens.some(tt => tokenMatches(qt, tt))).length;
       const recall = matches / qTokens.length;
       const titleMatches = titleTokens.filter(tt => qTokens.some(qt => tokenMatches(qt, tt))).length;
@@ -2291,7 +2367,8 @@ export async function* runPipeline(
           isEntertainmentDescription(direct.description) ||
           !direct.description ||
           (termIsMultiWord && direct.description.trim().split(/\s+/).length === 1)
-        ))
+        )) ||
+        (shouldFilterNonPhenomena && isNonPhenomenonDescription(direct.description))
       )
       if (direct?.extract && direct.type !== "disambiguation" && !directIsEntertainment) {
         summary = direct;
@@ -2318,7 +2395,8 @@ export async function* runPipeline(
                 isEntertainmentDescription(candidate.description) ||
                 !candidate.description ||
                 (termIsMultiWord && candidate.description.trim().split(/\s+/).length === 1)
-              ))) {
+              )) &&
+              !(shouldFilterNonPhenomena && isNonPhenomenonDescription(candidate.description))) {
             summary = candidate;
             usedTerm = term;
             break;
