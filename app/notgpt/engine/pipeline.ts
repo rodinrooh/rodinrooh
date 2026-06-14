@@ -104,6 +104,8 @@ import {
   wikiProvenance,
   WIKIMEDIA_UA,
   searchAndFetch,
+  fetchWikiFullText,
+  fetchDabLinks,
 } from "./sources/wikipedia";
 import { fetchDefinition, dictionaryProvenance } from "./sources/dictionary";
 import {
@@ -1178,7 +1180,7 @@ export async function* runPipeline(
   // "English country pop group" (Remember Monday) → pop group (also in ENT filter)
   // "Play by William Shakespeare" → play by
   // "Manufacturer in the Philippines" (MyPhone) → manufacturer in
-  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece)/i
+  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece|intelligence\s+operation|military\s+operation|covert\s+operation|code\s+name|government\s+program|classified\s+program|black\s+operation)/i
   const isNonPhenomenonDescription = (description: string | undefined): boolean => {
     if (!description) return false
     return NON_PHENOMENON_DESCRIPTIONS_RE.test(description)
@@ -2385,6 +2387,48 @@ export async function* runPipeline(
       }
     }
 
+    // EXTENDED N-GRAM REDIRECT PROBE: try adjacent bigrams/trigrams from query residual
+    // Exploits Wikipedia's redirect system: "brain freeze" → Cold-stimulus headache,
+    // "charley horse" → Muscle cramp, "sleep talking" → Sleep-talking
+    if (!summary && (isMechanismQuery || isPersonalQuery)) {
+      const NGRAM_STOP = new Set([
+        "the","a","an","is","are","was","were","be","do","does","did","i","we","you","they",
+        "my","your","our","its","this","that","get","got","can","from","at","to","for","in",
+        "on","up","down","off","out","of","and","or","but","it","so","me","him","her","them",
+        "very","just","too","also","then","when","where","after","before","during","because",
+        "if","even","still","already","often","always","never","well","like","feel","make",
+        "go","come","give","take","put","let","try","see","know","think","want","need",
+        "all","some","any","other","more","most","last","next","first","every","each",
+      ])
+      const residualTokens = query.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/)
+        .filter(w => w.length > 2 && !NGRAM_STOP.has(w))
+
+      const ngrams: string[] = []
+      for (let i = 0; i + 1 < residualTokens.length; i++) {
+        ngrams.push(`${residualTokens[i]} ${residualTokens[i + 1]}`)
+        if (i + 2 < residualTokens.length) {
+          ngrams.push(`${residualTokens[i]} ${residualTokens[i + 1]} ${residualTokens[i + 2]}`)
+        }
+      }
+
+      const triedNgrams = new Set([query.toLowerCase(), queryForSearch.toLowerCase()])
+      for (const ngram of ngrams.slice(0, 10)) {
+        if (triedNgrams.has(ngram) || ngram.length < 5) continue
+        triedNgrams.add(ngram)
+        const ngramResult = await withTimeout(fetchWikiSummary(ngram))
+        if (
+          ngramResult?.extract && ngramResult.type !== "disambiguation" &&
+          ngramResult.description && ngramResult.description.trim().split(/\s+/).length > 1 &&
+          !isEntertainmentDescription(ngramResult.description) &&
+          !isNonPhenomenonDescription(ngramResult.description)
+        ) {
+          summary = ngramResult
+          usedTerm = ngram
+          break
+        }
+      }
+    }
+
     // Pre-search: the full-question search before direct entity fetch approach was tested
     // but introduced more regressions (Sky→Sky blue, Earthquakes→Earthquake preparedness,
     // Rubber→Degradation geology, Knuckles→Brass knuckles) than improvements.
@@ -2443,6 +2487,30 @@ export async function* runPipeline(
         summary = direct;
         usedTerm = term;
         break;
+      }
+
+      // DISAMBIGUATION TRAVERSAL: when direct fetch returns entertainment, try disambiguation page
+      // "Stitch" → entertainment → "Stitch_(disambiguation)" → "Side stitch" (running stitch)
+      if (!summary && directIsEntertainment && term.split(/\s+/).length <= 2 && term.length <= 20) {
+        const wordForDab = term.split(/\s+/)[0]
+        const dabLinks = await withTimeout(fetchDabLinks(wordForDab))
+        if (dabLinks) {
+          for (const link of dabLinks.slice(0, 8)) {
+            if (link.toLowerCase() === term.toLowerCase()) continue
+            const dabResult = await withTimeout(fetchWikiSummary(link))
+            if (
+              dabResult?.extract && dabResult.type !== "disambiguation" &&
+              dabResult.description && dabResult.description.trim().split(/\s+/).length > 1 &&
+              !isEntertainmentDescription(dabResult.description) &&
+              !isNonPhenomenonDescription(dabResult.description)
+            ) {
+              summary = dabResult
+              usedTerm = link
+              break
+            }
+          }
+          if (summary) break
+        }
       }
 
       // Score search hits and fetch best-matching one
@@ -2570,7 +2638,60 @@ export async function* runPipeline(
     }
 
     const isHedged = searchedWithFallback;
+
+    // PASSAGE-LEVEL RETRIEVAL: when article lede doesn't answer the mechanism,
+    // fetch full article text and find the most query-relevant passage via BM25.
+    // "why does copper turn green" → Copper article → finds verdigris/patina passage
+    // "why does bread get stale" → Bread article → finds staling chemistry passage
+    const scoreSentenceAgainstQuery = (text: string, qWords: string[]): number => {
+      const t = text.toLowerCase().replace(/[^a-z0-9 ]/g, " ")
+      let hits = 0
+      for (const w of qWords) {
+        if (t.includes(w)) hits += 1
+        else if (w.length > 5 && t.includes(w.slice(0, 5))) hits += 0.5
+      }
+      return qWords.length > 0 ? hits / qWords.length : 0
+    }
+
+    let passageOverride: string | null = null
+    if (isMechanismQuery || isPersonalQuery) {
+      const MECH_STOP = new Set([
+        "the","a","an","is","are","was","were","be","do","does","did","i","we","you","they",
+        "my","your","its","this","that","get","got","can","from","at","to","for","in","on",
+        "up","down","of","and","or","but","it","so","how","why","what","who","when","where",
+        "feel","make","go","come","give","take","very","just","also","about","some","have",
+        "will","would","could","should","may","might","shall",
+      ])
+      const mechWords = fullQuery.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/)
+        .filter(w => w.length > 3 && !MECH_STOP.has(w))
+
+      if (mechWords.length >= 2) {
+        const ledeScore = scoreSentenceAgainstQuery(summary.extract, mechWords)
+
+        if (ledeScore < 0.45) {
+          const fullText = await withTimeout(fetchWikiFullText(summary.title), 3000)
+          if (fullText) {
+            const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.length > 50 && s.length < 700)
+            let bestScore = ledeScore
+            let bestIdx = -1
+            for (let si = 0; si < sentences.length; si++) {
+              const sc = scoreSentenceAgainstQuery(sentences[si], mechWords)
+              if (sc > bestScore + 0.1) { bestScore = sc; bestIdx = si }
+            }
+            if (bestIdx >= 0 && bestScore >= 0.5) {
+              const passageSents = sentences.slice(bestIdx, Math.min(bestIdx + 3, sentences.length))
+              passageOverride = passageSents.join(" ")
+            }
+          }
+        }
+      }
+    }
+
     const { truncated, wasTruncated } = truncateExtract(summary.extract);
+    // Use passage override for display if found, otherwise use lede
+    const displayExtract = passageOverride
+      ? passageOverride.slice(0, 600)
+      : truncated
 
     provenance.push({
       ...wikiProvenance(summary),
@@ -2580,7 +2701,7 @@ export async function* runPipeline(
     // ELI5: use the flag from the classifier (which strips the prefix before routing),
     // or fall back to checking the raw query for inline "explain like" / "simply" etc.
     const wantsSimple = classified.wantsSimple || /\b(explain like|simply|basic|beginner)\b/i.test(raw);
-    let displayText = truncated;
+    let displayText = displayExtract;
     let leadIn: string;
 
     if (wantsSimple) {

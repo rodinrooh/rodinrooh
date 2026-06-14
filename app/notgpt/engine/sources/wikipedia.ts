@@ -133,6 +133,34 @@ export async function fetchDabOptions(title: string): Promise<DabOption[]> {
   return ns0;
 }
 
+// Full article text for passage-level retrieval
+export async function fetchWikiFullText(title: string): Promise<string | null> {
+  const params = new URLSearchParams({
+    action: "query",
+    titles: title,
+    prop: "extracts",
+    explaintext: "1",
+    exsectionformat: "plain",
+    format: "json",
+  });
+  const url = `https://en.wikipedia.org/w/api.php?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": WIKIMEDIA_UA },
+    next: { revalidate: 3600 },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const pages = data?.query?.pages ?? {};
+  const page = Object.values(pages)[0] as { extract?: string } | undefined;
+  return page?.extract ?? null;
+}
+
+// Get links from a disambiguation page
+export async function fetchDabLinks(word: string): Promise<string[]> {
+  const options = await fetchDabOptions(`${word}_(disambiguation)`);
+  return options.map((o) => o.title);
+}
+
 export async function searchAndFetch(
   query: string,
   revalidate = 3600
