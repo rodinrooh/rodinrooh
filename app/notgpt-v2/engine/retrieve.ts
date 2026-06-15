@@ -144,6 +144,45 @@ async function wikiOpenSearch(query: string): Promise<string[]> {
   } catch { return [] }
 }
 
+// ─── Serper: Google search scoped to Wikipedia ────────────────────────────────
+// This is the primary fix for vocabulary-gap failures. Google's semantic index
+// knows "sand squeak walking" → "Singing sand", "birds morning" → "Dawn chorus",
+// "glass fog up" → "Anti-fog / Condensation", etc. BM25, DDG, and OpenSearch
+// cannot bridge these gaps. Serper returns Google results as JSON (no scraping).
+// Fails silently if key missing — existing pipeline continues unchanged.
+
+type SerperResult = { title: string; snippet: string; url: string }
+
+// Returns article titles AND Google-selected snippets.
+// Snippets are critical: for "sand squeak", Google's snippet says "caused by walking on the sand" —
+// this scores high against the query. BM25 passage scoring misses this because the
+// Singing sand article lede says "sand that produces sound" (zero exact match for "squeak").
+async function serperSearch(query: string): Promise<SerperResult[]> {
+  const apiKey = process.env.SERPER_API_KEY
+  if (!apiKey) return []
+  try {
+    const res = await fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ q: `${query} site:en.wikipedia.org`, num: 5 }),
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    const results: SerperResult[] = []
+    for (const r of (data.organic ?? []) as Array<{ link?: string; snippet?: string }>) {
+      if (!r.link) continue
+      const m = r.link.match(/en\.wikipedia\.org\/wiki\/(.+)$/)
+      if (!m) continue
+      const title = decodeURIComponent(m[1].replace(/_/g, " "))
+      if (title.startsWith("Wikipedia:") || title.startsWith("Talk:") ||
+          title.startsWith("List of") || title.includes("(disambiguation)")) continue
+      results.push({ title, snippet: r.snippet ?? "", url: r.link })
+    }
+    return results.slice(0, 5)
+  } catch { return [] }
+}
+
 // ─── Main retrieval ──────────────────────────────────────────────────────────
 
 export type RetrievalResult = {
@@ -161,6 +200,9 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   const add = (a: WikiArticle | null) => {
     if (!a?.extract || seen.has(a.title)) return
+    // Reject Wikipedia meta/talk pages that can appear in search results
+    if (a.title.startsWith("Talk:") || a.title.startsWith("Wikipedia:") ||
+        a.title.startsWith("User:") || a.title.startsWith("Template:")) return
     seen.add(a.title)
     candidates.push(a)
   }
@@ -174,9 +216,10 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // OpenSearch "rainbows" → "Rainbow"; "singing sand" → "Singing sand"
   // Short noun phrases are from ddgQueries; long queries often miss.
   const openSearchInputs = [...new Set([...wikiQueries.slice(0, 3), ...ddgQueries.slice(0, 4)])]
-  const [wikiSearchResults, openSearchResults] = await Promise.all([
+  const [wikiSearchResults, openSearchResults, serperResults] = await Promise.all([
     Promise.all(wikiQueries.map(q => wikiSearch(q, 8))),
     Promise.all(openSearchInputs.map(q => wikiOpenSearch(q))),
+    serperSearch(query),  // Google-resolved titles + answer snippets
   ])
 
   const allSearchHits = wikiSearchResults.flat()
@@ -192,18 +235,40 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
       .filter(t => !seen.has(t))
       .slice(0, 8)
       .map(async t => add(await wikiSummary(t))),
+
+    // Serper: Google-resolved Wikipedia articles, fetched in parallel with everything else
+    ...serperResults
+      .filter(r => !seen.has(r.title))
+      .map(async r => add(await wikiSummary(r.title))),
   ])
+
+  // Add Serper snippets directly to the passage pool.
+  // Google selects these snippets to answer the specific query — they often contain
+  // the exact mechanism text that BM25 passage scoring misses (e.g., Singing sand
+  // snippet: "caused by walking on the sand" for "why does sand squeak when walking").
+  const serperSnippetPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = []
+  for (const r of serperResults) {
+    if (r.snippet && r.snippet.length > 30) {
+      serperSnippetPassages.push({ passage: r.snippet, articleTitle: r.title, articleUrl: r.url })
+    }
+  }
 
   if (!candidates.length) return null
 
   // ── Passage scoring ──
-  const allPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = []
+  const allPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = [
+    // Serper snippets go in FIRST — they're the most query-targeted text
+    ...serperSnippetPassages,
+  ]
 
+  // Cap at 8 candidates and 15 passages each to bound embedding time.
+  // Serper snippets (already in allPassages) cover the vocabulary-gap cases directly.
   await Promise.all(
-    candidates.slice(0, 10).map(async c => {
+    candidates.slice(0, 8).map(async c => {
       const fullText = await wikiFullText(c.title)
       const text = fullText ?? c.extract
-      for (const p of splitPassages(text)) {
+      const passages = splitPassages(text)
+      for (const p of passages.slice(0, 15)) {
         allPassages.push({ passage: p, articleTitle: c.title, articleUrl: c.url })
       }
     })
