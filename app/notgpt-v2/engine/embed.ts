@@ -119,18 +119,12 @@ export async function rankPassages(
     if (res.ok) {
       const scores = await res.json() as number[]
       if (Array.isArray(scores) && scores.length === passages.length) {
-        console.log("[HF] success, top score:", Math.max(...scores).toFixed(3))
         return passages
           .map((p, i) => ({ passage: p, score: scores[i] }))
           .sort((a, b) => b.score - a.score)
       }
-      console.log("[HF] unexpected response shape:", JSON.stringify(scores).slice(0, 100))
-    } else {
-      console.log("[HF] error:", res.status, await res.text().then(t => t.slice(0, 200)))
     }
-  } catch (e) {
-    console.log("[HF] exception:", String(e).slice(0, 100))
-  }
+  } catch { /* fall through to BM25 */ }
 
   // Fallback: content-word recall scoring (NLP-based, no stopword list)
   return passages
