@@ -58,6 +58,7 @@ export type RetrievalResult = {
 
 export async function retrieveBestPassage(query: string): Promise<RetrievalResult | null> {
   const serperResults = await serperSearch(query)
+  console.log("[RETRIEVE] query:", query.slice(0,50), "serper rank-0:", serperResults[0]?.title ?? "none")
   if (!serperResults.length) return null
 
   // Only score top-3 Serper results. Ranks 3-4 contain tangential articles
