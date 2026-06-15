@@ -26,7 +26,7 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
       method: "POST",
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       body: JSON.stringify({ q: `${query} site:en.wikipedia.org`, num: 5 }),
-      next: { revalidate: 3600 },
+      cache: "no-store",  // always fresh — stale Serper results cause wrong answers
     })
     if (!res.ok) return []
     const data = await res.json()
