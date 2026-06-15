@@ -117,21 +117,42 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     }
   }
 
-  // Snippet wasn't confident enough — scan the full article for a better passage
+  // Snippet wasn't confident enough — scan full articles.
+  // Scan rank-0 (25 passages) AND rank-1 (15 passages) in parallel.
+  // When Serper rank 0 is wrong (e.g., Puberphonia for helium), rank-1 (Helium)
+  // full text has the right passage and HF picks it.
   if (!bestSummary?.extract) return null
 
-  const fullText = await wikiFullText(bestResult.title)
-  const passages = splitPassages(fullText ?? bestSummary.extract).slice(0, 25)
-  if (bestPair.snippet.length > 30) passages.unshift(bestPair.snippet)
+  const rank1Result = candidateResults[1]
+  const [fullText0, fullText1, summary1] = await Promise.all([
+    wikiFullText(bestResult.title),
+    rank1Result ? wikiFullText(rank1Result.title) : Promise.resolve(null),
+    rank1Result ? wikiSummary(rank1Result.title) : Promise.resolve(null),
+  ])
 
-  const passageScores = await rankPassages(query, passages)
+  type PassageMeta = { passage: string; title: string; url: string }
+  const allPassages: PassageMeta[] = []
+
+  // Rank-0 passages (25)
+  const p0 = splitPassages(fullText0 ?? bestSummary.extract).slice(0, 25)
+  if (bestPair.snippet.length > 30) p0.unshift(bestPair.snippet)
+  p0.forEach(p => allPassages.push({ passage: p, title: bestSummary.title, url: bestSummary.url }))
+
+  // Rank-1 passages (15) if available
+  if (fullText1 && summary1?.extract) {
+    splitPassages(fullText1).slice(0, 15)
+      .forEach(p => allPassages.push({ passage: p, title: summary1.title, url: summary1.url }))
+  }
+
+  const passageScores = await rankPassages(query, allPassages.map(m => m.passage))
   const best = passageScores[0]
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 
+  const meta = allPassages.find(m => m.passage === best.passage)!
   return {
     passage: best.passage.slice(0, 800),
-    articleTitle: bestSummary.title,
-    articleUrl: bestSummary.url,
+    articleTitle: meta.title,
+    articleUrl: meta.url,
     score: best.score,
   }
 }
