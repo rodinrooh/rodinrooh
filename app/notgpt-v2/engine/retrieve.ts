@@ -326,8 +326,60 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     }
   }
 
+  // ── Stripped-query Serper fallback ──
+  // First Serper query failed (all scores < 0.2). The casual conversational question
+  // sometimes misses the specific mechanism article (e.g., "fingers wrinkle in bath"
+  // misses "Skin maceration"). Try the stripped version (question words removed).
+  // This is a FALLBACK, not a parallel pool — it only fires when the first query fails,
+  // so it never interferes with cases where the first query already found the answer.
+  if (serperResults.length > 0) {
+    const strippedQuery = query
+      .replace(/^(?:why|how|what|who|when|where|which)\s+(?:does|did|do|is|are|was|were|can|could)?\s*/i, "")
+      .replace(/\b(?:you|your|my|i|we|they|he|she|it|the|a|an)\b\s*/gi, "")
+      .replace(/\s+/g, " ").trim()
+
+    if (strippedQuery && strippedQuery !== query && strippedQuery.length > 4) {
+      const strippedResults = await serperSearch(strippedQuery)
+      if (strippedResults.length > 0) {
+        const strippedCandidates = await Promise.all(
+          strippedResults.slice(0, 4).map(async (r, idx) => {
+            const isEntertainment = !queryIsAboutLanguage && (
+              ENTERTAINMENT_TITLE_RE.test(r.title) ||
+              (r.snippet && ENTERTAINMENT_SNIPPET_RE.test(r.snippet))
+            )
+            if (isEntertainment) return null
+            const art = await wikiSummary(r.title)
+            if (!art?.extract) return null
+            const passages: string[] = []
+            const fullText = await wikiFullText(r.title)
+            const limit = idx === 0 ? 25 : idx <= 2 ? 15 : 5
+            passages.push(...splitPassages(fullText ?? art.extract).slice(0, limit))
+            if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
+            const scored = await rankPassages(query, passages)
+            const best = scored[0]
+            if (!best || best.score < 0.2) return null
+            const snippetEntry = r.snippet ? scored.find(s => s.passage === r.snippet) : null
+            const chosen = snippetEntry && snippetEntry.score >= best.score ? snippetEntry : best
+            return { passage: chosen.passage, score: chosen.score, article: art }
+          })
+        )
+        const validStripped = strippedCandidates.filter((r): r is NonNullable<typeof r> => r !== null)
+        const maxStripped = validStripped.reduce((m, r) => Math.max(m, r.score), 0)
+        const bestStripped = validStripped.find(r => r.score === maxStripped)
+        if (bestStripped) {
+          return {
+            passage: bestStripped.passage.slice(0, 800),
+            articleTitle: bestStripped.article.title,
+            articleUrl: bestStripped.article.url,
+            score: bestStripped.score,
+          }
+        }
+      }
+    }
+  }
+
   // ── Fallback: multi-candidate passage scoring ──
-  // Serper rank-0 didn't answer confidently — try all candidates.
+  // Both Serper queries failed — try all candidates.
   // No boosts: pure BM25 recall scoring over all passages.
   const serperSnippetPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = []
   for (const r of serperResults.slice(1)) {  // rank 1+ (rank 0 already tried above)
