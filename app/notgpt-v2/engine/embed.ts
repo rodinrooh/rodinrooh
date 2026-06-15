@@ -58,19 +58,25 @@ function contentWords(text: string): string[] {
 /**
  * Recall scoring: what fraction of semantic query words appear in the passage?
  * 1.0 = all query content words found, 0 = none found.
- * Uses morphological prefix matching for plurals/conjugations.
+ *
+ * Uses WORD-BOUNDARY matching to prevent false positives:
+ * - "wear" must NOT match "eyewear" (glasses fog → Ballistic eyewear collision)
+ * - "fog" must NOT match "anti-fogging" (scored via full word form "fogging")
+ * Morphological variants (fogging/fogged/fogs) are matched via word-boundary prefix.
  */
 function recallScore(query: string, passage: string): number {
   const qWords = [...new Set(contentWords(query))]
   if (!qWords.length) return 0
-  const pLow = passage.toLowerCase().replace(/[^a-z0-9 ]/g, " ")
+  // Normalize to individual tokens — replace hyphens etc. with spaces for boundary matching
+  const pLow = passage.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ")
 
   let matched = 0
   for (const q of qWords) {
-    const stem = q.slice(0, Math.min(q.length, 5))
-    if (pLow.includes(q) || (q.length >= 5 && new RegExp(`\\b${stem}`).test(pLow))) {
-      matched++
-    }
+    // Word boundary: \b ensures "wear" does NOT match "eyewear", "fog" does NOT match "antifog"
+    const exact = new RegExp(`\\b${q}\\b`).test(pLow)
+    // Morphological prefix at word boundary: "fog" matches "fogging", "fogged", "fogs"
+    const prefix = q.length >= 4 && new RegExp(`\\b${q.slice(0, q.length - (q.endsWith("e") ? 1 : 0))}[a-z]{0,4}\\b`).test(pLow)
+    if (exact || prefix) matched++
   }
   return matched / qWords.length
 }

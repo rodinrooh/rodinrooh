@@ -273,45 +273,44 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const ENTERTAINMENT_TITLE_RE = /\(\d{4}\s*(?:film|movie|TV series|television series|song|album|novel|book|miniseries|documentary)\)|!+$|\bSeason \d+\b/i
   const ENTERTAINMENT_SNIPPET_RE = /\bis (?:a|an) \d{4}\b|\bis (?:a|an) (?:American|British|Australian|Canadian|French|German|Japanese|Korean) (?:film|television|movie|novel|song|album|book)\b/i
 
+  // ── Serper top-3 parallel ──
+  // Try Google's top-3 results in parallel and return the highest-scoring passage.
+  // This beats the "Icemaker beats Thermal shock" failure: Thermal shock (rank 2) 
+  // scores 0.8 while Icemaker (rank 0) scores 1.0 via word coincidence. Running all 3
+  // in parallel reveals that Thermal shock is the right article to serve.
   if (serperResults.length > 0) {
-    const top = serperResults[0]
-    const topIsEntertainment = !queryIsAboutLanguage && (
-      ENTERTAINMENT_TITLE_RE.test(top.title) ||
-      (top.snippet && ENTERTAINMENT_SNIPPET_RE.test(top.snippet))
+    const candidateResults = await Promise.all(
+      serperResults.slice(0, 4).map(async r => {
+        const isEntertainment = !queryIsAboutLanguage && (
+          ENTERTAINMENT_TITLE_RE.test(r.title) ||
+          (r.snippet && ENTERTAINMENT_SNIPPET_RE.test(r.snippet))
+        )
+        if (isEntertainment) return null
+        const art = await wikiSummary(r.title)
+        if (!art?.extract) return null
+        const text = await wikiFullText(r.title) ?? art.extract
+        const passages = splitPassages(text)
+        if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
+        const scored = await rankPassages(query, passages)
+        const best = scored[0]
+        if (!best || best.score < 0.2) return null
+        // Prefer snippet if it scores within 80% of best
+        const snippetEntry = r.snippet ? scored.find(s => s.passage === r.snippet) : null
+        const chosen = snippetEntry && snippetEntry.score >= best.score * 0.8 ? snippetEntry : best
+        return { passage: chosen.passage, score: chosen.score, article: art }
+      })
     )
-    if (!topIsEntertainment) {
-      const topArt = await wikiSummary(top.title)
-      if (topArt?.extract) {
-        const topText = await wikiFullText(top.title) ?? topArt.extract
-        const topPassages = splitPassages(topText)
-        // Also include the Serper snippet itself — it's Google's chosen answer passage
-        if (top.snippet && top.snippet.length > 30) topPassages.unshift(top.snippet)
-        const topScored = await rankPassages(query, topPassages)
-        const topBest = topScored[0]
-        if (topBest && topBest.score >= 0.15) {
-          // If the Serper snippet (topPassages[0]) scored at least as well as the best,
-          // prefer it — it's Google's chosen answer excerpt, not a random article passage.
-          // Prefer Serper snippet over BM25-selected article passage:
-          // Google chose this snippet to answer the query specifically.
-          // A references-section passage scoring 0.67 via word coincidence should not beat
-          // the snippet that literally says "earthy scent from rain falling on dry soil".
-          const snippetText = top.snippet && top.snippet.length > 30 ? top.snippet : null
-          const snippetEntry = snippetText ? topScored.find(s => s.passage === snippetText) : null
-          if (snippetEntry && snippetEntry.score >= 0.15) {
-            return {
-              passage: snippetEntry.passage.slice(0, 800),
-              articleTitle: topArt.title,
-              articleUrl: topArt.url,
-              score: snippetEntry.score,
-            }
-          }
-          return {
-            passage: topBest.passage.slice(0, 800),
-            articleTitle: topArt.title,
-            articleUrl: topArt.url,
-            score: topBest.score,
-          }
-        }
+    const validResults = candidateResults.filter((r): r is NonNullable<typeof r> => r !== null)
+    // Use find() not sort() so Serper's rank order breaks ties.
+    // "Static cling" (rank 0) beats "Fabric softener" (rank 1) at equal score.
+    const maxScore = validResults.reduce((m, r) => Math.max(m, r.score), 0)
+    const best = validResults.find(r => r.score === maxScore)
+    if (best) {
+      return {
+        passage: best.passage.slice(0, 800),
+        articleTitle: best.article.title,
+        articleUrl: best.article.url,
+        score: best.score,
       }
     }
   }
@@ -332,12 +331,20 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   if (!candidates.length) return null
 
+  // Ensure Serper articles appear first in the candidates slice.
+  // Without this, Serper rank-2 ("Thermal shock" for "ice crack") would be pushed
+  // beyond position 8 by 14 Wikipedia hits and never have its full text scored.
+  const serperTitles = new Set(serperResults.slice(1).map(r => r.title))
+  const serperCandidates = candidates.filter(c => serperTitles.has(c.title))
+  const otherCandidates = candidates.filter(c => !serperTitles.has(c.title))
+  const orderedCandidates = [...serperCandidates, ...otherCandidates]
+
   const allPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = [
     ...serperSnippetPassages,
   ]
 
   await Promise.all(
-    candidates.slice(0, 8).map(async c => {
+    orderedCandidates.slice(0, 10).map(async c => {
       const fullText = await wikiFullText(c.title)
       const text = fullText ?? c.extract
       for (const p of splitPassages(text).slice(0, 15)) {
