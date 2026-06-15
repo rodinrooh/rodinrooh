@@ -112,6 +112,13 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const { results: snippetScores, usingHF: snippetHF } = await rankPassages(query, snippetTexts)
   const scoreByText = new Map(snippetScores.map(s => [s.passage, s.score]))
 
+  // Only return a snippet directly for rank-0 — Google's top pick.
+  // Rank-1/2 snippets are useful to pick the best fallback article but shouldn't
+  // be returned before reading the actual article (they're teaser sentences, not answers).
+  const rank0Pair = snippetPairs.find(p => p.serperIdx === 0)
+  const rank0SnippetScore = rank0Pair ? (scoreByText.get(rank0Pair.snippet) ?? 0) : 0
+
+  // Pick best candidate for fallback scan (could be rank-1 if it scores higher than rank-0)
   let bestPair = snippetPairs[0]
   let bestScore = scoreByText.get(bestPair.snippet) ?? 0
   for (const pair of snippetPairs.slice(1)) {
@@ -122,37 +129,47 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const bestResult = candidateResults[bestPair.serperIdx]
   const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
-  // Only return snippet when HF confirmed (not BM25 false confidence like 0.75 = 3/4 keywords)
-  if (snippetHF && bestScore >= SNIPPET_THRESHOLD && bestSummary) {
-    return { passage: bestPair.snippet.slice(0, 800), articleTitle: bestSummary.title, articleUrl: bestSummary.url, score: bestScore }
+  // Only return snippet when: HF confirmed + rank-0 is the best candidate + score >= threshold
+  if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD && summaries[0]) {
+    return { passage: rank0Pair.snippet.slice(0, 800), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
   }
 
   // ── BM25 pre-filter → HF final scoring ──
-  // Fetch rank-0 AND rank-1 in parallel (handles Serper rank-0 fluctuation)
-  const rank0 = candidateResults[0], rank1 = candidateResults[1]
+  // Always scan rank-0. Also scan the best-snippet article when it's different from rank-0.
+  // This handles both failure modes:
+  //   - "birds fly south": rank-0 (Bird migration) is right but rank-2 (Atlantic Flyway)
+  //     had a misleadingly high snippet score. Scan rank-0 only → Bird migration wins.
+  //   - "ice cubes crack": rank-0 (Icemaker) is wrong, rank-2 (Thermal shock) is right.
+  //     Scan rank-0 + best-snippet (Thermal shock) → Thermal shock wins.
+  const rank0 = candidateResults[0]
   const sum0 = summaries[0] ?? await wikiSummary(rank0.title)
   if (!sum0?.extract) return null
 
-  const [full0, full1, sum1] = await Promise.all([
+  const bestIsRank0 = bestPair.serperIdx === 0
+  const [full0, fullBest, sumBest] = await Promise.all([
     wikiFullText(rank0.title),
-    rank1 ? wikiFullText(rank1.title) : Promise.resolve(null),
-    rank1 ? (summaries[1] ?? wikiSummary(rank1.title)) : Promise.resolve(null),
+    bestIsRank0 ? Promise.resolve(null) : wikiFullText(bestResult.title),
+    bestIsRank0 ? Promise.resolve(null) : (bestSummary ?? wikiSummary(bestResult.title)),
   ])
 
   // BM25 pre-select top-5 from each article → HF sees ~10-15 passages total, not 40
   type PM = { p: string; title: string; url: string }
   const pool: PM[] = []
 
-  // Rank-0: always include snippet + top-5 BM25 passages
+  // Rank-0: always include Wikipedia extract first (explains the concept)
+  // and BM25-top-5 from full text for specific details.
+  if (sum0.extract) pool.push({ p: sum0.extract, title: sum0.title, url: sum0.url })
   const r0snip = rank0.snippet
   if (r0snip && r0snip.length > 30) pool.push({ p: r0snip, title: sum0.title, url: sum0.url })
   bm25Prefilter(query, splitPassages(full0 ?? sum0.extract), BM25_PREFILTER_N)
     .forEach(p => pool.push({ p, title: sum0.title, url: sum0.url }))
 
-  // Rank-1: top-5 BM25 passages (handles case where rank-0 is wrong article)
-  if (full1 && sum1?.extract) {
-    bm25Prefilter(query, splitPassages(full1), BM25_PREFILTER_N)
-      .forEach(p => pool.push({ p, title: sum1.title, url: sum1.url }))
+  // Best-snippet article (if different from rank-0): include extract + BM25-top-3
+  // This handles "Thermal shock" rank-2 for ice cubes when rank-0 is Icemaker.
+  if (!bestIsRank0 && fullBest && sumBest?.extract) {
+    pool.push({ p: sumBest.extract, title: sumBest.title, url: sumBest.url })
+    bm25Prefilter(query, splitPassages(fullBest), 3)
+      .forEach(p => pool.push({ p, title: sumBest.title, url: sumBest.url }))
   }
 
   if (!pool.length) return null
