@@ -17,9 +17,9 @@
 import { wikiSummary, wikiFullText, splitPassages } from "./wiki"
 import { rankPassages } from "./embed"
 
-const SNIPPET_THRESHOLD = 0.5
+const SNIPPET_THRESHOLD = 0.7
 const PASSAGE_THRESHOLD = 0.25
-const BM25_PREFILTER_N = 5
+const BM25_PREFILTER_N = 8
 
 type SerperResult = { title: string; snippet: string; url: string }
 
@@ -152,24 +152,32 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     bestIsRank0 ? Promise.resolve(null) : (bestSummary ?? wikiSummary(bestResult.title)),
   ])
 
-  // BM25 pre-select top-5 from each article → HF sees ~10-15 passages total, not 40
+  // Build pool from each article: extract + first-4 intro passages + BM25-top-N
+  // "First-4 intro" ensures cause/mechanism text (early paragraphs) is always present.
+  // BM25 adds keyword-matched passages for specific detail. HF picks the best among ~15-20.
   type PM = { p: string; title: string; url: string }
   const pool: PM[] = []
+  const seen = new Set<string>()
+  const addP = (p: string, title: string, url: string) => {
+    const key = p.trim().slice(0, 80)
+    if (!seen.has(key)) { seen.add(key); pool.push({ p, title, url }) }
+  }
 
-  // Rank-0: always include Wikipedia extract first (explains the concept)
-  // and BM25-top-5 from full text for specific details.
-  if (sum0.extract) pool.push({ p: sum0.extract, title: sum0.title, url: sum0.url })
-  const r0snip = rank0.snippet
-  if (r0snip && r0snip.length > 30) pool.push({ p: r0snip, title: sum0.title, url: sum0.url })
-  bm25Prefilter(query, splitPassages(full0 ?? sum0.extract), BM25_PREFILTER_N)
-    .forEach(p => pool.push({ p, title: sum0.title, url: sum0.url }))
+  const addArticle = (text: string | null, sum: { extract: string; title: string; url: string }, snippet: string, introN: number, bm25N: number) => {
+    if (sum.extract) addP(sum.extract, sum.title, sum.url)
+    if (snippet && snippet.length > 30) addP(snippet, sum.title, sum.url)
+    const passages = splitPassages(text ?? sum.extract)
+    // Always include the first N intro passages — these contain the cause/mechanism
+    passages.slice(0, introN).forEach(p => addP(p, sum.title, sum.url))
+    // Also BM25-select from the full article for keyword-matched passages
+    bm25Prefilter(query, passages, bm25N).forEach(p => addP(p, sum.title, sum.url))
+  }
 
-  // Best-snippet article (if different from rank-0): include extract + BM25-top-3
-  // This handles "Thermal shock" rank-2 for ice cubes when rank-0 is Icemaker.
+  addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
+
+  // Best-snippet article (if different from rank-0): handles rank-0 being wrong (ice cubes/Icemaker)
   if (!bestIsRank0 && fullBest && sumBest?.extract) {
-    pool.push({ p: sumBest.extract, title: sumBest.title, url: sumBest.url })
-    bm25Prefilter(query, splitPassages(fullBest), 3)
-      .forEach(p => pool.push({ p, title: sumBest.title, url: sumBest.url }))
+    addArticle(fullBest, sumBest, candidateResults[bestPair.serperIdx].snippet, 2, 3)
   }
 
   if (!pool.length) return null
