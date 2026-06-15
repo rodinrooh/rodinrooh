@@ -20,7 +20,9 @@ type CompromiseDoc = {
 const nlp = require("compromise") as (text: string) => CompromiseDoc
 
 const HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`
+// api-inference.huggingface.co was deprecated in 2025 and is unreachable from Vercel.
+// The new endpoint is router.huggingface.co/hf-inference
+const HF_API_URL = `https://router.huggingface.co/hf-inference/models/${HF_MODEL}`
 const HF_TOKEN = process.env.HF_TOKEN
 
 /**
