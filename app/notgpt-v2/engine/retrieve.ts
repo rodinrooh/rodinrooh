@@ -315,7 +315,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         // Running all 4 fetches in parallel keeps wall-clock time the same as fetching 1.
         let passages: string[] = []
         const fullText = await wikiFullText(r.title)
-        const limit = idx === 0 ? 25 : 15  // was 12; Thermal shock key sentence is at index 12
+        const limit = idx === 0 ? 25 : idx <= 2 ? 15 : 5  // rank 0=25, 1-2=15, 3=5(extract)
         passages = fullText ? splitPassages(fullText).slice(0, limit) : splitPassages(art.extract).slice(0, limit)
         if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
         const scored = await rankPassages(query, passages)
