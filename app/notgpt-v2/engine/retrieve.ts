@@ -60,16 +60,18 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const serperResults = await serperSearch(query)
   if (!serperResults.length) return null
 
-  // Fetch article descriptions for the top-3 to apply content filters
-  const summaries = await Promise.all(
-    serperResults.slice(0, 3).map(r => wikiSummary(r.title))
-  )
+  // Only score top-3 Serper results. Ranks 3-4 contain tangential articles
+  // ("When the Birds Fly South", "Food drunk") that score high on BM25 by
+  // containing exact query words in unrelated contexts.
+  const candidateResults = serperResults.slice(0, 3)
 
-  // Build snippet pairs keeping the original serperResults index — this is critical.
-  // Filtering snippets into a separate array and using .indexOf() breaks index alignment.
+  // Fetch summaries for all 3 candidates to apply content filters
+  const summaries = await Promise.all(candidateResults.map(r => wikiSummary(r.title)))
+
+  // Build snippet pairs keeping the original index — critical to avoid index alignment bugs
   const snippetPairs: Array<{ snippet: string; serperIdx: number }> = []
-  for (let i = 0; i < serperResults.length; i++) {
-    const snippet = serperResults[i].snippet
+  for (let i = 0; i < candidateResults.length; i++) {
+    const snippet = candidateResults[i].snippet
     if (!snippet || snippet.length < 30) continue
 
     // Apply content filters using the fetched summary
@@ -83,6 +85,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
     snippetPairs.push({ snippet, serperIdx: i })
   }
+  // Note: serperIdx now refers to index in candidateResults, not serperResults
 
   if (!snippetPairs.length) return null
 
@@ -101,7 +104,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     if (score > bestScore) { bestScore = score; bestPair = pair }
   }
 
-  const bestResult = serperResults[bestPair.serperIdx]
+  const bestResult = candidateResults[bestPair.serperIdx]
   const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
   // If the snippet directly answers the question, return it immediately
