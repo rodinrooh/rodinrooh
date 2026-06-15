@@ -198,11 +198,31 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const seen = new Set<string>()
   const candidates: WikiArticle[] = []
 
+  // Is the query ABOUT language/grammar? If so, allow grammar articles through.
+  // "what is a pronoun" should return the pronoun article; "what happens if you swallow gum" should not.
+  const queryIsAboutLanguage = /\b(pronoun|grammar|preposition|conjunction|determiner|syntax|linguistics|language|english word|parts of speech)\b/i.test(query)
+
   const add = (a: WikiArticle | null) => {
     if (!a?.extract || seen.has(a.title)) return
-    // Reject Wikipedia meta/talk pages that can appear in search results
     if (a.title.startsWith("Talk:") || a.title.startsWith("Wikipedia:") ||
         a.title.startsWith("User:") || a.title.startsWith("Template:")) return
+
+    // Structurally detect grammatical meta-articles via their Wikipedia description
+    // ("Second-person singular pronoun in modern English" etc.) — no title list needed.
+    // Only filter when the query is NOT about grammar/language.
+    if (!queryIsAboutLanguage) {
+      const isGrammarArticle = /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word|English language)\b/i
+        .test(a.description ?? "")
+      if (isGrammarArticle) return
+
+      // Structurally detect entertainment articles via Wikipedia's own disambiguation markers.
+      // "Hold Your Breath (2024 film)" → year+film pattern; "Oklahoma!" → trailing !
+      // These are Wikipedia's naming conventions, not a genre enumeration.
+      const isEntertainmentByTitle = /\(\d{4}\s*(?:film|movie|TV series|television series|song|album|novel|book|miniseries|documentary)\)|!+$|\bSeason \d+\b/i
+        .test(a.title)
+      if (isEntertainmentByTitle) return
+    }
+
     seen.add(a.title)
     candidates.push(a)
   }
@@ -246,8 +266,65 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // Google selects these snippets to answer the specific query — they often contain
   // the exact mechanism text that BM25 passage scoring misses (e.g., Singing sand
   // snippet: "caused by walking on the sand" for "why does sand squeak when walking").
+  // ── Serper-first strategy ──
+  // Trust Google's rank-0 result directly: fetch its full article and score passages.
+  // If the passage scores >= 0.15, return it immediately without running multi-candidate.
+  // This avoids the boost-based approach that caused regressions.
+  const ENTERTAINMENT_TITLE_RE = /\(\d{4}\s*(?:film|movie|TV series|television series|song|album|novel|book|miniseries|documentary)\)|!+$|\bSeason \d+\b/i
+  const ENTERTAINMENT_SNIPPET_RE = /\bis (?:a|an) \d{4}\b|\bis (?:a|an) (?:American|British|Australian|Canadian|French|German|Japanese|Korean) (?:film|television|movie|novel|song|album|book)\b/i
+
+  if (serperResults.length > 0) {
+    const top = serperResults[0]
+    const topIsEntertainment = !queryIsAboutLanguage && (
+      ENTERTAINMENT_TITLE_RE.test(top.title) ||
+      (top.snippet && ENTERTAINMENT_SNIPPET_RE.test(top.snippet))
+    )
+    if (!topIsEntertainment) {
+      const topArt = await wikiSummary(top.title)
+      if (topArt?.extract) {
+        const topText = await wikiFullText(top.title) ?? topArt.extract
+        const topPassages = splitPassages(topText)
+        // Also include the Serper snippet itself — it's Google's chosen answer passage
+        if (top.snippet && top.snippet.length > 30) topPassages.unshift(top.snippet)
+        const topScored = await rankPassages(query, topPassages)
+        const topBest = topScored[0]
+        if (topBest && topBest.score >= 0.15) {
+          // If the Serper snippet (topPassages[0]) scored at least as well as the best,
+          // prefer it — it's Google's chosen answer excerpt, not a random article passage.
+          // Prefer Serper snippet over BM25-selected article passage:
+          // Google chose this snippet to answer the query specifically.
+          // A references-section passage scoring 0.67 via word coincidence should not beat
+          // the snippet that literally says "earthy scent from rain falling on dry soil".
+          const snippetText = top.snippet && top.snippet.length > 30 ? top.snippet : null
+          const snippetEntry = snippetText ? topScored.find(s => s.passage === snippetText) : null
+          if (snippetEntry && snippetEntry.score >= 0.15) {
+            return {
+              passage: snippetEntry.passage.slice(0, 800),
+              articleTitle: topArt.title,
+              articleUrl: topArt.url,
+              score: snippetEntry.score,
+            }
+          }
+          return {
+            passage: topBest.passage.slice(0, 800),
+            articleTitle: topArt.title,
+            articleUrl: topArt.url,
+            score: topBest.score,
+          }
+        }
+      }
+    }
+  }
+
+  // ── Fallback: multi-candidate passage scoring ──
+  // Serper rank-0 didn't answer confidently — try all candidates.
+  // No boosts: pure BM25 recall scoring over all passages.
   const serperSnippetPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = []
-  for (const r of serperResults) {
+  for (const r of serperResults.slice(1)) {  // rank 1+ (rank 0 already tried above)
+    if (!queryIsAboutLanguage) {
+      if (ENTERTAINMENT_TITLE_RE.test(r.title)) continue
+      if (r.snippet && ENTERTAINMENT_SNIPPET_RE.test(r.snippet)) continue
+    }
     if (r.snippet && r.snippet.length > 30) {
       serperSnippetPassages.push({ passage: r.snippet, articleTitle: r.title, articleUrl: r.url })
     }
@@ -255,20 +332,15 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   if (!candidates.length) return null
 
-  // ── Passage scoring ──
   const allPassages: Array<{ passage: string; articleTitle: string; articleUrl: string }> = [
-    // Serper snippets go in FIRST — they're the most query-targeted text
     ...serperSnippetPassages,
   ]
 
-  // Cap at 8 candidates and 15 passages each to bound embedding time.
-  // Serper snippets (already in allPassages) cover the vocabulary-gap cases directly.
   await Promise.all(
     candidates.slice(0, 8).map(async c => {
       const fullText = await wikiFullText(c.title)
       const text = fullText ?? c.extract
-      const passages = splitPassages(text)
-      for (const p of passages.slice(0, 15)) {
+      for (const p of splitPassages(text).slice(0, 15)) {
         allPassages.push({ passage: p, articleTitle: c.title, articleUrl: c.url })
       }
     })
@@ -278,7 +350,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   const ranked = await rankPassages(query, allPassages.map(p => p.passage))
   const best = ranked[0]
-  if (!best || best.score < 0.2) return null
+  if (!best || best.score < 0.15) return null
 
   const meta = allPassages.find(p => p.passage === best.passage)!
   return {
