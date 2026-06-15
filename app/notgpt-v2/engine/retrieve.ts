@@ -71,7 +71,8 @@ function bm25Prefilter(query: string, passages: string[], topN: number): string[
     let hits = 0
     for (const w of qWords) {
       const stem = w.endsWith("e") ? w.slice(0, -1) : w
-      const forms = [w, w + "s", stem + "ing", stem + "ed", stem + "er",
+      const forms = [w, w + "s", w + "ish", w + "ness", w + "ly",
+        stem + "ing", stem + "ed", stem + "er",
         w.endsWith("s") && w.length > 4 ? w.slice(0, -1) : w]
       if ([...new Set(forms)].some(f => f.length > 1 && pLow.includes(` ${f} `))) hits++
     }
@@ -129,9 +130,19 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const bestResult = candidateResults[bestPair.serperIdx]
   const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
-  // Only return snippet when: HF confirmed + rank-0 is the best candidate + score >= threshold
-  if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD && summaries[0]) {
-    return { passage: rank0Pair.snippet.slice(0, 800), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
+  // Return snippet when rank-0 scores high and HF is confirmed.
+  // Detect image captions: "A young girl hastily consuming ice cream..." pattern
+  // (animate subject + participial phrase). For those, return the Wikipedia extract instead
+  // since image captions describe photos, not the topic mechanism.
+  if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD) {
+    const snip = rank0Pair.snippet
+    // Image captions follow "A/An/The [noun] [adj/adv] [verb-ing]" — subject doing an action
+    // (e.g. "A young girl hastily consuming ice cream, a common cause of...")
+    const isImageCaption = /^(?:A|An|The)(?:\s+\w+){2,3}\s+\w+ing\b/.test(snip) && snip.length < 300
+    const passage = isImageCaption ? (summaries[0]?.extract ?? snip) : snip
+    if (passage && summaries[0]) {
+      return { passage: passage.slice(0, 800), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
+    }
   }
 
   // ── BM25 pre-filter → HF final scoring ──
@@ -146,10 +157,11 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   if (!sum0?.extract) return null
 
   const bestIsRank0 = bestPair.serperIdx === 0
-  const [full0, fullBest, sumBest] = await Promise.all([
+  const rank1 = candidateResults[1], rank2 = candidateResults[2]
+  const [full0, full1, full2] = await Promise.all([
     wikiFullText(rank0.title),
-    bestIsRank0 ? Promise.resolve(null) : wikiFullText(bestResult.title),
-    bestIsRank0 ? Promise.resolve(null) : (bestSummary ?? wikiSummary(bestResult.title)),
+    wikiFullText(rank1?.title ?? ""),
+    wikiFullText(rank2?.title ?? ""),
   ])
 
   // Build pool from each article: extract + first-4 intro passages + BM25-top-N
@@ -167,18 +179,20 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     if (sum.extract) addP(sum.extract, sum.title, sum.url)
     if (snippet && snippet.length > 30) addP(snippet, sum.title, sum.url)
     const passages = splitPassages(text ?? sum.extract)
-    // Always include the first N intro passages — these contain the cause/mechanism
     passages.slice(0, introN).forEach(p => addP(p, sum.title, sum.url))
-    // Also BM25-select from the full article for keyword-matched passages
     bm25Prefilter(query, passages, bm25N).forEach(p => addP(p, sum.title, sum.url))
   }
 
+  // Always scan all 3 Serper articles. Each adds: extract + BM25 passages.
+  // Rank-0 also gets its Serper snippet and more intro passages.
+  // Wikipedia extracts are reliable article intros; secondary article Serper snippets
+  // can be deceptive (Atlantic Flyway "warm climates... birds in winter" = 0.73 vs
+  // Bird migration extract = 0.65 → Bird migration WINS from extract, not snippet).
   addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
-
-  // Best-snippet article (if different from rank-0): handles rank-0 being wrong (ice cubes/Icemaker)
-  if (!bestIsRank0 && fullBest && sumBest?.extract) {
-    addArticle(fullBest, sumBest, candidateResults[bestPair.serperIdx].snippet, 2, 3)
-  }
+  const sum1 = summaries[1] ?? (rank1 ? await wikiSummary(rank1.title) : null)
+  if (sum1?.extract) addArticle(full1, sum1, "", 2, 3)
+  const sum2 = summaries[2] ?? (rank2 ? await wikiSummary(rank2.title) : null)
+  if (sum2?.extract) addArticle(full2, sum2, "", 2, 3)
 
   if (!pool.length) return null
 

@@ -72,13 +72,28 @@ export async function wikiFullText(title: string): Promise<string | null> {
 
 /** Split article text into overlapping ~150-word passages suitable for scoring. */
 export function splitPassages(text: string, maxChars = 600): string[] {
-  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.length > 30)
+  // Filter junk before splitting:
+  // 1. Strip Wikipedia section headings ("== Section Name ==")
+  // 2. Strip reference-list lines ([1] Smith et al.) and bare citation brackets
+  // 3. Keep only lines that look like prose (not standalone captions/alt-text)
+  const cleaned = text
+    .replace(/={2,}[^=]+=+/g, "")           // == Heading ==
+    .replace(/\n\[\d+\][^\n]*/g, "")         // [1] ref entries
+    .replace(/\[\d+\]/g, "")                 // inline [1] markers
+    .replace(/\n{3,}/g, "\n\n")              // collapse blank lines
+
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(s => {
+    const t = s.trim()
+    if (t.length < 40) return false          // too short to be useful
+    // Skip very short lines (< 40 chars already handled above)
+    return true
+  })
+
   const passages: string[] = []
   let current = ""
   for (const s of sentences) {
     if (current.length + s.length > maxChars && current) {
       passages.push(current.trim())
-      // Overlap: keep last sentence for context
       const parts = current.trim().split(/(?<=[.!?])\s+/)
       current = (parts.at(-1) ?? "") + " " + s
     } else {
