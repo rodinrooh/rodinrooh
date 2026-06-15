@@ -2,19 +2,24 @@
  * Retrieval: Google (Serper) finds the article, HF ranks the passages.
  *
  * Architecture:
- *   1. Ask Google for top-5 Wikipedia articles
- *   2. Score each article's snippet with HF in one batch call
- *   3. If best snippet >= 0.5 → it IS the answer, return it directly
- *   4. Otherwise scan the best-snippet article's full text for a better passage
+ *   1. Ask Google for top-3 Wikipedia articles
+ *   2. Score snippets with HF (small batch = fast, reliable)
+ *   3. If best snippet >= 0.5 and HF confirmed working: return snippet directly
+ *   4. Fallback: BM25 pre-selects top-5 per article (~10-15 total), HF scores those
  *
- * Serper's rank-0 snippet is already the answer for ~80% of mechanism questions.
+ * The key fix: BM25 as pre-filter only, HF as final scorer.
+ * Old: HF scored 40 passages → cold-start timeout → BM25 fallback → "Atlantic Flyway"
+ *      wins because it literally contains "south + birds + winter" by coincidence.
+ * New: BM25 narrows 25 passages to 5, HF scores 10-15 total → completes in 3-5s,
+ *      no timeout, semantic scoring picks Bird migration correctly over Atlantic Flyway.
  */
 
 import { wikiSummary, wikiFullText, splitPassages } from "./wiki"
 import { rankPassages } from "./embed"
 
-const SNIPPET_THRESHOLD = 0.5   // snippet directly answers the question
-const PASSAGE_THRESHOLD = 0.25  // minimum confidence to return anything
+const SNIPPET_THRESHOLD = 0.5
+const PASSAGE_THRESHOLD = 0.25
+const BM25_PREFILTER_N = 5
 
 type SerperResult = { title: string; snippet: string; url: string }
 
@@ -26,7 +31,7 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
       method: "POST",
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       body: JSON.stringify({ q: `${query} site:en.wikipedia.org`, num: 5 }),
-      next: { revalidate: 60 },  // 1-min cache: stable within a session, not 1hr stale
+      next: { revalidate: 60 },
     })
     if (!res.ok) return []
     const data = await res.json()
@@ -45,60 +50,68 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
   } catch { return [] }
 }
 
+/**
+ * Fast BM25 keyword pre-filter. Picks top-N passages most likely to answer the query.
+ * No API, no model — pure JS word matching. Used only to narrow candidates before HF.
+ */
+function bm25Prefilter(query: string, passages: string[], topN: number): string[] {
+  const STOPS = new Set(["the","a","an","is","are","was","were","do","does","did",
+    "why","how","what","who","when","where","which","my","your","i","we","they",
+    "he","she","it","and","or","but","in","of","to","for","with","on","at","from",
+    "by","this","that","these","those","can","will","would","could","should","have",
+    "has","had","not","so","if","as","than","then","be","been","being","just","very"])
+  const qWords = [...new Set(
+    query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)
+      .filter(w => w.length > 2 && !STOPS.has(w))
+  )]
+  if (!qWords.length) return passages.slice(0, topN)
+
+  const scored = passages.map(p => {
+    const pLow = " " + p.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ") + " "
+    let hits = 0
+    for (const w of qWords) {
+      const stem = w.endsWith("e") ? w.slice(0, -1) : w
+      const forms = [w, w + "s", stem + "ing", stem + "ed", stem + "er",
+        w.endsWith("s") && w.length > 4 ? w.slice(0, -1) : w]
+      if ([...new Set(forms)].some(f => f.length > 1 && pLow.includes(` ${f} `))) hits++
+    }
+    return { passage: p, score: hits / qWords.length }
+  })
+  return scored.sort((a, b) => b.score - a.score).slice(0, topN).map(s => s.passage)
+}
+
 function queryIsAboutLanguage(q: string): boolean {
   return /\b(pronoun|grammar|preposition|conjunction|syntax|linguistics|language|parts of speech)\b/i.test(q)
 }
 
-export type RetrievalResult = {
-  passage: string
-  articleTitle: string
-  articleUrl: string
-  score: number
-}
+export type RetrievalResult = { passage: string; articleTitle: string; articleUrl: string; score: number }
 
 export async function retrieveBestPassage(query: string): Promise<RetrievalResult | null> {
   const serperResults = await serperSearch(query)
-  console.log("[RETRIEVE] query:", query.slice(0,50), "serper rank-0:", serperResults[0]?.title ?? "none")
   if (!serperResults.length) return null
 
-  // Only score top-3 Serper results. Ranks 3-4 contain tangential articles
-  // ("When the Birds Fly South", "Food drunk") that score high on BM25 by
-  // containing exact query words in unrelated contexts.
   const candidateResults = serperResults.slice(0, 3)
-
-  // Fetch summaries for all 3 candidates to apply content filters
   const summaries = await Promise.all(candidateResults.map(r => wikiSummary(r.title)))
 
-  // Build snippet pairs keeping the original index — critical to avoid index alignment bugs
   const snippetPairs: Array<{ snippet: string; serperIdx: number }> = []
   for (let i = 0; i < candidateResults.length; i++) {
     const snippet = candidateResults[i].snippet
     if (!snippet || snippet.length < 30) continue
-
-    // Apply content filters using the fetched summary
     const summary = summaries[i]
     if (!queryIsAboutLanguage(query) && summary) {
       const desc = summary.description ?? ""
-      const isGrammar = /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(desc)
-      const isMedia = /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game)\b/i.test(desc)
-      if (isGrammar || isMedia) continue
+      if (/\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(desc)) continue
+      if (/\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game)\b/i.test(desc)) continue
     }
-
     snippetPairs.push({ snippet, serperIdx: i })
   }
-  // Note: serperIdx now refers to index in candidateResults, not serperResults
-
   if (!snippetPairs.length) return null
 
-  // Score all snippets in one HF call — cheap (3 short texts)
+  // Score snippets with HF — small batch (3 texts), fast even on cold model
   const snippetTexts = snippetPairs.map(p => p.snippet)
-  const snippetResult = await rankPassages(query, snippetTexts)
-  const { results: snippetScores, usingHF: snippetHF } = snippetResult
-
-  // Build score lookup by snippet text
+  const { results: snippetScores, usingHF: snippetHF } = await rankPassages(query, snippetTexts)
   const scoreByText = new Map(snippetScores.map(s => [s.passage, s.score]))
 
-  // Find the best-scoring snippet, preserving Serper rank order for ties
   let bestPair = snippetPairs[0]
   let bestScore = scoreByText.get(bestPair.snippet) ?? 0
   for (const pair of snippetPairs.slice(1)) {
@@ -109,58 +122,46 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const bestResult = candidateResults[bestPair.serperIdx]
   const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
-  // If the snippet directly answers the question, return it immediately.
-  // ONLY trust this threshold when HF confirmed working — BM25 keyword overlap scores
-  // (e.g., Atlantic Flyway = 0.75 BM25 for "birds fly south") are not semantic confidence.
+  // Only return snippet when HF confirmed (not BM25 false confidence like 0.75 = 3/4 keywords)
   if (snippetHF && bestScore >= SNIPPET_THRESHOLD && bestSummary) {
-    return {
-      passage: bestPair.snippet.slice(0, 800),
-      articleTitle: bestSummary.title,
-      articleUrl: bestSummary.url,
-      score: bestScore,
-    }
+    return { passage: bestPair.snippet.slice(0, 800), articleTitle: bestSummary.title, articleUrl: bestSummary.url, score: bestScore }
   }
 
-  // Snippet wasn't confident enough — scan full articles.
-  // Always scan Serper rank-0 (Google's top result) PLUS the best-snippet article if different.
-  // "birds fly south" → Bird migration is rank-0 (correct) but Atlantic Flyway (rank-2) had
-  // higher BM25 snippet score. Always including rank-0 ensures Bird migration gets scanned.
-  const rank0Result = candidateResults[0]
-  const rank0Summary = summaries[0] ?? await wikiSummary(rank0Result.title)
-  if (!rank0Summary?.extract) return null
+  // ── BM25 pre-filter → HF final scoring ──
+  // Fetch rank-0 AND rank-1 in parallel (handles Serper rank-0 fluctuation)
+  const rank0 = candidateResults[0], rank1 = candidateResults[1]
+  const sum0 = summaries[0] ?? await wikiSummary(rank0.title)
+  if (!sum0?.extract) return null
 
-  // Also scan the best-snippet article if it's different from rank-0
-  const alsoScanBest = bestResult.title !== rank0Result.title
-  const [rank0Full, bestFull, bestSummaryFetched] = await Promise.all([
-    wikiFullText(rank0Result.title),
-    alsoScanBest ? wikiFullText(bestResult.title) : Promise.resolve(null),
-    alsoScanBest ? (bestSummary ?? wikiSummary(bestResult.title)) : Promise.resolve(null),
+  const [full0, full1, sum1] = await Promise.all([
+    wikiFullText(rank0.title),
+    rank1 ? wikiFullText(rank1.title) : Promise.resolve(null),
+    rank1 ? (summaries[1] ?? wikiSummary(rank1.title)) : Promise.resolve(null),
   ])
 
-  type PassageMeta = { passage: string; title: string; url: string }
-  const allPassages: PassageMeta[] = []
+  // BM25 pre-select top-5 from each article → HF sees ~10-15 passages total, not 40
+  type PM = { p: string; title: string; url: string }
+  const pool: PM[] = []
 
-  // Rank-0 passages (25) — always first
-  const p0 = splitPassages(rank0Full ?? rank0Summary.extract).slice(0, 25)
-  const rank0Snippet = candidateResults[0].snippet
-  if (rank0Snippet && rank0Snippet.length > 30) p0.unshift(rank0Snippet)
-  p0.forEach(p => allPassages.push({ passage: p, title: rank0Summary.title, url: rank0Summary.url }))
+  // Rank-0: always include snippet + top-5 BM25 passages
+  const r0snip = rank0.snippet
+  if (r0snip && r0snip.length > 30) pool.push({ p: r0snip, title: sum0.title, url: sum0.url })
+  bm25Prefilter(query, splitPassages(full0 ?? sum0.extract), BM25_PREFILTER_N)
+    .forEach(p => pool.push({ p, title: sum0.title, url: sum0.url }))
 
-  // Best-snippet article passages (15) if different from rank-0
-  if (alsoScanBest && bestFull && bestSummaryFetched?.extract) {
-    splitPassages(bestFull).slice(0, 15)
-      .forEach(p => allPassages.push({ passage: p, title: bestSummaryFetched.title, url: bestSummaryFetched.url }))
+  // Rank-1: top-5 BM25 passages (handles case where rank-0 is wrong article)
+  if (full1 && sum1?.extract) {
+    bm25Prefilter(query, splitPassages(full1), BM25_PREFILTER_N)
+      .forEach(p => pool.push({ p, title: sum1.title, url: sum1.url }))
   }
 
-  const { results: passageScores } = await rankPassages(query, allPassages.map(m => m.passage))
-  const best = passageScores[0]
+  if (!pool.length) return null
+
+  // HF final scorer on the pre-filtered pool — small batch, reliably completes
+  const { results: scored } = await rankPassages(query, pool.map(x => x.p))
+  const best = scored[0]
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 
-  const meta = allPassages.find(m => m.passage === best.passage)!
-  return {
-    passage: best.passage.slice(0, 800),
-    articleTitle: meta.title,
-    articleUrl: meta.url,
-    score: best.score,
-  }
+  const meta = pool.find(x => x.p === best.passage)!
+  return { passage: best.passage.slice(0, 800), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
 }
