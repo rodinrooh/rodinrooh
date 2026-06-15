@@ -102,7 +102,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     if (!queryIsAboutLanguage(query) && summary) {
       const desc = summary.description ?? ""
       if (/\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(desc)) continue
-      if (/\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game)\b/i.test(desc)) continue
+      if (/\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game|rock band|pop band|music group|musical group|punk band|metal band|jazz ensemble)\b/i.test(desc)) continue
     }
     snippetPairs.push({ snippet, serperIdx: i })
   }
@@ -186,11 +186,15 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // Wikipedia extracts are reliable article intros; secondary article Serper snippets
   // can be deceptive (Atlantic Flyway "warm climates... birds in winter" = 0.73 vs
   // Bird migration extract = 0.65 → Bird migration WINS from extract, not snippet).
+  // Helper: true if an article's Wikipedia description marks it as entertainment
+  const isEntertainment = (desc: string) =>
+    /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game|rock band|pop band|music group|musical group|punk band|metal band|jazz ensemble)\b/i.test(desc)
+
   addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
   const sum1 = summaries[1] ?? (rank1 ? await wikiSummary(rank1.title) : null)
-  if (sum1?.extract) addArticle(full1, sum1, "", 2, 3)
+  if (sum1?.extract && !isEntertainment(sum1.description ?? "")) addArticle(full1, sum1, "", 2, 3)
   const sum2 = summaries[2] ?? (rank2 ? await wikiSummary(rank2.title) : null)
-  if (sum2?.extract) addArticle(full2, sum2, "", 2, 3)
+  if (sum2?.extract && !isEntertainment(sum2.description ?? "")) addArticle(full2, sum2, "", 2, 3)
 
   if (!pool.length) return null
 
