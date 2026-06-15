@@ -111,7 +111,7 @@ export async function rankPassages(
         inputs: { source_sentence: query.slice(0, 512), sentences: trimmed },
         options: { wait_for_model: true },
       }),
-      signal: AbortSignal.timeout(5000),  // fail fast — BM25 fallback is better than waiting 10s
+      signal: AbortSignal.timeout(15000),  // 15s — authenticated requests get priority on warm models
     })
 
     if (res.ok) {
