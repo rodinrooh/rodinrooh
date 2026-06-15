@@ -134,13 +134,11 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // Detect image captions: "A young girl hastily consuming ice cream..." pattern
   // (animate subject + participial phrase). For those, return the Wikipedia extract instead
   // since image captions describe photos, not the topic mechanism.
-  console.log(`[NOTGPT] snippetHF=${snippetHF} rank0score=${rank0SnippetScore.toFixed(3)} rank0snip="${rank0Pair?.snippet.slice(0,60)}"`)
   if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD) {
     const snip = rank0Pair.snippet
     const isImageCaption = /^(?:A|An|The)(?:\s+\w+){2,3}\s+\w+ing\b/.test(snip) && snip.length < 300
     const passage = isImageCaption ? (summaries[0]?.extract ?? snip) : snip
     if (passage && summaries[0]) {
-      console.log(`[NOTGPT] fast-path return: "${passage.slice(0,60)}"`)
       return { passage: passage.slice(0, 800), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
     }
   }
