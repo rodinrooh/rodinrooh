@@ -1,75 +1,66 @@
 /**
- * Sentence similarity via all-MiniLM-L6-v2 (23MB quantized, ONNX).
- * Not generative — encodes text to a 384-dim vector and computes cosine similarity.
- * Bridges vocabulary gaps that BM25 can't: "planes stay up" ↔ "aerodynamic lift".
+ * Sentence similarity via HF Inference API (sentence-transformers/all-MiniLM-L6-v2).
+ *
+ * Same model as before, but runs on Hugging Face's servers instead of locally.
+ * This works in Vercel serverless — no native binaries, no model download.
+ * Free tier: ~1000 req/day unauthenticated, more with a free HF token.
+ *
+ * Falls back to BM25 keyword overlap if HF is unavailable.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { pipeline, env } = require("@xenova/transformers")
+const HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`
+const HF_TOKEN = process.env.HF_TOKEN  // optional — increases rate limit, set in Vercel env
 
-// Cache model per process — warm after first request
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _embedder: any = null
-
-// Suppress Xenova's verbose console output
-env.allowLocalModels = false
-
-async function getEmbedder() {
-  if (!_embedder) {
-    _embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
-      quantized: true,
-    })
-  }
-  return _embedder
-}
-
-function meanPool(tensor: number[][]): number[] {
-  const dim = tensor[0].length
-  const mean = new Array(dim).fill(0)
-  for (const vec of tensor) {
-    for (let i = 0; i < dim; i++) mean[i] += vec[i]
-  }
-  return mean.map(v => v / tensor.length)
-}
-
-function cosine(a: number[], b: number[]): number {
-  let dot = 0, na = 0, nb = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    na += a[i] * a[i]
-    nb += b[i] * b[i]
-  }
-  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-8)
-}
-
-export async function embedText(text: string): Promise<number[]> {
-  const embedder = await getEmbedder()
-  const output = await embedder(text.slice(0, 512), { pooling: "mean", normalize: true })
-  // output.data is a flat Float32Array of shape [1, 384]
-  const arr = Array.from(output.data as Float32Array)
-  return arr as number[]
-}
-
-export async function similarityScore(query: string, passage: string): Promise<number> {
-  const [qv, pv] = await Promise.all([embedText(query), embedText(passage)])
-  return cosine(qv, pv)
+// BM25-style keyword overlap fallback (no external deps, always works)
+function bm25Score(query: string, passage: string): number {
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 2)
+  const qWords = new Set(normalize(query))
+  const pWords = normalize(passage)
+  if (!qWords.size || !pWords.length) return 0
+  const hits = pWords.filter(w => qWords.has(w) || [...qWords].some(q => w.startsWith(q.slice(0, 5)) && q.length >= 5))
+  return hits.length / Math.sqrt(qWords.size * pWords.length)
 }
 
 /**
- * Score multiple passages against one query embedding.
- * More efficient than calling similarityScore N times.
+ * Rank passages by semantic similarity to query using HF Inference API.
+ * The API accepts source_sentence + sentences[] and returns similarity scores directly.
  */
 export async function rankPassages(
   query: string,
   passages: string[]
 ): Promise<Array<{ passage: string; score: number }>> {
   if (!passages.length) return []
-  const qv = await embedText(query)
-  const scores = await Promise.all(
-    passages.map(async p => {
-      const pv = await embedText(p)
-      return { passage: p, score: cosine(qv, pv) }
+
+  // Trim passages to 512 chars (model input limit)
+  const trimmed = passages.map(p => p.slice(0, 512))
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (HF_TOKEN) headers["Authorization"] = `Bearer ${HF_TOKEN}`
+
+    const res = await fetch(HF_API_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        inputs: { source_sentence: query.slice(0, 512), sentences: trimmed },
+        options: { wait_for_model: true },
+      }),
+      signal: AbortSignal.timeout(8000),
     })
-  )
-  return scores.sort((a, b) => b.score - a.score)
+
+    if (res.ok) {
+      const scores = await res.json() as number[]
+      if (Array.isArray(scores) && scores.length === passages.length) {
+        return passages
+          .map((p, i) => ({ passage: p, score: scores[i] }))
+          .sort((a, b) => b.score - a.score)
+      }
+    }
+  } catch { /* fall through to BM25 */ }
+
+  // Fallback: BM25 keyword overlap (no external deps)
+  return passages
+    .map(p => ({ passage: p, score: bm25Score(query, p) }))
+    .sort((a, b) => b.score - a.score)
 }

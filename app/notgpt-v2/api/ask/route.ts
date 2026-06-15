@@ -9,7 +9,7 @@
  * No word lists. No lookup tables. Sentence embeddings bridge vocabulary gaps.
  */
 
-export const runtime = "nodejs" // required: @xenova/transformers needs Node.js, not edge
+export const runtime = "nodejs"
 
 import { classify } from "../../engine/classify"
 import { retrieveBestPassage } from "../../engine/retrieve"

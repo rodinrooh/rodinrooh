@@ -2,7 +2,7 @@ import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
   transpilePackages: ["mathjs", "franc-min"],
-  serverExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+  // @xenova/transformers removed — embeddings now via HF Inference API (no native binaries)
 }
 
 export default nextConfig
