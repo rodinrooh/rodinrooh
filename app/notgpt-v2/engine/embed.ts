@@ -10,11 +10,14 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 type CompromiseView = { out: (fmt: "array") => string[]; not: (tag: string) => CompromiseView }
-const nlp = require("compromise") as (text: string) => {
+type CompromiseDoc = {
   nouns: () => CompromiseView
   verbs: () => CompromiseView
   adjectives: () => CompromiseView
+  not: (tag: string) => CompromiseDoc
+  terms: () => CompromiseView
 }
+const nlp = require("compromise") as (text: string) => CompromiseDoc
 
 const HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 const HF_API_URL = `https://api-inference.huggingface.co/models/${HF_MODEL}`
@@ -22,23 +25,32 @@ const HF_TOKEN = process.env.HF_TOKEN
 
 /**
  * Extract semantic content words from text using NLP POS tagging.
- * Returns nouns + non-auxiliary verbs + adjectives — no hardcoded stopword list needed.
+ * Uses compromise to filter pronouns, prepositions, auxiliaries, etc. at the POS level —
+ * no hardcoded stopword list. Then splits any multi-word phrases into individual tokens.
+ *
  * "what happens if you swallow gum" → ["happens", "swallow", "gum"]
+ * "why does helium make your voice higher" → ["helium", "voice", "higher"]
  * "why do my fingers wrinkle in the bath" → ["fingers", "wrinkle", "bath"]
  */
 function contentWords(text: string): string[] {
   try {
     const doc = nlp(text)
-    const nouns = doc.nouns().out("array") as string[]
-    // Explicitly exclude auxiliaries (#Auxiliary) and modals (#Modal) — "does", "is", "are",
-    // "has", "will", "should" etc. are query scaffolding, not semantic content words.
-    const verbs = doc.verbs().not("#Auxiliary").not("#Modal").out("array") as string[]
-    const adjs = doc.adjectives().out("array") as string[]
-    return [...nouns, ...verbs, ...adjs]
-      .map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    // Filter grammatical function words by POS — no word list needed.
+    // Individual terms() after filtering gives single tokens, not multi-word phrases.
+    return (doc
+      .not("#Pronoun")
+      .not("#Preposition")
+      .not("#Conjunction")
+      .not("#Auxiliary")
+      .not("#Modal")
+      .not("#Determiner")
+      .not("#Adverb")
+      .not("#QuestionWord")
+      .terms()
+      .out("array") as string[])
+      .flatMap(w => w.toLowerCase().split(/\W+/))  // split any multi-word phrases
       .filter(w => w.length > 2)
   } catch {
-    // Compromise unavailable: fall back to length-based filtering (words > 4 chars tend to be content words)
     return text.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 4)
   }
 }
