@@ -293,15 +293,13 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         if (isEntertainment) return null
         const art = await wikiSummary(r.title)
         if (!art?.extract) return null
-        // Rank 0: fetch full text for best passage quality (1 fetch only)
-        // Ranks 1-3: snippet + extract only (fast, avoids timeout on cold starts)
+        // All ranks get full text — answers are often in paragraphs 12-24, not just 0-11.
+        // Rank 0 gets 25 paragraphs (0-24); ranks 1-3 get 12 paragraphs (0-11).
+        // Running all 4 fetches in parallel keeps wall-clock time the same as fetching 1.
         let passages: string[] = []
-        if (idx === 0) {
-          const fullText = await wikiFullText(r.title)
-          passages = fullText ? splitPassages(fullText).slice(0, 12) : splitPassages(art.extract).slice(0, 5)
-        } else {
-          passages = splitPassages(art.extract).slice(0, 5)
-        }
+        const fullText = await wikiFullText(r.title)
+        const limit = idx === 0 ? 25 : 12
+        passages = fullText ? splitPassages(fullText).slice(0, limit) : splitPassages(art.extract).slice(0, limit)
         if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
         const scored = await rankPassages(query, passages)
         const best = scored[0]
