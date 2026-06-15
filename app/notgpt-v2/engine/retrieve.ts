@@ -1,27 +1,25 @@
 /**
  * Retrieval: Google (Serper) finds the article, HF ranks the passages.
  *
- * Architecture (50 lines of real logic):
- *   1. Ask Google for top-5 Wikipedia articles for the query
- *   2. Score each article's snippet with HF
- *   3. If best snippet >= 0.5, it IS the answer — return it directly
- *   4. Otherwise fetch the best-snippet article's full text and scan for best passage
+ * Architecture:
+ *   1. Ask Google for top-5 Wikipedia articles
+ *   2. Score each article's snippet with HF in one batch call
+ *   3. If best snippet >= 0.5 → it IS the answer, return it directly
+ *   4. Otherwise scan the best-snippet article's full text for a better passage
  *
- * The previous 400-line version combined DDG + Wikipedia BM25 + OpenSearch + Serper
- * into a multi-source pool with cascading fallbacks. This caused regressions where
- * the correct rank-0 Serper article was overridden by lower-quality sources.
  * Serper's rank-0 snippet is already the answer for ~80% of mechanism questions.
  */
 
 import { wikiSummary, wikiFullText, splitPassages } from "./wiki"
 import { rankPassages } from "./embed"
 
-const SERPER_KEY = () => process.env.SERPER_API_KEY
+const SNIPPET_THRESHOLD = 0.5   // snippet directly answers the question
+const PASSAGE_THRESHOLD = 0.25  // minimum confidence to return anything
 
 type SerperResult = { title: string; snippet: string; url: string }
 
 async function serperSearch(query: string): Promise<SerperResult[]> {
-  const key = SERPER_KEY()
+  const key = process.env.SERPER_API_KEY
   if (!key) return []
   try {
     const res = await fetch("https://google.serper.dev/search", {
@@ -38,7 +36,6 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
       const m = r.link.match(/en\.wikipedia\.org\/wiki\/(.+)$/)
       if (!m) continue
       const title = decodeURIComponent(m[1].replace(/_/g, " "))
-      // Skip Wikipedia meta/talk pages, disambiguation, and explicit entertainment markers
       if (title.startsWith("Wikipedia:") || title.startsWith("Talk:") ||
           title.startsWith("List of") || title.includes("(disambiguation)")) continue
       if (/\(\d{4}\s*(?:film|movie|TV series|song|album|novel)\)|!+$|\bSeason \d+\b/i.test(title)) continue
@@ -48,6 +45,10 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
   } catch { return [] }
 }
 
+function queryIsAboutLanguage(q: string): boolean {
+  return /\b(pronoun|grammar|preposition|conjunction|syntax|linguistics|language|parts of speech)\b/i.test(q)
+}
+
 export type RetrievalResult = {
   passage: string
   articleTitle: string
@@ -55,95 +56,79 @@ export type RetrievalResult = {
   score: number
 }
 
-// If the query is about grammar/language, allow grammar articles through.
-// "what is a pronoun" should return the pronoun article.
-function queryIsAboutLanguage(query: string): boolean {
-  return /\b(pronoun|grammar|preposition|conjunction|syntax|linguistics|language|parts of speech)\b/i.test(query)
-}
-
-function isGrammarArticle(description: string | undefined): boolean {
-  return /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(description ?? "")
-}
-
-function isMediaArticle(description: string | undefined): boolean {
-  return /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game)\b/i.test(description ?? "")
-}
-
 export async function retrieveBestPassage(query: string): Promise<RetrievalResult | null> {
-  const SNIPPET_THRESHOLD = 0.5   // above this: snippet directly answers the question
-  const PASSAGE_THRESHOLD = 0.25  // below this: not confident enough to return anything
-
   const serperResults = await serperSearch(query)
   if (!serperResults.length) return null
 
-  // Score snippets in one HF call — cheap, fast (~5 short texts)
-  const snippets = serperResults.map(r => r.snippet).filter(s => s.length > 30)
-  if (!snippets.length) return null
-
-  const snippetScores = await rankPassages(query, snippets)
-  const bestSnippet = snippetScores[0]
-
-  // Fetch summaries for top results to apply article-level filters
+  // Fetch article descriptions for the top-3 to apply content filters
   const summaries = await Promise.all(
     serperResults.slice(0, 3).map(r => wikiSummary(r.title))
   )
 
-  // Find the best snippet that passes content filters
-  let chosenResult: SerperResult | null = null
-  let chosenSnippet: string | null = null
-  let chosenScore = 0
+  // Build snippet pairs keeping the original serperResults index — this is critical.
+  // Filtering snippets into a separate array and using .indexOf() breaks index alignment.
+  const snippetPairs: Array<{ snippet: string; serperIdx: number }> = []
+  for (let i = 0; i < serperResults.length; i++) {
+    const snippet = serperResults[i].snippet
+    if (!snippet || snippet.length < 30) continue
 
-  for (const { passage, score } of snippetScores) {
-    const idx = snippets.indexOf(passage)
-    if (idx < 0) continue
-    const result = serperResults[idx]
-    const summary = summaries[idx]
-
-    // Skip grammar articles unless query is about language
-    if (!queryIsAboutLanguage(query)) {
-      if (summary && isGrammarArticle(summary.description)) continue
-      if (summary && isMediaArticle(summary.description)) continue
+    // Apply content filters using the fetched summary
+    const summary = summaries[i]
+    if (!queryIsAboutLanguage(query) && summary) {
+      const desc = summary.description ?? ""
+      const isGrammar = /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(desc)
+      const isMedia = /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game)\b/i.test(desc)
+      if (isGrammar || isMedia) continue
     }
 
-    chosenResult = result
-    chosenSnippet = passage
-    chosenScore = score
-    break
+    snippetPairs.push({ snippet, serperIdx: i })
   }
 
-  if (!chosenResult || !chosenSnippet) return null
+  if (!snippetPairs.length) return null
+
+  // Score all snippets in one HF call — cheap (5 short texts)
+  const snippetTexts = snippetPairs.map(p => p.snippet)
+  const snippetScores = await rankPassages(query, snippetTexts)
+
+  // Build score lookup by snippet text
+  const scoreByText = new Map(snippetScores.map(s => [s.passage, s.score]))
+
+  // Find the best-scoring snippet, preserving Serper rank order for ties
+  let bestPair = snippetPairs[0]
+  let bestScore = scoreByText.get(bestPair.snippet) ?? 0
+  for (const pair of snippetPairs.slice(1)) {
+    const score = scoreByText.get(pair.snippet) ?? 0
+    if (score > bestScore) { bestScore = score; bestPair = pair }
+  }
+
+  const bestResult = serperResults[bestPair.serperIdx]
+  const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
   // If the snippet directly answers the question, return it immediately
-  if (chosenScore >= SNIPPET_THRESHOLD) {
-    const art = summaries[serperResults.indexOf(chosenResult)] ?? await wikiSummary(chosenResult.title)
-    if (art) {
-      return {
-        passage: chosenSnippet.slice(0, 800),
-        articleTitle: art.title,
-        articleUrl: art.url,
-        score: chosenScore,
-      }
+  if (bestScore >= SNIPPET_THRESHOLD && bestSummary) {
+    return {
+      passage: bestPair.snippet.slice(0, 800),
+      articleTitle: bestSummary.title,
+      articleUrl: bestSummary.url,
+      score: bestScore,
     }
   }
 
   // Snippet wasn't confident enough — scan the full article for a better passage
-  const art = summaries[serperResults.indexOf(chosenResult)] ?? await wikiSummary(chosenResult.title)
-  if (!art?.extract) return null
+  if (!bestSummary?.extract) return null
 
-  const fullText = await wikiFullText(chosenResult.title)
-  const passages = splitPassages(fullText ?? art.extract).slice(0, 25)
-  // Include the snippet itself — it might still be the best passage
-  if (chosenSnippet.length > 30) passages.unshift(chosenSnippet)
+  const fullText = await wikiFullText(bestResult.title)
+  const passages = splitPassages(fullText ?? bestSummary.extract).slice(0, 25)
+  if (bestPair.snippet.length > 30) passages.unshift(bestPair.snippet)
 
   const passageScores = await rankPassages(query, passages)
-  const bestPassage = passageScores[0]
-
-  if (!bestPassage || bestPassage.score < PASSAGE_THRESHOLD) return null
+  const best = passageScores[0]
+  if (!best || best.score < PASSAGE_THRESHOLD) return null
 
   return {
-    passage: bestPassage.passage.slice(0, 800),
-    articleTitle: art.title,
-    articleUrl: art.url,
-    score: bestPassage.score,
+    passage: best.passage.slice(0, 800),
+    articleTitle: bestSummary.title,
+    articleUrl: bestSummary.url,
+    score: best.score,
   }
 }
