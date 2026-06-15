@@ -1,15 +1,6 @@
 import { CRYPTO_SYMBOLS } from "../lexicons"
 import { MatchResult } from "./index"
 
-// Fiat currency codes (ISO 4217 subset — common ones)
-const FIAT_CODES = new Set([
-  "usd", "eur", "gbp", "jpy", "cad", "aud", "chf", "cny", "hkd", "nzd",
-  "sek", "nok", "dkk", "sgd", "inr", "mxn", "brl", "zar", "rub", "krw",
-  "try", "aed", "sar", "idr", "myr", "php", "thb", "vnd", "pln", "czk",
-  "huf", "ron", "bgn", "hrk", "isk", "ils", "cop", "pen", "clp", "ars",
-  "egp", "pkr", "bdt", "uah", "kwd", "qar", "omr", "bhd", "jod", "lkr",
-])
-
 // Currency name aliases → ISO code
 const CURRENCY_NAMES: Record<string, string> = {
   "dollar": "USD",
@@ -85,6 +76,10 @@ const CURRENCY_NAMES: Record<string, string> = {
   "sgd": "SGD",
   "singapore dollar": "SGD",
 }
+
+// Fiat codes derived from CURRENCY_NAMES values — single source of truth.
+// Adding a currency to CURRENCY_NAMES automatically includes it here.
+const FIAT_CODES = new Set(Object.values(CURRENCY_NAMES).map(c => c.toLowerCase()))
 
 // Crypto name → canonical symbol (uppercase)
 const CRYPTO_MAP: Record<string, string> = {}

@@ -1,0 +1,25 @@
+{
+  "_note": "Sealed passage-level retrieval test set. Written once, never modified. Fix the retrieval, not these queries.",
+  "queries": [
+    "why do onions make your eyes water",
+    "why do leaves change color in fall",
+    "why does helium make your voice higher",
+    "why do golf balls have dimples",
+    "why does sand squeak when you walk on it",
+    "why does the ground smell after rain",
+    "why do moths fly toward lights",
+    "why do birds sing in the morning",
+    "why does metal feel colder than wood",
+    "why does alcohol make you feel warm",
+    "why do elephants have such good memories",
+    "why does glass fog up",
+    "why does wood float but metal sinks",
+    "why do bees make honey",
+    "why do we get hiccups",
+    "what makes rainbows form",
+    "why do fingers wrinkle in water",
+    "what makes aspirin reduce fever",
+    "why does the moon look bigger near the horizon",
+    "why do cats knock things off tables"
+  ]
+}

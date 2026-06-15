@@ -1,383 +1,115 @@
-export const runtime = "nodejs";
-export const maxDuration = 30;
-export const dynamic = "force-dynamic";
+/**
+ * notgpt API — v2 semantic passage retrieval.
+ *
+ * Old pipeline (route.legacy.ts) is kept but not in use.
+ * This route uses all-MiniLM-L6-v2 for passage ranking — no word lists.
+ */
 
-import { NextRequest } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
-import { classify } from "../../engine/classify/index";
-import { runPipeline } from "../../engine/pipeline";
-import { encodeSSE, SSEEvent } from "../../engine/sse";
-import { createSessionMemory } from "../../engine/persona/engine";
-import { SessionMemory } from "../../engine/persona/bits";
-import { TurnContext, EntityRef } from "../../engine/classify/coref";
-import { TEMPORAL_TERMS } from "../../engine/classify/lexicons";
-import { fetchWikiSummary } from "../../engine/sources/wikipedia";
+export const runtime = "nodejs"
+export const maxDuration = 60
+export const dynamic = "force-dynamic"
 
+import { classify } from "../../../notgpt-v2/engine/classify"
+import { retrieveBestPassage } from "../../../notgpt-v2/engine/retrieve"
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const nspellCreate = require("nspell") as (
-  aff: Buffer, dic: Buffer
-) => { correct: (w: string) => boolean; suggest: (w: string) => string[]; add: (w: string) => void }
+const { evaluate, format } = require("mathjs")
 
-// Lazily initialized — dictionary files are ~1.5MB each; defer until first request
-let _spell: ReturnType<typeof nspellCreate> | null = null
-
-function getSpell() {
-  if (_spell) return _spell
-  const root = join(process.cwd(), "node_modules", "dictionary-en")
-  const aff = readFileSync(join(root, "index.aff"))
-  const dic = readFileSync(join(root, "index.dic"))
-  _spell = nspellCreate(aff, dic)
-  // Supplement with modern/tech words not in standard English dictionary
-  const extra = [
-    "wifi","dna","rna","cpu","gpu","gps","api","ai","ml","url","dvd","usb","atm",
-    "app","apps","pdf","ai","nfl","nba","html","css","sql","vr","ar","iot","ar",
-    "podcast","podcasts","emoji","emojis","selfie","selfies","hashtag","hashtags",
-    "bitcoin","crypto","blockchain","cryptocurrency","ethereum","nft","defi",
-    "smartphone","smartphones","chatgpt","openai","elon","musk","iphone","android",
-    "youtube","google","amazon","twitter","tesla","netflix","spotify","uber","airbnb",
-    "reddit","snapchat","whatsapp","instagram","tiktok","facebook","microsoft","nvidia",
-    "samsung","paypal","lyft","pinterest","linkedin","walmart","disney","sony",
-    "honda","toyota","bmw","ford","intel","amd","qualcomm","shopify","stripe",
-    "figma","notion","slack","meta","alphabet","palantir","databricks","broadcom",
-  ]
-  for (const w of extra) _spell.add(w)
-  return _spell
+function sse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
-// Slang/internet words that should NEVER be spell-corrected — they will be stripped by
-// normalize.ts anyway. Without this, "bruh" → "brush", "lol" → "loll", etc.
-const SPELL_SLANG = new Set([
-  "bruh","bro","dude","yo","lol","lmao","omg","wtf","tf","af","rn","ngl","tbh",
-  "imo","smh","idk","idek","tho","tbt","btw","fyi","fr","lowkey","highkey","deadass",
-  "literally","honestly","actually","basically","genuinely","fr","ok","okay",
-  "lol","rofl","lmfao","omfg","ffs","smh","ngl","tbf","imo","imho","fwiw",
-  "bruh","bruv","fam","sis","bae","slay","cap","nocap","npc","sheesh","bussin",
-  "cheugy","yeet","yolo","swag","drip","mid","sus","vibe","vibes","based","cringe",
-])
+async function handleFactual(query: string): Promise<ReadableStream> {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    async start(controller) {
+      controller.enqueue(encoder.encode(sse("status", { stage: "fetch", message: "Searching Wikipedia...", source: "wikipedia" })))
 
-// Stop words: never attempt spell correction on these
-const SPELL_STOP = new Set([
-  "the","a","an","is","are","was","were","be","been","being","have","has","had",
-  "do","does","did","will","would","could","should","may","might","shall","can",
-  "of","in","on","at","to","for","with","by","from","up","and","or","but","not",
-  "i","me","we","you","he","she","they","my","your","his","her","our","their",
-  "what","which","who","whom","whose","when","where","why","how","if","so","as",
-  "this","that","these","those","it","its","get","got","go","went","come","came",
-])
+      const result = await retrieveBestPassage(query)
 
-function swapAdjacent(word: string): string[] {
-  const letters = word.split("")
-  return letters.slice(0, -1).map((_, i) => {
-    const s = [...letters];
-    [s[i], s[i + 1]] = [s[i + 1], s[i]]
-    return s.join("")
+      if (!result) {
+        const msg = "Nothing found — I searched Wikipedia from multiple angles and couldn't find a passage that answers this."
+        for (const word of msg.split(" ")) {
+          controller.enqueue(encoder.encode(sse("delta", { text: word + " " })))
+        }
+        controller.enqueue(encoder.encode(sse("done", { id: crypto.randomUUID(), verdict: "declined", intent: "lookup", provenance: [], timing: { totalMs: 0 } })))
+        controller.close()
+        return
+      }
+
+      // Stream passage word by word
+      const words = result.passage.split(" ")
+      for (const word of words) {
+        controller.enqueue(encoder.encode(sse("delta", { text: word + " " })))
+      }
+
+      controller.enqueue(encoder.encode(sse("provenance", {
+        sources: [{
+          source: "wikipedia",
+          url: result.articleUrl,
+          label: result.articleTitle,
+          fetchedAt: new Date().toISOString(),
+        }]
+      })))
+      controller.enqueue(encoder.encode(sse("done", {
+        id: crypto.randomUUID(),
+        verdict: "answered",
+        intent: "lookup",
+        provenance: [{ source: "wikipedia", url: result.articleUrl, label: result.articleTitle, fetchedAt: new Date().toISOString() }],
+        timing: { totalMs: 0 },
+      })))
+      controller.close()
+    },
   })
 }
 
-/**
- * Spell-correct the query BEFORE intent classification, using nspell + dictionary-en.
- *
- * Key improvements over the old Wikipedia-API approach:
- * - "bones" → valid English word → no corruption → no more "boneh break"
- * - "blush" → valid → no more "blues"
- * - "compas" → suggests "compass" (real word, not Wikipedia article title)
- * - "stra" → transposition check finds "star" before nspell can suggest "strap"
- *
- * Only corrects words that are definitively not in the English dictionary.
- */
-async function getSpellingCorrection(q: string): Promise<string | null> {
-  const words = q.trim().split(/\s+/)
-  if (words.length === 0) return null
-
-  try {
-    const spell = getSpell()
-    let anyChange = false
-
-    // Explicit short-word typos that nspell can't detect (edit distance 1 but wrong direction).
-    // "wat"→"what": nspell suggests "watt","eat","oat" but NOT "what" because "what" needs insert.
-    // These are only the most common question-word typos — not a general typo dictionary.
-    const QUESTION_WORD_TYPOS: Record<string, string> = {
-      'wat': 'what', 'wha': 'what', 'whta': 'what',
-      'whe': 'when', 'wher': 'where', 'whre': 'where',
-      'hwo': 'how', 'hoew': 'how',
-      'wich': 'which', 'whch': 'which',
-      'woh': 'who',
-    }
-
-    const correctedWords = await Promise.all(words.map(async rawWord => {
-      const clean = rawWord.toLowerCase().replace(/[^a-z]/g, "")
-      // Check question-word typos FIRST — nspell won't catch these
-      if (QUESTION_WORD_TYPOS[clean]) {
-        anyChange = true
-        return rawWord.replace(clean, QUESTION_WORD_TYPOS[clean])
-      }
-      // Skip: very short, stop/slang word, or already valid English
-      if (clean.length < 4 || SPELL_STOP.has(clean) || SPELL_SLANG.has(clean)) return rawWord
-      if (spell.correct(clean)) return rawWord  // valid English word → never touch it
-
-      // KEY: Try the literal word as a Wikipedia title BEFORE applying any correction.
-      // "banksy" → nspell says invalid, but Wikipedia has "Banksy" article → don't touch it.
-      // "floyd" → has a disambiguation page → don't "correct" to "flood".
-      // IMPORTANT: Only protect words ≥ 5 chars. Short words (3-4 chars) like "wat" are almost
-      // certainly typos of common English words, even if Wikipedia has an obscure article for them.
-      // "wat" (Buddhist/Hindu temple) has a Wikipedia article but "wat" is almost certainly "what".
-      // "banksy" (6 chars) is distinctive. "wat" (3 chars) is not.
-      if (clean.length >= 5) {
-        try {
-          const wikiCheck = await fetchWikiSummary(clean)
-          if (wikiCheck?.extract) {
-            return rawWord  // Wikipedia knows this word → never correct it
-          }
-        } catch { /* ignore timeout/network errors — fall through to nspell */ }
-      }
-
-      // Check adjacent-swap transpositions (edit distance 1 via Damerau)
-      // "stra" → swaps → "star" is valid English → return "star" before nspell says "strap"
-      const swaps = swapAdjacent(clean)
-      const validSwap = swaps.find(s => spell.correct(s))
-      if (validSwap) {
-        anyChange = true
-        return rawWord.replace(clean, validSwap)
-      }
-
-      // Fall back to nspell suggestions (covers edit distance 1-2)
-      const allowProperNoun = clean.length >= 6
-      const suggestions = spell.suggest(clean).filter(s =>
-        !s.includes(" ") &&
-        (allowProperNoun || !/^[A-Z]/.test(s)) &&
-        Math.abs(s.length - clean.length) <= 2
-      )
-      if (!suggestions.length) return rawWord
-
-      anyChange = true
-      return rawWord.replace(clean, suggestions[0].toLowerCase())
-    }))
-
-    return anyChange ? correctedWords.join(" ") : null
-  } catch {
-    return null
-  }
-}
-
-
-type RequestBody = {
-  message: string;
-  context?: TurnContext[];
-  sessionMemory?: SessionMemory;
-};
-
-function detectRecency(raw: string): boolean {
-  const lower = raw.toLowerCase();
-  return TEMPORAL_TERMS.some((term) => lower.includes(term));
-}
-
-/**
- * Deserialize SessionMemory from a plain object (Maps are JSON-serialized as empty objects).
- * We reconstruct the Maps from the serialized form.
- */
-function deserializeMemory(raw: unknown): SessionMemory {
-  if (!raw || typeof raw !== "object") {
-    return createSessionMemory();
-  }
-  const obj = raw as Record<string, unknown>;
-
-  // Re-hydrate Maps from serialized form
-  const usedVariantIds = new Map<string, Set<number>>();
-  const rawUsed = obj.usedVariantIds;
-  if (rawUsed && typeof rawUsed === "object") {
-    for (const [k, v] of Object.entries(rawUsed as Record<string, number[]>)) {
-      usedVariantIds.set(k, new Set(Array.isArray(v) ? v : []));
-    }
-  }
-
-  const bitLastUsedAt = new Map<string, number>();
-  const rawBits = obj.bitLastUsedAt;
-  if (rawBits && typeof rawBits === "object") {
-    for (const [k, v] of Object.entries(rawBits as Record<string, number>)) {
-      bitLastUsedAt.set(k, typeof v === "number" ? v : 0);
-    }
-  }
-
-  const categoryCounts = new Map<string, number>();
-  const rawCounts = obj.categoryCounts;
-  if (rawCounts && typeof rawCounts === "object") {
-    for (const [k, v] of Object.entries(rawCounts as Record<string, number>)) {
-      categoryCounts.set(k, typeof v === "number" ? v : 0);
-    }
-  }
-
-  return {
-    usedVariantIds,
-    bitLastUsedAt: bitLastUsedAt as Map<import("../../engine/persona/bits").BitId, number>,
-    failureStreak: typeof obj.failureStreak === "number" ? obj.failureStreak : 0,
-    lastQueryHash: typeof obj.lastQueryHash === "string" ? obj.lastQueryHash : null,
-    messageIndex: typeof obj.messageIndex === "number" ? obj.messageIndex : 0,
-    categoryCounts,
-  };
-}
-
-export async function POST(req: NextRequest): Promise<Response> {
-  // Parse request body
-  let body: RequestBody;
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(
-      encodeSSE({
-        event: "error",
-        data: { code: "PARSE_ERROR", message: "Invalid JSON body", retryable: false },
-      }),
-      {
-        status: 400,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-store",
-          "Connection": "keep-alive",
-        },
-      }
-    );
-  }
-
-  const { message, context = [], sessionMemory: rawMemory } = body;
-
-  if (!message || typeof message !== "string" || !message.trim()) {
-    return new Response(
-      encodeSSE({
-        event: "error",
-        data: { code: "EMPTY_MESSAGE", message: "Message is required", retryable: false },
-      }),
-      {
-        status: 400,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-store",
-          "Connection": "keep-alive",
-        },
-      }
-    );
-  }
-
-  // Spell correction: run BEFORE intent classification.
-  // "tiem in tokyo" → suggest "time in tokyo" → time intent fires correctly.
-  // "balck hole" → "black hole" → correct lookup.
-  // Run in parallel with memory deserialization to minimize latency.
-  const normalizedContext = (context ?? []).map((turn) => ({
-    ...turn,
-    entities: (turn.entities ?? []).map((e: unknown) => {
-      if (typeof e === "string") return { title: e, kind: "thing" as const };
-      const obj = e as Record<string, unknown>;
-      return {
-        title: String(obj.title || obj.label || ""),
-        kind: ((obj.kind as EntityRef["kind"]) || "thing"),
-        gender: obj.gender as EntityRef["gender"],
-        qid: obj.qid as string | undefined,
-      } satisfies EntityRef;
-    }),
-  })) as TurnContext[];
-
-  const [corrected] = await Promise.all([
-    getSpellingCorrection(message),
-  ]);
-  const messageToClassify = corrected || message;
-
-  const classified = classify(messageToClassify, normalizedContext);
-  const isRecentQuery = detectRecency(message);
-
-  // Deserialize or create session memory
-  const memory = deserializeMemory(rawMemory);
-
-  // Build the SSE stream
-  const encoder = new TextEncoder();
-  const abortController = new AbortController();
-
-  // Track if client disconnected
-  req.signal.addEventListener("abort", () => {
-    abortController.abort();
-  });
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      // Keepalive ping every 15 seconds
-      const pingInterval = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode(": ping\n\n"));
-        } catch {
-          clearInterval(pingInterval);
-        }
-      }, 15_000);
-
-      const cleanup = () => clearInterval(pingInterval);
-
+function handleMath(query: string): ReadableStream {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
       try {
-        // Emit the intent event immediately so the client can show intent in UI
-        const intentEvent: SSEEvent = {
-          event: "intent",
-          data: {
-            intent: classified.intent,
-            confidence: classified.confidence,
-            slots: classified.slots,
-          },
-        };
-        controller.enqueue(encoder.encode(encodeSSE(intentEvent)));
-
-        // Run the pipeline — use corrected spelling if available
-        for await (const event of runPipeline(
-          messageToClassify,
-          classified,
-          normalizedContext,
-          memory,
-          isRecentQuery
-        )) {
-          // Stop if client disconnected
-          if (req.signal.aborted || abortController.signal.aborted) {
-            break;
-          }
-
-          const encoded = encodeSSE(event);
-          controller.enqueue(encoder.encode(encoded));
-
-          // On "done", close the stream
-          if (event.event === "done") {
-            break;
-          }
-        }
-      } catch (err) {
-        // Emit error event
-        const errorEvent: SSEEvent = {
-          event: "error",
-          data: {
-            code: "PIPELINE_ERROR",
-            message: err instanceof Error ? err.message : "An unexpected error occurred",
-            retryable: true,
-          },
-        };
-        try {
-          controller.enqueue(encoder.encode(encodeSSE(errorEvent)));
-        } catch {
-          // Ignore write errors after disconnect
-        }
-      } finally {
-        cleanup();
-        try {
-          controller.close();
-        } catch {
-          // Ignore close errors
-        }
+        const expr = query.replace(/[^0-9+\-*/^().%\s]/g, "").trim()
+        const result = evaluate(expr)
+        const formatted = format(result, { precision: 14 })
+        const text = `**${formatted}**`
+        controller.enqueue(encoder.encode(sse("delta", { text })))
+        controller.enqueue(encoder.encode(sse("done", { id: crypto.randomUUID(), verdict: "answered", intent: "math", provenance: [], timing: { totalMs: 0 } })))
+      } catch {
+        controller.enqueue(encoder.encode(sse("delta", { text: "Couldn't parse that as a math expression." })))
+        controller.enqueue(encoder.encode(sse("done", { id: crypto.randomUUID(), verdict: "declined", intent: "math", provenance: [], timing: { totalMs: 0 } })))
       }
+      controller.close()
     },
+  })
+}
 
-    cancel() {
-      abortController.abort();
+function handleSocial(): ReadableStream {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(sse("delta", { text: "Hey. Ask me anything — I'll find the Wikipedia passage that answers it." })))
+      controller.enqueue(encoder.encode(sse("done", { id: crypto.randomUUID(), verdict: "answered", intent: "greeting", provenance: [], timing: { totalMs: 0 } })))
+      controller.close()
     },
-  });
+  })
+}
+
+export async function POST(req: Request) {
+  const body = await req.json()
+  const message: string = (body.message ?? "").trim()
+  if (!message) return new Response("No message", { status: 400 })
+
+  const intent = classify(message)
+
+  let stream: ReadableStream
+  if (intent === "math") stream = handleMath(message)
+  else if (intent === "social") stream = handleSocial()
+  else stream = await handleFactual(message)
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-cache",
       "Connection": "keep-alive",
-      "X-Accel-Buffering": "no", // Disable nginx buffering for SSE
     },
-  });
+  })
 }

@@ -293,7 +293,6 @@ export const CREATIVE_NOUNS: string[] = [
   "tale",
   "narrative",
   "short story",
-  "short story",
   "verse",
   "rhyme",
   "ode",
@@ -734,3 +733,17 @@ export const STRUCTURED_FACT_TEMPLATES: Array<{
     entityGroup: 1,
   },
 ]
+
+// Social signals: words that are positive indicators of conversational (not factual) intent.
+// Lives here alongside other classification data (OPINION_TERMS, TEMPORAL_TERMS, etc.)
+// so pipeline.ts has no inline classification vocabulary.
+export const SOCIAL_SIGNALS: Set<string> = new Set([
+  "hi","hey","hello","howdy","sup","yo","hiya","heya",
+  "ok","okay","k","lol","lmao","omg","wtf","bruh","bro","dude","yikes","ugh",
+  "wow","whoa","woah","hmm","hm","uh","um","ah","oh","err","pfft","yay","oops",
+  "yeah","yep","yup","nah","nope","sure","fine","cool","nice","great","sweet",
+  "awesome","alright","gotcha","understood","noted","same","damn","dang","geez",
+  "bye","cya","goodbye","later","peace","farewell","night","goodnight",
+  "thanks","thx","ty","cheers","sry","np","welcome",
+  "wait","so","then","like","basically","literally","actually",
+])

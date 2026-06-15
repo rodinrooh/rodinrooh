@@ -107,6 +107,9 @@ import {
   fetchWikiFullText,
   fetchDabLinks,
 } from "./sources/wikipedia";
+import { fetchDDGAnswer } from "./sources/ddg";
+import { SUBJECT_STOPS, SCORING_STOPS, QUESTION_STOPS, PASSAGE_STOPS, CORE_STOPS } from "./stopwords";
+import { SOCIAL_SIGNALS as SOCIAL_SIGNALS_LEXICON } from "./classify/lexicons";
 import { fetchDefinition, dictionaryProvenance } from "./sources/dictionary";
 import {
   fetchStatement,
@@ -213,38 +216,14 @@ function resolveMetaSubintent(subintent: string): string[] {
 // General algorithmic detector — not a hardcoded word list.
 // Detects: short input + no factual content words + no question structure.
 
-// Social signals: words that are positive indicators of conversational (not factual) intent.
-// This list covers the most common cases — the ALGORITHM handles the long tail.
-const SOCIAL_SIGNALS = new Set([
-  // Greetings
-  "hi","hey","hello","howdy","sup","yo","hiya","heya",
-  // Reactions/acknowledgments
-  "ok","okay","k","lol","lmao","omg","wtf","bruh","bro","dude","yikes","ugh",
-  "wow","whoa","woah","hmm","hm","uh","um","ah","oh","err","pfft","yay","oops",
-  // Affirmations/negations as standalone
-  "yeah","yep","yup","nah","nope","sure","fine","cool","nice","great","sweet",
-  "awesome","alright","gotcha","understood","noted","same","damn","dang","geez",
-  // Closings
-  "bye","cya","goodbye","later","peace","farewell","night","goodnight","later",
-  // Thanks/sorry
-  "thanks","thx","ty","cheers","sry","np","welcome",
-  // Discourse
-  "wait","so","then","like","basically","literally","actually",
-]);
+// Social signals from lexicons.ts — shared with classifier, not duplicated here.
+const SOCIAL_SIGNALS = SOCIAL_SIGNALS_LEXICON
 
-// Question words that — combined with a noun — signal factual intent (not conversational).
-// If these appear AND there's a content word after them, it's NOT conversational.
+// Question words (7 English question words — genuinely finite).
 const QUESTION_WORDS = new Set(["what","who","how","why","when","where","which"]);
 
-// Stop words that are not factual content.
-const CONV_STOP = new Set([
-  "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
-  "and","or","but","for","with","by","from","as","that","this","these","those",
-  "i","me","we","you","he","she","they","it","my","your","his","her","our","their",
-  "have","has","had","will","would","could","should","be","been","not","very","just",
-  "can","may","might","shall","up","out","off","down","too","also","so","yet","both",
-  "each","any","all","one","its","about","into","than","through",
-]);
+// Conversational stop words — reuse CORE_STOPS from shared stopwords module.
+const CONV_STOP = CORE_STOPS;
 
 /**
  * Returns true if the input is conversational (filler, greeting, reaction, acknowledgment)
@@ -1158,33 +1137,7 @@ export async function* runPipeline(
     return;
   }
 
-  // Entertainment description detector — checks Wikipedia's description field, not just title.
-  // Defined here (before structured_fact AND lookup) because both handlers use it.
-  // Pattern matches article descriptions that indicate entertainment/commercial content.
-  const ENTERTAINMENT_DESCRIPTIONS_RE = /\b(?:film|movie|television series|tv series|tv show|miniseries|sitcom|documentary film|web series|animated series|novel(?:la|ette)?s?|book series|children(?:'s|s)? (?:book|novel|horror|fiction)|comic(?:\s+book)?|graphic novel|manga|manhwa|songs?|albums?|single by|ep by|series by|band member|music group|pop group|rock group|folk group|country group|jazz group|rapper|singer|musician|pop star|DJ\b|disc jockey\b|record producer\b|record label\b|actress\b|actor\b|comedian\b|stand-up comedian\b|voice actor\b|film actress|television actress|live.streaming\b|video game streaming|rock band|pop band|punk band|metal band|hip.hop group|indie band|folk band|boy band|girl group|(?:english|american|british|australian|canadian|irish|scottish|welsh|swedish|norwegian|german|french|japanese|korean)\s+(?:rock|pop|punk|metal|indie|folk|hip.hop|jazz|country|alternative|electronic|r&b)\s+(?:band|group)|play by|theatrical play|stage play|animation studio|film studio|visual effects studio|production (?:company|house|studio)|cosmetic|lacquer|nail polish|nail varnish|perfume|fragrance|tourist attraction|visitor (?:centre|center|attraction)|science (?:centre|center|museum)|museum (?:in|of)|theme park|amusement park|observatory (?:and|in)|resort in|restaurant|hotel in|shopping (?:mall|centre)|video game|board game|card game|role-?playing game|internet (?:challenge|trend|meme|hoax)|social media (?:challenge|trend|phenomenon)|cast of|franchise inspired|media franchise|characters? in the|characters? from|fictional character)/i
-  const isEntertainmentDescription = (description: string | undefined): boolean => {
-    if (!description) return false
-    return ENTERTAINMENT_DESCRIPTIONS_RE.test(description)
-  }
 
-  // For personal/mechanism queries, also block non-phenomenon articles.
-  // These share words with the query but are NAMED ENTITIES, not the phenomenon.
-  // Built from actual Wikipedia descriptions of failing cases:
-  // "Brief sexual relationship" (One-night stand) → \bsexual\b
-  // "Practice of inhaling a burnt substance for psychoactive effects" (Smoking) → psychoactive
-  // "Microsoft mobile service" (My Phone) → mobile service
-  // "Apprehension or doubt preventing planned action" (Cold feet) → preventing planned action
-  // "African-American establishments in the U.S. South" (Juke joint) → establishments in
-  // "Class of hypothetical redshift mechanisms" (Tired light) → class of hypothetical
-  // "Statement within First Nations communities" → statement within
-  // "English country pop group" (Remember Monday) → pop group (also in ENT filter)
-  // "Play by William Shakespeare" → play by
-  // "Manufacturer in the Philippines" (MyPhone) → manufacturer in
-  const NON_PHENOMENON_DESCRIPTIONS_RE = /\b(?:phrase|idiom|expression|saying|proverb|slang|colloquialism|play\s+by|theatrical|manufacturer\s+in|manufacturer,|mobile\s+service|online\s+service|cloud\s+service|streaming\s+service|video\s+(?:game\s+)?streaming|social\s+media\s+platform|digital\s+media\s+company|media\s+(?:company|organization|outlet)|satire\s+news|news\s+satire|satirical\s+(?:news|publication|media)|newspaper\s+publisher|class\s+of\s+hypothetical|alternative\s+explanation|hypothetical\s+redshift|hypothetical\s+(?:mechanism|theory)|political\s+statement|activist\s+(?:phrase|slogan)|statement\s+within|country\s+pop\s+group|pop\s+group|rock\s+group|folk\s+group|music\s+group|establishments?\s+in\s+the|vernacular\s+(?:term|expression)|psychoactive\b|sexual\s+(?:relationship|encounter|interaction|behavior)|brief\s+sexual|preventing\s+planned\s+action|removal\s+of\s+a\s+knighthood|knighthood\s+or\s+(?:other|a)\s+honour|chivalric\s+order|heraldic|biographical\s+(?:article|essay|piece|profile)|profile\s+of|essay\s+in|essay\s+by|magazine\s+(?:article|essay|feature)|journalistic\s+piece|intelligence\s+operation|military\s+operation|covert\s+operation|code\s+name|government\s+program|classified\s+program|black\s+operation|fairy\s+tale|folk\s+tale|folklore\s+collection|folk\s+legend|fairy\s+story|collected\s+by\s+(?:Peter|Jørgen|Jacob|Brothers)|buffering\s+agent|buffer\s+(?:solution|substance|reagent|compound)|biochemical\s+reagent|chemical\s+reagent|laboratory\s+reagent|in\s+biochemistry\b|ethanesulfonic\s+acid|destruction\s+of\s+land\b|divination\s+game\b|rock\s+(?:near|at|by|formation)|melee\s+weapon\b|hand-to-hand\s+combat\s+weapon\b|weapon\s+(?:used\s+in|designed|intended)\b)/i
-  const isNonPhenomenonDescription = (description: string | undefined): boolean => {
-    if (!description) return false
-    return NON_PHENOMENON_DESCRIPTIONS_RE.test(description)
-  }
 
   // ------------------------------------------------------------------
   // STRUCTURED FACT (height, age, population, capital, etc.)
@@ -1212,8 +1165,7 @@ export async function* runPipeline(
         ) ?? search?.hits?.[0];
         if (hit) {
           const candidate = await withTimeout(fetchWikiSummary(hit.title));
-          if (candidate?.extract && candidate.type !== "disambiguation" &&
-              !isEntertainmentDescription(candidate.description)) {
+          if (candidate?.extract && candidate.type !== "disambiguation") {
             discArticle = candidate;
             break;
           }
@@ -1340,12 +1292,12 @@ export async function* runPipeline(
       // Use the direct article if it's clean; otherwise use best non-entertainment search hit
       const searchHits = searchRes?.hits ?? [];
       const bestHit = !directArticle?.extract || directArticle.type === "disambiguation"
-        ? searchHits.find(h => !isEntertainmentDescription(h.description))
+        ? searchHits[0] ?? null
         : null;
       const histArticle = bestHit
         ? await withTimeout(fetchWikiSummary(bestHit.title))
         : (directArticle?.type !== "disambiguation" && directArticle?.extract ? directArticle : null);
-      if (histArticle?.extract && histArticle.type !== "disambiguation" && !isEntertainmentDescription(histArticle.description)) {
+      if (histArticle?.extract && histArticle.type !== "disambiguation") {
         const { truncated } = truncateExtract(histArticle.extract);
         provenance.push({ ...wikiProvenance(histArticle), latencyMs: Date.now() - startMs });
         blocks.push({ type: "wikipedia", content: truncated, wasTruncated: false, title: histArticle.title });
@@ -1720,33 +1672,17 @@ export async function* runPipeline(
     // "why am i always tired" → "Tired light" (cosmology). "why do I feel dizzy" → "One-night stand".
     const isPersonalQuery = /\b(?:i |my |me |we |our )\b|(?:^|\s)(?:i'm|i'm|i'm|i feel|i have|i get|i keep|my [a-z]|is it (?:safe|normal|healthy|okay|ok|bad|good)|is it (?:safe|normal) to|can i |should i )/i.test(classified.normalized)
 
-    // Entertainment filter scope: ONLY apply for mechanism queries (how/why/who invented/discovered).
-    // Direct requests ("tell me about X", "what is X", "who is X") should return entertainment.
-    // Over-filtering "tell me about the simpsons" was wrong — Simpsons IS the correct answer.
-    const shouldFilterEntertainment = isMechanismQuery
-    // For personal queries, also block non-phenomena (idioms, companies, fringe theories).
-    // These are specific named entities that share words but aren't the phenomenon being asked about.
-    const shouldFilterNonPhenomena = isMechanismQuery || isPersonalQuery
-
     // Pre-fetch: try the residual as a direct Wikipedia article title BEFORE any search.
     // "great barrier reef" → redirects to "Great Barrier Reef" (correct), not "Coral reef".
     // "north star" → redirects to "Polaris", not "Fist of the North Star" manga.
-    // Only for multi-word residuals — single words are handled in the search loop below.
-    if (queryForSearch.split(/\s+/).length >= 2) {
+    // Skip for action queries ("why does glass shatter") — the residual "glass shatter" can
+    // wrongly redirect to "Glass ceiling" via the "shatter the glass ceiling" phrase.
+    const isPreFetchActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|doesn\'t))\s/i.test(classified.normalized)
+    if (!isPreFetchActionQuery && queryForSearch.split(/\s+/).length >= 2) {
       const prefetch = await withTimeout(fetchWikiSummary(queryForSearch));
       const prefetchIsClean = prefetch?.extract &&
         prefetch.type !== "disambiguation" &&
-        !/\(film\)|\(song\)|\(TV\s*series\)|\(manga\)|\(anime\)|\(video\s*game\)/i.test(prefetch.title) &&
-        // For mechanism queries: reject entertainment descriptions AND require some description
-        // "memory work" has NO description → for mechanism queries, skip it so we can find
-        // the actual "Memory" (brain) article via the search loop instead
-        !(shouldFilterEntertainment && (
-          isEntertainmentDescription(prefetch?.description) ||
-          !prefetch?.description ||  // no description = likely niche/methodological article
-          // Single-word description = bare category label ("Color", "Shade", "Drink")
-          // These are article stubs or category redirects, not what a mechanism query wants
-          prefetch.description.trim().split(/\s+/).length === 1
-        ));
+        !/\(film\)|\(song\)|\(TV\s*series\)|\(manga\)|\(anime\)|\(video\s*game\)/i.test(prefetch.title);
       if (prefetchIsClean) {
         const { truncated, wasTruncated } = truncateExtract(prefetch!.extract);
         provenance.push({ ...wikiProvenance(prefetch!), latencyMs: Date.now() - startMs });
@@ -1760,439 +1696,49 @@ export async function* runPipeline(
       }
     }
 
-    // ---- SUBJECT EXTRACTION ----
-    // The single most important function: identify the NOUN PHRASE being asked about,
-    // not the question scaffold around it. "yo wtf is the bermuda triangle" → "bermuda triangle".
-    // "can humans survive on mars" → "mars". "is coffee bad for you" → "coffee".
-    // This prevents slang/filler/opinion words from polluting the Wikipedia search.
-    const SUBJECT_STOP = new Set([
-      // Slang and filler
-      "yo","wtf","tf","af","lol","omg","bruh","dude","bro","huh","smh","ngl","tbh",
-      "lowkey","highkey","literally","basically","honestly","actually","seriously","wait",
-      // Question words and scaffolds
-      "what","who","how","why","when","where","which","whose","whom",
-      "whats","whos","hows","whys","wheres","whens",
-      // Modal and auxiliary verbs
-      "is","are","was","were","be","been","being","am",
-      "can","could","should","would","will","shall","may","might","must",
-      "do","does","did","have","has","had",
-      // Common action verbs — when used as question structure (not subject)
-      "invented","invent","invents","discovered","discover","made","make","makes",
-      "died","die","dies","born","killed","kill","kills","went","go","goes","gone",
-      "survive","survived","survives","created","create","creates","found","find",
-      "mean","means","happened","happen","works","work","form","forms","came","come",
-      "become","became","get","got","gotten","turn","turned","turning","start","started",
-      "cause","caused","causes","produce","produced","produces","affect","affects",
-      "part","section","piece","area","region","place","thing","stuff","matter",
-      // Motion/state/action verbs — not subjects in typical question context
-      "run","runs","ran","heal","heals","healed","healing","float","floats","sink","sinks",
-      "hurt","hurts","break","breaks","broke","grow","grows","grew","fight","fights",
-      "stay","stays","stayed","keep","keeps","kept","hold","holds","held",
-      "fall","falls","fell","rise","rises","rose","drop","drops","dropped",
-      "spin","spins","spun","turn","turns","turned","move","moves","moved",
-      "take","takes","took","taken","put","puts","put","get","gets","got","give","gives","gave",
-      "make","makes","made","come","comes","came","go","goes","went","see","sees","saw",
-      "own","themselves","itself","myself","yourself","ourselves","yourselves",
-      // Directional particles — never subject nouns
-      "up","down","out","away","back","around","together","apart","open","shut",
-      // Temporal filler
-      "now","then","soon","later","today","yesterday","tomorrow","always","never",
-      "sometimes","often","usually","generally","normally","typically","basically",
-      // Opinion / evaluative words — never the subject
-      "bad","good","best","worst","better","worse","great","terrible","awful","amazing",
-      "richer","rich","poorer","poor","safe","unsafe","healthy","unhealthy","dangerous",
-      "useful","useless","important","unimportant","true","false","right","wrong",
-      // Very common material/substance nouns that are too generic as standalone subjects
-      // "eyes water when you yawn" → "water" shouldn't be extracted as primary subject
-      // These still work as subjects in direct queries ("what is water" uses direct fetch)
-      "water","fire","air","light","energy","matter","space","time",
-      // Filler/generic nouns that aren't subjects
-      "humans","human","people","person","someone","anyone","everyone","nobody",
-      "you","me","we","us","they","them","he","she","it","one",
-      "things","thing","objects","object","stuff","items","item","examples","example",
-      "owners","owner","users","user","viewers","viewer","readers","reader",
-      "everyone","anyone","nobody","somebody","themselves",
-      // Action nouns that appear as question scaffolding but aren't subjects
-      "crash","crashes","crashing","collision","accident","disaster","incident",
-      // Evaluative state/emotion adjectives — not the subject entity
-      "tired","exhausted","sleepy","hungry","thirsty","bored","sick","healthy","alive","dead",
-      "happy","sad","angry","scared","excited","nervous","anxious","depressed","lonely","upset",
-      "crazy","weird","strange","normal","natural","artificial","organic","digital","virtual",
-      // Negation words
-      "not","never","no","none","neither","nor","without","except","unless","hardly","barely",
-      "cannot","cant","wont","dont","doesnt","didnt","arent","isnt","wasnt","wouldnt","couldnt",
-      // Number/quantity words and ordinals — not subject nouns
-      "one","two","three","four","five","six","seven","eight","nine","ten",
-      "both","each","every","many","few","several","multiple","single",
-      "first","second","third","fourth","fifth","last","next","previous",
-      // Articles, prepositions, conjunctions
-      "the","a","an","of","in","on","at","to","for","with","by","from","about","into",
-      "through","during","before","after","above","below","between","out","off","over",
-      "and","or","but","nor","yet","so","both","either","neither","than","then",
-      // Common adverbs used as filler
-      "just","only","really","very","quite","too","also","still","already","always",
-      "never","often","ever","even","enough","kind","sort","type","way","bit",
-      // Comparative/superlative fillers (the noun after these is the subject)
-      "most","least","more","less","much","many","few","little","some","any","all",
-      "largest","biggest","smallest","tallest","shortest","fastest","slowest","oldest",
-      "newest","heaviest","lightest","deepest","highest","lowest","longest","widest",
-      // Descriptive/evaluative adjectives — not the subject noun
-      // "is coffee bad for you" → "bad" removed → "coffee"
-      // "why is the ocean salty" → "salty" removed → "ocean"
-      "bad","good","safe","unsafe","dangerous","harmful","healthy","unhealthy","toxic",
-      "salty","sweet","sour","bitter","spicy","hot","cold","warm","cool","wet","dry",
-      "deep","shallow","wide","narrow","thick","thin","heavy","light","rough","smooth",
-      "hard","soft","fast","slow","quick","strong","weak","bright","dark","loud","quiet",
-      "clean","dirty","fresh","stale","raw","cooked","alive","dead","sick","well","fit",
-      "big","small","large","tiny","huge","vast","giant","massive","enormous","microscopic",
-      // Comparative/superlative forms — "slower" "faster" etc. should not be subjects
-      "slower","faster","bigger","smaller","larger","higher","lower","longer","shorter",
-      "older","newer","heavier","lighter","deeper","louder","quieter","harder","softer",
-      // These appear as evaluative framing, not subject:
-      "for","you","bad","good","safe","dangerous","harmful","unhealthy","healthy","useful",
-      // EFFECT words for "X makes me [effect]" — the subject is X, not the effect.
-      // "coffee makes me poop" → subject=coffee, poop=effect → keep poop in STOP.
-      // "can you get sick from cold" → "sick" stripped so subject is "cold" (not contaminating search)
-      // Keep: words that don't redirect to useful articles or cause worse article matches when subject
-      // Remove: words where subject redirect IS useful (dizzy→Dizziness, headache→Headache, nausea→Nausea)
-      "poop","pee","vomit","sick","tired",
-    ])
+    // Subject extraction: strip question words, stop words, slang, process verbs.
+    const SIMPLE_STOP = SUBJECT_STOPS;
 
-    // Extract the subject noun phrase from a query by removing all non-subject words
-    const extractSubject = (rawQ: string): string => {
-      const tokens = rawQ.toLowerCase()
-        .replace(/[?!.,'"]+/g, " ")
-        .split(/\s+/)
-        .filter(t => t.length > 1)
-      const content = tokens.filter(t => !SUBJECT_STOP.has(t.replace(/[^a-z]/g, "")))
-      return content.join(" ").trim()
-    }
+    const subjectPhrase = queryForSearch
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .split(/\s+/)
+      .filter(t => t.length > 1 && !SIMPLE_STOP.has(t))
+      .join(" ")
+      .trim()
 
-    // Extract the best searchable term from the raw query.
-    // For how-to queries ("how do you make pasta"), extract the object noun phrase.
-    // For superlative queries ("what is the tallest building"), extract the core noun.
-    const extractSearchTerm = (q: string): string[] => {
-      const terms: string[] = [q];
-      // Strip leading how-to scaffolding to get the main noun
-      const howTo = q.replace(/^(?:how\s+(?:do(?:es)?(?:\s+(?:one|you|i|we))?|can\s+(?:you|i|we)|to|should\s+(?:you|i|we))\s+(?:make|build|create|do|write|draw|use|fix|solve|find|get|learn|understand|explain|describe)\s+)/i, "").trim();
-      if (howTo !== q && howTo.length > 2) terms.push(howTo);
-      // Strip superlatives: "tallest building in the world" → "building"
-      const supMatch = q.match(/\b(most|least|best|worst|biggest|smallest|largest|tallest|shortest|fastest|slowest|oldest|newest|richest|poorest|famous|popular|common|important|notable|well-?known)\b/i);
-      const noSuperlative = q.replace(/\b(?:most|least|best|worst|biggest|smallest|largest|tallest|shortest|fastest|slowest|oldest|newest|richest|poorest|famous|popular|common|important|notable|well-?known)\b\s*/gi, "").trim();
-      if (noSuperlative !== q && noSuperlative.length > 2) {
-        terms.push(noSuperlative);
-        // Also try "list of [superlative] [noun]" — often the best Wikipedia article for these
-        if (supMatch) terms.push(`list of ${supMatch[1]} ${noSuperlative}`);
-      }
-      // Strip "in the world/US/etc" tails
-      const noLocation = q.replace(/\s+(?:in|of|around)\s+(?:the\s+)?(?:world|earth|us|usa|america|history|all\s+time|all\s+history)\s*$/i, "").trim();
-      if (noLocation !== q && noLocation.length > 2) terms.push(noLocation);
-      // "food in france" → "french cuisine"
-      const countryFoodMatch = q.match(/\b(?:food|cuisine|dish|meal|eat)\b.+\bin\s+([a-z]+)\s*$/i);
-      if (countryFoodMatch) terms.push(`${countryFoodMatch[1]} cuisine`);
-      // "famous X in Y" → extract X category
-      const inCountry = q.match(/\b(?:famous|popular|common|typical|traditional|iconic)\b.+?\b((?:food|dish|sport|music|art|building|landmark|city|animal|plant)\b.+)$/i);
-      if (inCountry) terms.push(inCountry[1]);
-      // Strip filler adjectives from the front: "simple circuit" → "circuit"
-      const noFiller = q.replace(/^(?:simple|basic|easy|quick|small|tiny|short|brief|little|common|typical|standard|general|normal|plain)\s+/i, "").trim();
-      if (noFiller !== q && noFiller.length > 2) terms.push(noFiller);
-      // Strip leading process/cause verbs: "causes rain" → "rain", "affects climate" → "climate"
-      const noLeadingVerb = q.replace(/^(?:make|makes|build|create|do|does|write|draw|use|fix|solve|find|get|learn|understand|explain|describe|calculate|compute|cause|causes|caused|affect|affects|form|forms|occur|occurs|happen|happens|produce|produces|involve|involves)\s+(?:a\s+|an\s+|the\s+)?/i, "").trim();
-      if (noLeadingVerb !== q && noLeadingVerb.length > 2) terms.push(noLeadingVerb);
-      const noVerb = noLeadingVerb;
-      // For "[noun] [verb]" residuals (how-do scaffold), nominalize the trailing verb FIRST —
-      // "planes fly" → "flight" → search "flight" returns "Flight" article (correct).
-      // This must come BEFORE the bare noun strip so we prefer "flight" over "planes".
-      {
-        const VERB_TO_CONCEPT: Record<string, string> = {
-          fly: "flight", flies: "flight", flew: "flight",
-          swim: "swimming", swims: "swimming",
-          grow: "growth", grows: "growth",
-          burn: "combustion", burns: "combustion",
-          breathe: "respiration", breathes: "respiration",
-          digest: "digestion", digests: "digestion",
-          beat: "cardiac cycle", beats: "cardiac cycle",
-          evolve: "evolution", evolves: "evolution",
-          reproduce: "reproduction",
-          move: "motion", moves: "motion",
-          orbit: "orbital mechanics", orbits: "orbital mechanics",
-          circulate: "circulation",
-          photosynthesize: "photosynthesis",
-          rust: "corrosion",
-          melt: "melting point", melts: "melting point",
-          boil: "boiling point", boils: "boiling point",
-          // Life/death verbs — point to scientific processes, not entertainment titles
-          die: "death", dies: "death", died: "death",
-          age: "aging", ages: "aging", aged: "aging",
-          form: "formation", forms: "formation",
-          collapse: "gravitational collapse", collapses: "gravitational collapse",
-          shine: "nuclear fusion", shines: "nuclear fusion",  // why stars shine → nuclear fusion
-          float: "buoyancy", floats: "buoyancy",              // why ice floats → buoyancy
-          stay: "aerodynamics", stays: "aerodynamics",       // how planes stay up → aerodynamics
-          // sleep removed: causes "some sleep deprivation" for "talk in sleep" queries.
-          // Sleep deprivation is handled via the full-question search path when needed.
-          hibernate: "hibernation", hibernates: "hibernation", hibernated: "hibernation",
-          glow: "bioluminescence", glows: "bioluminescence", glowed: "bioluminescence",
-          break: "fracture", breaks: "fracture", broke: "fracture", broken: "fracture",
-          shatter: "fracture", shatters: "fracture", shattered: "fracture",
-          // "crack" removed: "my joints crack" means a popping sound, not a break.
-          // "ice cracked" (break) vs "knuckles crack" (sound) — too ambiguous to map uniformly.
-          degrade: "degradation", degrades: "degradation", degraded: "degradation",
-          warp: "warping", warps: "warping", warped: "warping",
-          rusts: "corrosion", rusted: "corrosion",
-          shrink: "shrinkage", shrinks: "shrinkage",
-          heal: "wound healing", heals: "wound healing",
-          clot: "coagulation", clots: "coagulation",
-          divide: "cell division", divides: "cell division",
-          contract: "contraction", contracts: "contraction",
-          conduct: "electrical conductivity", conducts: "electrical conductivity",
-          refract: "refraction", refracts: "refraction",
-          reflect: "reflection", reflects: "reflection",
-          attract: "attraction", attracts: "attraction",
-          repel: "repulsion", repels: "repulsion",
-          decay: "radioactive decay", decays: "radioactive decay",
-          ferment: "fermentation", ferments: "fermentation",
-          evaporate: "evaporation", evaporates: "evaporate",
-          condense: "condensation", condenses: "condensation",
-          // Additional mechanism verbs
-          twinkle: "twinkling", twinkles: "twinkling", twinkling: "twinkling",
-          yawn: "yawning", yawns: "yawning", yawned: "yawning",
-          purr: "purring", purrs: "purring", purred: "purring",
-          wag: "tail wagging", wags: "tail wagging", wagged: "tail wagging",
-          blush: "blushing", blushes: "blushing", blushed: "blushing",
-          shiver: "shivering", shivers: "shivering", shivered: "shivering",
-          pop: "crepitus", pops: "crepitus",  // knee/knuckle popping
-          burst: "thermal expansion", bursts: "thermal expansion",  // frozen pipes burst from expansion
-          stitch: "side stitch", stitches: "side stitch",  // exercise/running stitch
-          collect: "corvid", collects: "corvid",  // crows collect shiny things → corvid intelligence
-          itch: "itch", itches: "itch",
-          swell: "edema", swells: "edema",
-          crystallize: "crystallization", crystallizes: "crystallization",
-          solidify: "solidification", solidifies: "solidification",
-          dissolve: "solubility", dissolves: "solubility",
-        }
-        const lastWord = q.split(/\s+/).pop()?.toLowerCase() ?? ""
-        // Also check second-to-last word when last word is a directional particle
-        // "planes stay up" → lastWord="up" (particle), verbWord="stay" → aerodynamics
-        const PARTICLES = new Set(["up","down","out","off","on","in","away","back","over","around","apart","together"])
-        const qWords2 = q.split(/\s+/)
-        const verbCandidates = PARTICLES.has(lastWord)
-          ? [qWords2.at(-2)?.toLowerCase() ?? lastWord, lastWord]
-          : [lastWord]
-        const foundVerb = verbCandidates.find(v => VERB_TO_CONCEPT[v])
-        if (foundVerb && VERB_TO_CONCEPT[foundVerb]) {
-          const concept = VERB_TO_CONCEPT[foundVerb]
-          const firstWord = q.split(/\s+/)[0]
-          // Insert compound at position 0 so it's tried BEFORE the bare subject.
-          // "bones break" → "bones fracture" should be tried before "bones" alone.
-          if (firstWord && firstWord !== foundVerb) {
-            const combined = `${firstWord} ${concept}`
-            if (!terms.includes(combined)) terms.splice(0, 0, combined)
-          }
-          // The bare concept IS needed: fetchWikiSummary("aerodynamics") → "Aerodynamics" article,
-          // fetchWikiSummary("fracture") → "Fracture" article — direct fetch works where search doesn't.
-          // Without it, "planes aerodynamics" search returns sub-topic articles, not Aerodynamics.
-          if (!terms.includes(concept)) terms.push(concept)
-        }
-        // For "X [verb] on/in/through Y" patterns, add the SUBJECT X FIRST (before compound terms)
-      // "ice float on water" → "ice" should be the primary search, not "ice cream float"
-      // "fish swim in ocean" → "fish"
-      const onInMatch = q.match(/^(\w+)\s+\w+\s+(?:on|in|through|into|across|over|under|with)\s+\w+$/i)
-      if (onInMatch) {
-        const subject = onInMatch[1]
-        const qWords = q.split(/\s+/)
-        const nextWord = qWords[1]
-        // Try 2-word compound first (more specific): "black holes" before "black"
-        // This way "black holes in space" → "black holes" → "Black hole" article
-        // instead of "black" → "Black" (color) article
-        if (nextWord && nextWord !== subject) {
-          const compound = `${subject} ${nextWord}`
-          if (!terms.includes(compound)) terms.splice(0, 0, compound)
-          if (!terms.includes(subject)) terms.splice(1, 0, subject)
-        } else {
-          if (!terms.includes(subject)) terms.splice(0, 0, subject)
-        }
-      }
-      }
-      // For "why do X verb Y" / "X verb Y" queries: extract subject and try compound searches.
-      // "vaccines cure diseases" → try "vaccines" + "cures" noun concept
-      // "leaves change color" → try "autumn leaf color"
-      // "salt melts ice" → try "ice melting point" (object + concept → phenomenon)
-      const SVO_VERBS = /(?:cure|cures|prevent|prevents|cause|causes|fight|fights|destroy|destroys|affect|affects|change|changes|turn|turns|produce|produces|create|creates|kill|kills|help|helps|protect|protects|melt|melts|dissolve|dissolves|freeze|freezes|boil|boils|evaporate|evaporates|oxidize|oxidizes|absorb|absorbs|react|reacts|repel|repels|conduct|conducts|refract|refracts)/i
-      const svoMatch = q.match(new RegExp(`^(\\w+(?:\\s+\\w+)?)\\s+${SVO_VERBS.source}\\s+(.+)$`, 'i'))
-      if (svoMatch) {
-        const subject = svoMatch[1].trim()
-        const object = svoMatch[2].trim()
-        const verb = svoMatch[0].split(/\s+/).find(w => SVO_VERBS.test(w)) ?? ""
-        // For melting/dissolving: insert specific compound at front so it beats the bare subject.
-        // "salt melts ice" → "ice melting point" should be searched before bare "salt".
-        if (/melt|dissolve|freeze|boil|evaporate/i.test(verb)) {
-          const PROCESS_CONCEPT: Record<string, string> = {
-            melt: "melting point", melts: "melting point",
-            dissolve: "solubility", dissolves: "solubility",
-            freeze: "freezing point", freezes: "freezing point",
-            boil: "boiling point", boils: "boiling point",
-            evaporate: "evaporation", evaporates: "evaporation",
-          }
-          const concept = PROCESS_CONCEPT[verb.toLowerCase()] ?? ""
-          if (concept && !terms.includes(`${object} ${concept}`)) {
-            terms.splice(0, 0, `${object} ${concept}`)  // insert at front for priority
-          }
-          if (!terms.includes(`${subject} ${object}`)) terms.push(`${subject} ${object}`)
-        }
-        // Add subject as standalone fallback
-        if (!terms.includes(subject)) terms.push(subject)
-        // For color-change queries: try the specific phenomenon "autumn leaf color"
-        if (/color|colour|orange|red|yellow|green|brown/i.test(object)) {
-          const singular = subject.replace(/s$/, "")  // leaves → leaf
-          terms.push(`autumn ${singular} color`)
-          terms.push(`${subject} color change`)
-        }
-      }
+    const fullQuery = classified.normalized
 
-      // HEALTH_CONCEPTS removed: per-query concept tables are the wrong architecture.
-      // Fixes are now general: VERB_TO_CONCEPT (hibernate→hibernation, glow→bioluminescence),
-      // symptom words removed from SUBJECT_STOP so they become subjects that can redirect,
-      // and the title-length tiebreaker in scoring.
+    const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can\'t|doesn\'t))\s/i.test(classified.normalized)
+    const subjectIsMultiWord = subjectPhrase.split(/\s+/).length >= 2
 
-      // Strip trailing verbs/process words: "vaccines work" → "vaccines", "plants grow" → "plants"
-      // Also strip trailing verb+particle: "planes stay up" → "planes", "stars burn out" → "stars"
-      const noTrailingVerb = q
-        .replace(/\s+(?:up|down|out|off|on|in|away|back|around|apart|together|over)\s*$/i, "")  // strip trailing particles first
-        .replace(/\s+(?:work|works|function|functions|happen|happens|occur|occurs|form|forms|grow|grows|move|moves|change|changes|spread|spreads|cause|causes|affect|affects|develop|develops|operate|operates|fly|flies|float|floats|swim|swims|run|runs|live|lives|survive|survives|reproduce|reproduces|made|built|produced|manufactured|created|formed|processed|invented|discovered|evolved|shine|shines|shone|glow|glows|burn|burns|spin|spins|rotate|rotates|die|dies|died|age|ages|appear|appears|turn|turns|cure|cures|prevent|prevents|fight|fights|destroy|destroys|kill|kills|rise|rises|rose|fall|falls|fell|take|takes|took|come|comes|go|goes|stay|stays|kept|keep|break|breaks|broke|broken|shatter|shatters|shattered|degrade|degrades|degraded|warp|warps|warped|crack|cracks|cracked|shrink|shrinks|heal|heals|healed|clot|clots|divide|divides|expand|expands|contract|contracts|decay|decays|ferment|ferments|evaporate|evaporates|condense|condenses)\s*$/i, "")
-        .trim();
-      if (noTrailingVerb !== q && noTrailingVerb.length > 2) terms.push(noTrailingVerb);
-      // Strip trailing adjectives from "the sky blue" → "sky"
-      const noTrailingAdj = q.replace(/\s+(?:blue|red|green|yellow|white|black|dark|light|bright|hot|cold|warm|cool|big|small|fast|slow|high|low|long|short|old|new|good|bad)\s*$/i, "").trim();
-      if (noTrailingAdj !== q && noTrailingAdj.length > 2) terms.push(noTrailingAdj);
-      // "X of Y" → also try Y alone ("symptoms of adhd" → "adhd", "history of rome" → "rome")
-      const ofPattern = q.match(/^(?:\w+\s+)+of\s+(.+)$/i);
-      if (ofPattern) terms.push(ofPattern[1].trim());
-      // General content-word extraction: strip English stopwords, search remaining key nouns.
-      // This handles informal/descriptive queries ("the thing in space with gravitational pull"
-      // → "space gravitational pull" → Wikipedia finds "Gravity") without hardcoding mappings.
-      // Subject extraction using the comprehensive SUBJECT_STOP set.
-      // This is the primary fix for "yo wtf is the bermuda triangle" → "bermuda triangle",
-      // "can humans survive on mars" → "mars", "is coffee bad for you" → "coffee", etc.
-      // It strips ALL non-subject words (slang, opinion, modals, filler nouns) leaving
-      // only the noun phrase being asked about.
-      const subjectPhrase = extractSubject(q)
-      // Only insert as first term if it's a meaningful subject:
-      // - Multi-word phrase (e.g. "bermuda triangle") → always insert
-      // - Single word with ≥4 chars (e.g. "mars", "coffee") → insert; avoids short ambiguous words
-      //   like "age" (→ "The Age" newspaper) or "run" (→ track/river context)
-      const subjectWords = subjectPhrase.split(/\s+/).filter(Boolean)
-      const subjectMeaningful = subjectWords.length >= 2 || (subjectWords.length === 1 && subjectPhrase.length >= 4)
-      if (subjectPhrase && subjectPhrase !== q && subjectMeaningful && !terms.includes(subjectPhrase)) {
-        terms.splice(0, 0, subjectPhrase)
-      } else if (subjectPhrase === q && q.split(/\s+/).length <= 4) {
-        // SUBJECT_STOP didn't strip anything — try POS tagger as structural fallback.
-        // "glass shatter" → SUBJECT_STOP doesn't know "shatter" → compromise does.
-        // Only runs for short phrases where POS tagging is most reliable.
-        try {
-          const posDoc = nlp(q)
-          const posNouns = posDoc.nouns().out("array")
-            .filter((n: string) => n.length >= 3 && !n.match(/^(why|how|what|who|when|where)/i))
-            .join(" ").trim()
-          // Don't override a more specific VERB_TO_CONCEPT compound already at position 0.
-          // "glass shatter" → terms[0]="glass fracture" → "glass fracture".startsWith("glass") → skip.
-          // Inserting "glass" before "glass fracture" would cause the generic article to win.
-          const firstTermStartsWithPosNoun = terms.length > 0 &&
-            terms[0].toLowerCase().startsWith(posNouns.toLowerCase())
-          if (posNouns && posNouns !== q && posNouns.length >= 3 && !terms.includes(posNouns) && !firstTermStartsWithPosNoun) {
-            terms.splice(0, 0, posNouns)
-          }
-        } catch { /* nlp failure is not fatal */ }
-      }
+    // Start DDG fetch early so it runs in parallel with Wikipedia searches.
+    // Use fullQuery (normalized, slang-stripped) not raw — "bruh how do X" → DDG gets "how do X".
+    const ddgPromise = (isMechanismQuery || isPersonalQuery)
+      ? withTimeout(fetchDDGAnswer(fullQuery), 4000)
+      : Promise.resolve(null)
 
-      const STOPWORDS = new Set([
-        "a","an","the","is","are","was","were","be","been","being","have","has","had",
-        "do","does","did","will","would","could","should","may","might","shall","can",
-        "of","in","on","at","to","for","with","by","from","up","about","into","through",
-        "during","before","after","above","below","between","out","off","over","under",
-        "this","that","these","those","it","its","and","or","but","not","very","just",
-        "most","other","some","such","than","too","also","any","all","both","each","few",
-        "more","no","so","yet","either","one","what","which","who","when","where","why",
-        "how","i","me","we","you","he","she","they","my","your","his","her","our","their",
-        "us","him","them","if","then","else","get","got","go","goes","went","come","came",
-        "take","give","see","know","think","want","use","used","make","made","like","just",
-        "there","here","now","then","than","into","onto","upon","since","while","although",
-        "because","as","after","before","behind","between","among","around","along","across",
-        "really","quite","rather","pretty","fairly","somewhat","much","many","few","little",
-        "tell","let","put","set","show","find","found","look","say","said","said",
-        "thing","things","kind","sort","type","way","ways","something","anything","everything",
-        "nothing","someone","anyone","everyone","nobody","somewhere","anywhere","everywhere",
-      ])
-      const contentWords = q.split(/\s+/).filter(w => w.length > 2 && !STOPWORDS.has(w.toLowerCase()))
-      const contentQuery = contentWords.join(" ")
-      if (contentQuery && contentQuery !== q && contentQuery.length > 2) {
-        terms.push(contentQuery)
-      }
-      // Also try the longest individual content word — often the most specific technical term
-      // ("gravitational" → Wikipedia finds "Gravity"; "petroleum" handles "oil" synonyms)
-      if (contentWords.length > 1) {
-        const longest = contentWords.reduce((a, b) => a.length >= b.length ? a : b)
-        if (longest.length > 4 && !terms.includes(longest)) terms.push(longest)
-      }
-      // Strip leading article/adj: "the sky blue" → "sky blue"
-      const noLeadingThe = q.replace(/^(?:the|a|an)\s+/i, "").trim();
-      if (noLeadingThe !== q && noLeadingThe.length > 2) terms.push(noLeadingThe);
-      // Strip both leading "the" AND trailing adj: "the sky blue" → "sky"
-      const noLeadingAndTrailing = noTrailingAdj.replace(/^(?:the|a|an)\s+/i, "").trim();
-      if (noLeadingAndTrailing !== noTrailingAdj && noLeadingAndTrailing.length > 2) terms.push(noLeadingAndTrailing);
-      // Deduplicate while preserving order
-      return [...new Set(terms)];
-    };
-
-    // For "why"/"how" scaffold queries, add the scaffold word back as a search prefix
-    // so Wikipedia's ranking finds explanatory articles, not entertainment titles.
-    // The full normalized query is always the FIRST search term — Wikipedia's search handles
-    // natural language very well and "why is the sky blue" → "Diffuse sky radiation" is correct,
-    // while searching the stripped residual "sky blue" finds the color article.
-    // We use a PERMISSIVE threshold for this term (0.3) since Wikipedia's top result is usually
-    // relevant even when token overlap is partial (function words stripped from the score).
-    // Derived/simplified terms use a STRICT threshold (0.45) to block false positives like films.
-    const scaffoldKind = classified.scaffoldKind;
-    void scaffoldKind;
-    const fullQuery = classified.normalized;  // full cleaned query e.g. "why is the sky blue"
-    const baseSearchTerms = extractSearchTerm(queryForSearch);   // residual-derived fallbacks
-
-    // Query ordering strategy:
-    // HOW-DO / WHY-DO (action queries): derived terms first — verb-nominalization finds the
-    //   scientific concept ("flight" for "planes fly", "death" for "stars die"). Wikipedia's
-    //   search for "how do X verb" / "why do X verb" reliably returns films/songs.
-    // WHY-IS / WHAT / other (property/state queries): full query first — Wikipedia handles
-    //   "why is the sky blue" → "Diffuse sky radiation" correctly.
-    // Test against classified.normalized (after slang/profanity stripping), not raw.
-    // "how tf does wifi work" → normalized "how does wifi work" → isActionQuery=false (tf removed)
-    // was: test(raw) which saw "how tf does" and failed to match "^how\s+does"
-    const isActionQuery = /^(?:how\s+(?:do|does|did)|why\s+(?:do|does|did|can|can't|doesn't))\s/i.test(classified.normalized);
-    const searchTerms: string[] = [];
-
-    // Extract subject phrase (first element of baseSearchTerms if it was inserted by SUBJECT_STOP)
-    const subjectPhrase = baseSearchTerms[0] !== queryForSearch ? baseSearchTerms[0] : null;
-    const subjectIsMultiWord = subjectPhrase && subjectPhrase.split(/\s+/).length >= 2;
-
+    const searchTerms: string[] = []
     if (isActionQuery) {
-      // Action queries (how do, why do): derived/nominalized terms first, full query last
-      for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
-      if (fullQuery && !searchTerms.includes(fullQuery)) searchTerms.push(fullQuery);
-    } else if (subjectIsMultiWord) {
-      // "what is X" with a clear multi-word subject (e.g. "north star", "great barrier reef"):
-      // Try the subject phrase FIRST via direct fetch — avoids "Fist of the North Star" beating
-      // "Polaris" when the full query "what is the north star" is searched and both words match.
-      // Direct fetch of "north star" → "Polaris" (via Wikipedia redirect) is always correct.
-      searchTerms.push(subjectPhrase);
-      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery);
-      for (const t of baseSearchTerms) {
-        if (!searchTerms.includes(t)) searchTerms.push(t);
+      // Action queries ("how do planes stay up"): try extracted subject phrase first
+      if (subjectPhrase && subjectPhrase !== queryForSearch && !searchTerms.includes(subjectPhrase)) {
+        searchTerms.push(subjectPhrase)
       }
+      if (fullQuery && !searchTerms.includes(fullQuery)) searchTerms.push(fullQuery)
+    } else if (subjectIsMultiWord) {
+      // Multi-word subject ("north star", "great barrier reef"): direct subject fetch first
+      if (subjectPhrase && !searchTerms.includes(subjectPhrase)) searchTerms.push(subjectPhrase)
+      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery)
     } else {
-      // Other queries: full query first
-      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery);
-      for (const t of baseSearchTerms) if (!searchTerms.includes(t)) searchTerms.push(t);
+      // Other queries: full question first
+      if (fullQuery && fullQuery !== queryForSearch) searchTerms.push(fullQuery)
+      if (subjectPhrase && !searchTerms.includes(subjectPhrase)) searchTerms.push(subjectPhrase)
     }
-    if (!searchTerms.length) searchTerms.push(queryForSearch);
+    if (!searchTerms.length) searchTerms.push(queryForSearch)
+    // Individual long content words as extra fallback
+    for (const word of subjectPhrase.split(/\s+/)) {
+      if (word.length >= 5 && !searchTerms.includes(word)) searchTerms.push(word)
+    }
 
     // Returns true if a search result title looks like entertainment that should be
     // deprioritized when the query is about a concept, mechanism, or process
@@ -2213,69 +1759,17 @@ export async function* runPipeline(
       // Exclamation-mark titles: "Airplane!", "Grease!", "Oklahoma!" — almost always entertainment
       if (/!+$/.test(title)) return true
 
-      // Business/strategy books when query is about natural phenomena
-      // "Blue Ocean Strategy" for "why is the ocean blue" — query has nature words but title has business
-      const naturalPhenomenonQ = /\b(sky|ocean|sea|water|ice|fire|snow|rain|sun|moon|earth|cloud|wind|color|colour|plant|animal|human|body|cell|atom|bone|muscle|organ|blood|light|sound|heat|cold|warm|energy)\b/i
-      const businessTitle = /\b(strategy|strategies|management|marketing|corporate|business|economy|economics|investment|brand|startup|entrepreneur|leadership|company|companies|market|finance|financial)\b/i
-      if (businessTitle.test(title) && naturalPhenomenonQ.test(q) && !businessTitle.test(q)) return true
-
-      // "Planes: Fire & Rescue" — query's main noun + colon + capitalized subtitle
-      // Catches entertainment spin-offs that don't have explicit "(film)" disambiguation
-      const queryNounToken = q.toLowerCase().split(/\s+/)
-        .filter(t => t.length > 3 && !STOP.has(t))
-        .find(t => title.toLowerCase().startsWith(t) || title.toLowerCase().startsWith(t.slice(0, -1)))
-      if (queryNounToken && title.includes(':')) return true
-
       return false
     }
-    // STOP used in isEntertainmentTitle (same as scoreHit for consistency)
-    const STOP = new Set([
-      "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
-      "and","or","but","for","with","by","from","what","which","who","when","where","why","how",
-      "i","me","we","us","you","he","him","she","her","they","them","it","its",
-      "my","your","his","our","their","this","that",
-    ])
-
     // Score a Wikipedia search hit against our query for relevance (higher = better match)
     const scoreHit = (hitTitle: string, q: string, hitDescription?: string): number => {
       // Reject entertainment titles unconditionally
       if (isEntertainmentTitle(hitTitle, q)) return 0
-      // For mechanism queries, also reject by description
-      // "Goosebumps" title alone doesn't flag it, but "Series of children's horror novels" does
-      if (shouldFilterEntertainment && isEntertainmentDescription(hitDescription)) return 0
-      // For personal/mechanism queries, also block idioms, companies, fringe theories, plays
-      // "why am I tired" → "Tired light" (fringe cosmology theory) → blocked
-      // "my phone gets hot" → "MyPhone" (manufacturer) → blocked
-      if (shouldFilterNonPhenomena && isNonPhenomenonDescription(hitDescription)) return 0
       const titleLower = hitTitle.toLowerCase();
       // Extended STOP set — question words and pronouns must not drive scores.
       // Without this, "Why Don't We" scores 0.57 for "why do we have seasons"
       // because "why" and "we" appear in both. With these in STOP, they're filtered out.
-      const STOP = new Set([
-        "the","a","an","is","are","was","were","of","in","on","at","to","do","does","did",
-        "and","or","but","for","with","by","from","as","into","than","so","yet","if",
-        "what","which","who","whom","whose","when","where","why","how",
-        "i","me","we","us","you","he","him","she","her","they","them","it","its",
-        "my","your","his","our","their","this","that","these","those",
-        "have","has","had","will","would","could","should","may","might","can",
-        "be","been","being","not","no","nor","very","just","also",
-        "do","don't","doesn't","didn't","won't","can't","isn't","aren't","wasn't",
-        // Common action verbs that should not drive relevance scores
-        "take","put","get","make","come","go","see","let","keep","give","set","run",
-        "try","use","work","need","want","know","think","feel","look","turn","rise",
-        // Directional/positional words that shouldn't score in relevance
-        "up","down","off","out","over","back","through","around","away","along",
-        // Descriptive adjectives — when asked "why is fire HOT", "hot" shouldn't match "Hot Space"
-        // Note: "cold" is kept (not in STOP) so "Common cold" can match "sick from cold" queries
-        // Note: "water" is in STOP to prevent Water H2O matching "eyes water" or "drink water" queries
-        "water","warm","cool","big","small","large","tiny","fast","slow",
-        "dark","bright","light","heavy","hard","soft","loud","quiet","deep","high",
-        "red","blue","green","black","white","yellow","orange","purple","gray",
-        "old","new","young","long","short","far","near","good","bad","great",
-        "wet","dry","sharp","dull","thick","thin","full","empty","clean","dirty",
-        // Generic process/meta words that shouldn't drive scoring — "Shit happens" matching "what happens"
-        "happens","happen","occurring","occurred","occur","resulting","result","causes","caused",
-      ]);
+      const STOP = SCORING_STOPS;
       // Normalize hyphens before tokenizing: "wi-fi" → "wifi", "x-ray" → "xray"
       // Without this, "Wi-Fi" never matches query "wifi" (different strings after splitting)
       const normalizeHyphens = (s: string) => s.replace(/-/g, "")
@@ -2331,15 +1825,13 @@ export async function* runPipeline(
     // - Candidate description check: reject 1-word descriptions ("Color" for Sky blue)
     // Note: hit.description from search API is almost always EMPTY — don't filter on it here.
     if (!summary && (isMechanismQuery || isPersonalQuery)) {
-      const subjectRootForGuard = (baseSearchTerms[0] ?? "").toLowerCase()
+      const subjectRootForGuard = (subjectPhrase.split(/\s+/)[0] ?? "").toLowerCase()
         .replace(/[^a-z]/g, "").replace(/(?:es|s|ing|ed)$/, "")
       const preSearchHits = await withTimeout(searchWiki(fullQuery, 10))
       if (preSearchHits?.hits?.length) {
         for (const hit of preSearchHits.hits) {
           // Filter: entertainment or non-phenomenon
           if (isEntertainmentTitle(hit.title, fullQuery)) continue
-          if (isEntertainmentDescription(hit.description)) continue
-          if (isNonPhenomenonDescription(hit.description)) continue
           // Filter: sub-topic articles that answer a different question
           if (/^(?:Preparations? for|History of|List of|Effects of|Uses of|Types of|Examples? of)\b/i.test(hit.title)) continue
           // Filter: disambiguation qualifier not matching query
@@ -2353,11 +1845,7 @@ export async function* runPipeline(
           // Threshold adapts to query length to prevent spurious matches:
           // - 2-token queries: F1 ≥ 0.55 (rejects "2011 Tōhoku" for "earthquakes happen")
           // - Other queries: F1 ≥ 0.45 (catches "Diffuse sky radiation" for "why is sky blue")
-          const PRE_STOP = new Set(["the","a","an","is","are","was","were","be","been","being",
-            "have","has","had","do","does","did","will","would","could","should","may","might",
-            "of","in","on","at","to","for","with","by","from","and","or","but","not","i","me",
-            "we","you","he","she","they","my","your","his","her","our","their","what","which",
-            "who","when","where","why","how","this","that","these","those","it","its","as"])
+          const PRE_STOP = QUESTION_STOPS;
           const stemFn = (w: string) => w.slice(0, Math.min(w.length, 6))
           const qToksPre = fullQuery.toLowerCase().replace(/-/g, "").split(/\s+/)
             .filter(t => t.length > 1 && !PRE_STOP.has(t))
@@ -2374,8 +1862,6 @@ export async function* runPipeline(
           // Fetch and verify the full article (search API descriptions are unreliable/empty)
           const candidate = await withTimeout(fetchWikiSummary(hit.title))
           if (!candidate?.extract || candidate.type === "disambiguation") continue
-          if (isEntertainmentDescription(candidate.description)) continue
-          if (isNonPhenomenonDescription(candidate.description)) continue
           // Reject bare category labels ("Color", "Mineral") — not mechanism answers
           if (!candidate.description || candidate.description.trim().split(/\s+/).length < 2) continue
           // Reject disambiguation-qualified articles not matching query context
@@ -2398,9 +1884,7 @@ export async function* runPipeline(
     if (!summary && (isMechanismQuery || isPersonalQuery) && query.split(/\s+/).length >= 2 && query !== queryForSearch) {
       const residualRedirect = await withTimeout(fetchWikiSummary(query))
       if (residualRedirect?.extract && residualRedirect.type !== "disambiguation" &&
-          residualRedirect.description && residualRedirect.description.trim().split(/\s+/).length > 1 &&
-          !isEntertainmentDescription(residualRedirect.description) &&
-          !isNonPhenomenonDescription(residualRedirect.description)) {
+          residualRedirect.description && residualRedirect.description.trim().split(/\s+/).length > 1) {
         summary = residualRedirect
         usedTerm = query
       }
@@ -2417,15 +1901,7 @@ export async function* runPipeline(
     let ngramSummary: typeof summary = null
     let ngramTerm = query
     if (!summary && (isMechanismQuery || isPersonalQuery)) {
-      const NGRAM_STOP = new Set([
-        "the","a","an","is","are","was","were","be","do","does","did","i","we","you","they",
-        "my","your","our","its","this","that","get","got","can","from","at","to","for","in",
-        "on","up","down","off","out","of","and","or","but","it","so","me","him","her","them",
-        "very","just","too","also","then","when","where","after","before","during","because",
-        "if","even","still","already","often","always","never","well","like","feel","make",
-        "go","come","give","take","put","let","try","see","know","think","want","need",
-        "all","some","any","other","more","most","last","next","first","every","each",
-      ])
+      const NGRAM_STOP = QUESTION_STOPS;
       const residualTokens = query.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/)
         .filter(w => w.length > 2 && !NGRAM_STOP.has(w))
 
@@ -2446,9 +1922,7 @@ export async function* runPipeline(
           ngramResult?.extract && ngramResult.type !== "disambiguation" &&
           // Only accept when Wikipedia redirected to a DIFFERENT (more specific) title
           ngramResult.title.toLowerCase() !== ngram.toLowerCase() &&
-          ngramResult.description && ngramResult.description.trim().split(/\s+/).length > 1 &&
-          !isEntertainmentDescription(ngramResult.description) &&
-          !isNonPhenomenonDescription(ngramResult.description)
+          ngramResult.description && ngramResult.description.trim().split(/\s+/).length > 1
         ) {
           ngramSummary = ngramResult
           ngramTerm = ngram
@@ -2503,13 +1977,7 @@ export async function* runPipeline(
       // For SINGLE-WORD terms: allow single-word descriptions ("Reflex" for "yawn" is valid)
       const termIsMultiWord = term.trim().split(/\s+/).length >= 2
       const directIsEntertainment = direct && (
-        isEntertainmentTitle(direct.title, term) ||
-        (shouldFilterEntertainment && (
-          isEntertainmentDescription(direct.description) ||
-          !direct.description ||
-          (termIsMultiWord && direct.description.trim().split(/\s+/).length === 1)
-        )) ||
-        (shouldFilterNonPhenomena && isNonPhenomenonDescription(direct.description))
+        isEntertainmentTitle(direct.title, term)
       )
       if (direct?.extract && direct.type !== "disambiguation" && !directIsEntertainment) {
         summary = direct;
@@ -2528,8 +1996,6 @@ export async function* runPipeline(
         !queryForSearch.includes(direct.title) && (isMechanismQuery || isPersonalQuery)
       const directIsExplicitEntertainment = direct && (
         isEntertainmentTitle(direct.title, term) ||
-        isEntertainmentDescription(direct.description) ||
-        isNonPhenomenonDescription(direct.description) ||
         titleIsWrongAcronym
       )
       if (!summary && directIsExplicitEntertainment && term.split(/\s+/).length <= 2 && term.length <= 20) {
@@ -2546,9 +2012,7 @@ export async function* runPipeline(
             const dabResult = await withTimeout(fetchWikiSummary(link))
             if (
               dabResult?.extract && dabResult.type !== "disambiguation" &&
-              dabResult.description && dabResult.description.trim().split(/\s+/).length > 1 &&
-              !isEntertainmentDescription(dabResult.description) &&
-              !isNonPhenomenonDescription(dabResult.description)
+              dabResult.description && dabResult.description.trim().split(/\s+/).length > 1
             ) {
               summary = dabResult
               usedTerm = link
@@ -2562,6 +2026,7 @@ export async function* runPipeline(
       // Score search hits and fetch best-matching one
       if (searched?.hits.length) {
         const scored = searched.hits
+          .filter(h => !/^(?:Preparations? for|History of|List of|Effects of|Uses of|Types of|Examples? of)/i.test(h.title))
           .map(h => ({ hit: h, score: scoreHit(h.title, term, h.description) }))
           .sort((a, b) => {
             const diff = b.score - a.score;
@@ -2588,13 +2053,7 @@ export async function* runPipeline(
             (isMechanismQuery || isPersonalQuery) &&
             !fullQuery.toLowerCase().includes(candidateQualifier[1].toLowerCase())
           if (candidate?.extract && candidate.type !== "disambiguation" &&
-              !qualifierMismatch &&
-              !(shouldFilterEntertainment && (
-                isEntertainmentDescription(candidate.description) ||
-                !candidate.description ||
-                (termIsMultiWord && candidate.description.trim().split(/\s+/).length === 1)
-              )) &&
-              !(shouldFilterNonPhenomena && isNonPhenomenonDescription(candidate.description))) {
+              !qualifierMismatch) {
             summary = candidate;
             usedTerm = term;
             break;
@@ -2604,9 +2063,10 @@ export async function* runPipeline(
         // All hits above threshold were entertainment — fall through to next search term
       }
 
-      // Keep disambiguation as a last resort if nothing better found
-      // But never fall back to an entertainment article for mechanism queries
-      if (!summary && direct && !directIsEntertainment) {
+      // Keep non-disambiguation result as last resort if nothing better found.
+      // Exclude disambiguation pages — they produce a confusing clarify UI when the real answer
+      // is findable via a different search term or DDG.
+      if (!summary && direct && !directIsEntertainment && direct.type !== "disambiguation") {
         summary = direct;
         usedTerm = term;
       }
@@ -2621,6 +2081,35 @@ export async function* runPipeline(
           summary = corrected;
           usedTerm = spellCheck.suggestion;
         }
+      }
+    }
+
+    // DDG is the primary vocabulary bridge for mechanism/personal queries.
+    // Use DDG when: (a) Wikipedia found nothing, OR (b) Wikipedia result has low title-query overlap
+    // (e.g., "Goosebumps" book series for "why do we get goosebumps" — title matches but wrong intent)
+    const wikiScore = summary?.extract ? scoreHit(summary.title, query) : 0
+    if ((isMechanismQuery || isPersonalQuery) && (!summary?.extract || wikiScore < 0.5)) {
+      const ddgResult = await ddgPromise
+      if (ddgResult?.wikiTitle) {
+        yield* status("Searching DuckDuckGo...", "duckduckgo")
+        const ddgArticle = await withTimeout(fetchWikiSummary(ddgResult.wikiTitle))
+        if (ddgArticle?.extract && ddgArticle.type !== "disambiguation") {
+          summary = ddgArticle
+          usedTerm = ddgResult.wikiTitle
+        }
+      }
+    }
+
+    // Prefer pre-search result when it has better query relevance than main-loop result.
+    // Covers: "Bone" (zero overlap with "bones break") → prefer "Bone fracture" (has "bone").
+    // Also covers: "Star" (singular) → prefer "Stellar nucleosynthesis" if pre-search found it.
+    if (summary?.extract && preSearchSummary?.extract && summary.title !== preSearchSummary.title) {
+      const mainScore = scoreHit(summary.title, query)
+      const preScore = scoreHit(preSearchSummary.title, query)
+      const preIsMoreSpecific = preSearchSummary.title.split(/\s+/).length > summary.title.split(/\s+/).length
+      if (preScore > mainScore && preIsMoreSpecific) {
+        summary = preSearchSummary
+        usedTerm = preSearchTerm
       }
     }
 
@@ -2718,48 +2207,64 @@ export async function* runPipeline(
     // fetch full article text and find the most query-relevant passage via BM25.
     // "why does copper turn green" → Copper article → finds verdigris/patina passage
     // "why does bread get stale" → Bread article → finds staling chemistry passage
+    // Passage-level BM25 scorer. Uses word-boundary approach: pads text with spaces so
+    // "breakdown" does NOT match "break" (word boundary prevents false substring match).
     const scoreSentenceAgainstQuery = (text: string, qWords: string[]): number => {
-      const t = text.toLowerCase().replace(/[^a-z0-9 ]/g, " ")
+      const t = " " + text.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ") + " "
       let hits = 0
       for (const w of qWords) {
-        if (t.includes(w)) hits += 1
-        else if (w.length > 5 && t.includes(w.slice(0, 5))) hits += 0.5
+        // Exact word or common morphological variants (plural, -ing, -ed, -er, -s, -ion, -tion)
+        // Also handle "melts"→"melting": for words ending in 's', try base+"ing","ed"
+        const base = w.endsWith("es") ? w.slice(0,-2) : w.endsWith("s") ? w.slice(0,-1) : w
+        const forms = [w, w+"s", w+"es", w+"ing", w+"ed", w+"er", w+"ion", w+"tion",
+                       base+"ing", base+"ed", base+"tion", base+"ation"]
+        const matched = forms.some(form => t.includes(" " + form + " "))
+        if (matched) hits += 1
+        else if (w.length >= 6 && t.includes(" " + w.slice(0, 5))) hits += 0.5
       }
       return qWords.length > 0 ? hits / qWords.length : 0
     }
 
     let passageOverride: string | null = null
     if (isMechanismQuery || isPersonalQuery) {
-      const MECH_STOP = new Set([
-        "the","a","an","is","are","was","were","be","do","does","did","i","we","you","they",
-        "my","your","its","this","that","get","got","can","from","at","to","for","in","on",
-        "up","down","of","and","or","but","it","so","how","why","what","who","when","where",
-        "feel","make","go","come","give","take","very","just","also","about","some","have",
-        "will","would","could","should","may","might","shall",
-      ])
+      const MECH_STOP = PASSAGE_STOPS;
       const mechWords = fullQuery.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/)
         .filter(w => w.length > 3 && !MECH_STOP.has(w))
 
       if (mechWords.length >= 2) {
         const ledeScore = scoreSentenceAgainstQuery(summary.extract, mechWords)
 
-        // Only fetch full article when lede is clearly off-topic (< 0.3) AND article title
-        // itself has meaningful overlap with query (≥ 0.3 F1) — prevents fetching wrong articles.
-        // Conservative thresholds: passage must beat lede by ≥ 0.25 AND reach ≥ 0.65.
-        const titleOverlap = scoreHit(summary.title, fullQuery, summary.description)
-        if (ledeScore < 0.3 && titleOverlap >= 0.3) {
+        // Fire passage scoring only when lede score is below 0.4 — generic-article ledes
+        // (Onion, Leaf, Helium) score < 0.2, while specific mechanism ledescore ≥ 0.4.
+        // Threshold 0.4 avoids overriding good ledes (Memory, Lightning score ~0.5).
+        if (ledeScore < 0.4) {
           const fullText = await withTimeout(fetchWikiFullText(summary.title), 3000)
           if (fullText) {
             const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.length > 50 && s.length < 700)
-            let bestScore = ledeScore
+            let bestScore = -1
             let bestIdx = -1
             for (let si = 0; si < sentences.length; si++) {
               const sc = scoreSentenceAgainstQuery(sentences[si], mechWords)
-              if (sc > bestScore + 0.25) { bestScore = sc; bestIdx = si }
+              if (sc > bestScore) { bestScore = sc; bestIdx = si }
             }
-            if (bestIdx >= 0 && bestScore >= 0.65) {
+            if (bestIdx >= 0 && bestScore > ledeScore + 0.3 && bestScore >= 0.6) {
               const passageSents = sentences.slice(bestIdx, Math.min(bestIdx + 3, sentences.length))
-              passageOverride = passageSents.join(" ")
+              const passageText = passageSents.join(" ")
+              // Guard: passage must mention the article's first title word so we don't
+              // replace "Polymer degradation" lede (has "polymer") with an elastomers
+              // passage (lacks "polymer"). Single-word titles like "Onion" are exempt.
+              const titleFirstWord = summary.title.toLowerCase().split(/\s+/)[0].replace(/[^a-z]/g,"")
+              const passageLow = passageText.toLowerCase()
+              // Allow passage when: (a) it mentions the article title word,
+              // OR (b) it scores >= 0.8 for mechWords (clearly answers the query).
+              // (b) handles "Freezing-point depression" + salt/melt passage that lacks "freezing".
+              const passageHasTitleWord = summary.title.split(/\s+/).length <= 1 ||
+                titleFirstWord.length <= 3 ||
+                passageLow.includes(titleFirstWord) ||
+                bestScore >= 0.8
+              if (passageHasTitleWord) {
+                passageOverride = passageText
+              }
             }
           }
         }
