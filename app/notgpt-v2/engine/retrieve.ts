@@ -207,13 +207,15 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     if (a.title.startsWith("Talk:") || a.title.startsWith("Wikipedia:") ||
         a.title.startsWith("User:") || a.title.startsWith("Template:")) return
 
-    // Structurally detect grammatical meta-articles via their Wikipedia description
-    // ("Second-person singular pronoun in modern English" etc.) — no title list needed.
-    // Only filter when the query is NOT about grammar/language.
+    // Structurally detect articles that won't answer mechanism questions.
+    // Two structural patterns (not word lists):
+    // 1. Grammar/linguistic meta-articles: their descriptions say "pronoun", "grammar" etc.
+    // 2. Media/entertainment content: Wikipedia uses "studio album", "debut single", "TV series"
+    //    as standardized structural description terms — not genre enumerations.
     if (!queryIsAboutLanguage) {
-      const isGrammarArticle = /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word|English language)\b/i
+      const isOffTopic = /\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word|English language|studio album|debut album|extended play|compilation album|live album|single by|music video|television series|TV series|animated series|video game|board game|role.playing game)\b/i
         .test(a.description ?? "")
-      if (isGrammarArticle) return
+      if (isOffTopic) return
 
       // Structurally detect entertainment articles via Wikipedia's own disambiguation markers.
       // "Hold Your Breath (2024 film)" → year+film pattern; "Oklahoma!" → trailing !
@@ -279,8 +281,11 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // scores 0.8 while Icemaker (rank 0) scores 1.0 via word coincidence. Running all 3
   // in parallel reveals that Thermal shock is the right article to serve.
   if (serperResults.length > 0) {
+    // Score top-4 Serper results. Rank 0 gets full text (1 fetch for quality);
+    // ranks 1-3 get snippet + extract only (fast). This finds Thermal shock (rank 2)
+    // via snippet when Icemaker (rank 0) wins on full text.
     const candidateResults = await Promise.all(
-      serperResults.slice(0, 4).map(async r => {
+      serperResults.slice(0, 4).map(async (r, idx) => {
         const isEntertainment = !queryIsAboutLanguage && (
           ENTERTAINMENT_TITLE_RE.test(r.title) ||
           (r.snippet && ENTERTAINMENT_SNIPPET_RE.test(r.snippet))
@@ -288,21 +293,29 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         if (isEntertainment) return null
         const art = await wikiSummary(r.title)
         if (!art?.extract) return null
-        const text = await wikiFullText(r.title) ?? art.extract
-        const passages = splitPassages(text)
+        // Rank 0: fetch full text for best passage quality (1 fetch only)
+        // Ranks 1-3: snippet + extract only (fast, avoids timeout on cold starts)
+        let passages: string[] = []
+        if (idx === 0) {
+          const fullText = await wikiFullText(r.title)
+          passages = fullText ? splitPassages(fullText).slice(0, 12) : splitPassages(art.extract).slice(0, 5)
+        } else {
+          passages = splitPassages(art.extract).slice(0, 5)
+        }
         if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
         const scored = await rankPassages(query, passages)
         const best = scored[0]
         if (!best || best.score < 0.2) return null
-        // Prefer snippet if it scores within 80% of best
         const snippetEntry = r.snippet ? scored.find(s => s.passage === r.snippet) : null
-        const chosen = snippetEntry && snippetEntry.score >= best.score * 0.8 ? snippetEntry : best
+        // Only prefer snippet when it matches or beats the best passage score.
+        // Avoids returning a generic "Joint cracking is..." snippet (0.33) when
+        // a full-text passage "dissolve back into... cracking sound" scores 0.67.
+        const chosen = snippetEntry && snippetEntry.score >= best.score ? snippetEntry : best
         return { passage: chosen.passage, score: chosen.score, article: art }
       })
     )
     const validResults = candidateResults.filter((r): r is NonNullable<typeof r> => r !== null)
     // Use find() not sort() so Serper's rank order breaks ties.
-    // "Static cling" (rank 0) beats "Fabric softener" (rank 1) at equal score.
     const maxScore = validResults.reduce((m, r) => Math.max(m, r.score), 0)
     const best = validResults.find(r => r.score === maxScore)
     if (best) {

@@ -72,11 +72,21 @@ function recallScore(query: string, passage: string): number {
 
   let matched = 0
   for (const q of qWords) {
-    // Word boundary: \b ensures "wear" does NOT match "eyewear", "fog" does NOT match "antifog"
-    const exact = new RegExp(`\\b${q}\\b`).test(pLow)
-    // Morphological prefix at word boundary: "fog" matches "fogging", "fogged", "fogs"
-    const prefix = q.length >= 4 && new RegExp(`\\b${q.slice(0, q.length - (q.endsWith("e") ? 1 : 0))}[a-z]{0,4}\\b`).test(pLow)
-    if (exact || prefix) matched++
+    // Generate the specific morphological forms to check — not a wildcard regex.
+    // Wildcard `\b${stem}[a-z]{0,4}\b` is too broad: "ball" → matches "ballpark", "ballet".
+    // Instead, enumerate the specific forms for BOTH directions:
+    const forms = new Set([q])
+    // Longer forms (suffixes): fog → fogging/fogged/fogs
+    const stem = q.endsWith("e") ? q.slice(0, -1) : q
+    forms.add(stem + "s").add(stem + "es").add(stem + "ing").add(stem + "ed").add(stem + "er")
+    // Shorter forms (stem reduction): fingers → finger, cracking → crack
+    if (q.endsWith("s") && q.length > 4) forms.add(q.slice(0, -1))
+    if (q.endsWith("es") && q.length > 4) forms.add(q.slice(0, -2))
+    if (q.endsWith("ing") && q.length > 5) forms.add(q.slice(0, -3))
+    if (q.endsWith("ed") && q.length > 4) forms.add(q.slice(0, -2))
+    // Check each specific form with word boundary — no wildcard expansion
+    const matched_q = [...forms].some(f => new RegExp(`\\b${f}\\b`).test(pLow))
+    if (matched_q) matched++
   }
   return matched / qWords.length
 }
@@ -101,7 +111,7 @@ export async function rankPassages(
         inputs: { source_sentence: query.slice(0, 512), sentences: trimmed },
         options: { wait_for_model: true },
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(5000),  // fail fast — BM25 fallback is better than waiting 10s
     })
 
     if (res.ok) {
