@@ -89,9 +89,10 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   if (!snippetPairs.length) return null
 
-  // Score all snippets in one HF call — cheap (5 short texts)
+  // Score all snippets in one HF call — cheap (3 short texts)
   const snippetTexts = snippetPairs.map(p => p.snippet)
-  const snippetScores = await rankPassages(query, snippetTexts)
+  const snippetResult = await rankPassages(query, snippetTexts)
+  const { results: snippetScores, usingHF: snippetHF } = snippetResult
 
   // Build score lookup by snippet text
   const scoreByText = new Map(snippetScores.map(s => [s.passage, s.score]))
@@ -107,8 +108,10 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const bestResult = candidateResults[bestPair.serperIdx]
   const bestSummary = summaries[bestPair.serperIdx] ?? await wikiSummary(bestResult.title)
 
-  // If the snippet directly answers the question, return it immediately
-  if (bestScore >= SNIPPET_THRESHOLD && bestSummary) {
+  // If the snippet directly answers the question, return it immediately.
+  // ONLY trust this threshold when HF confirmed working — BM25 keyword overlap scores
+  // (e.g., Atlantic Flyway = 0.75 BM25 for "birds fly south") are not semantic confidence.
+  if (snippetHF && bestScore >= SNIPPET_THRESHOLD && bestSummary) {
     return {
       passage: bestPair.snippet.slice(0, 800),
       articleTitle: bestSummary.title,
@@ -148,7 +151,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
       .forEach(p => allPassages.push({ passage: p, title: bestSummaryFetched.title, url: bestSummaryFetched.url }))
   }
 
-  const passageScores = await rankPassages(query, allPassages.map(m => m.passage))
+  const { results: passageScores } = await rankPassages(query, allPassages.map(m => m.passage))
   const best = passageScores[0]
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 

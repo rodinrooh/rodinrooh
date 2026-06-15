@@ -93,11 +93,14 @@ function recallScore(query: string, passage: string): number {
   return matched / qWords.length
 }
 
+export type RankedPassage = { passage: string; score: number }
+export type RankResult = { results: RankedPassage[]; usingHF: boolean }
+
 export async function rankPassages(
   query: string,
   passages: string[]
-): Promise<Array<{ passage: string; score: number }>> {
-  if (!passages.length) return []
+): Promise<RankResult> {
+  if (!passages.length) return { results: [], usingHF: false }
 
   const trimmed = passages.map(p => p.slice(0, 512))
 
@@ -113,21 +116,27 @@ export async function rankPassages(
         inputs: { source_sentence: query.slice(0, 512), sentences: trimmed },
         options: { wait_for_model: true },
       }),
-      signal: AbortSignal.timeout(15000),  // 15s — authenticated requests get priority on warm models
+      signal: AbortSignal.timeout(15000),
     })
 
     if (res.ok) {
       const scores = await res.json() as number[]
       if (Array.isArray(scores) && scores.length === passages.length) {
-        return passages
-          .map((p, i) => ({ passage: p, score: scores[i] }))
-          .sort((a, b) => b.score - a.score)
+        return {
+          usingHF: true,
+          results: passages
+            .map((p, i) => ({ passage: p, score: scores[i] }))
+            .sort((a, b) => b.score - a.score),
+        }
       }
     }
   } catch { /* fall through to BM25 */ }
 
   // Fallback: content-word recall scoring (NLP-based, no stopword list)
-  return passages
-    .map(p => ({ passage: p, score: recallScore(query, p) }))
-    .sort((a, b) => b.score - a.score)
+  return {
+    usingHF: false,
+    results: passages
+      .map(p => ({ passage: p, score: recallScore(query, p) }))
+      .sort((a, b) => b.score - a.score),
+  }
 }
