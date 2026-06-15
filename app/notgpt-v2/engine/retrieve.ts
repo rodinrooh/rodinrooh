@@ -241,7 +241,24 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   const [wikiSearchResults, openSearchResults, serperResults] = await Promise.all([
     Promise.all(wikiQueries.map(q => wikiSearch(q, 8))),
     Promise.all(openSearchInputs.map(q => wikiOpenSearch(q))),
-    serperSearch(query),  // Google-resolved titles + answer snippets
+    // Run Serper with BOTH the full question and a stripped version (no question words).
+    // "why do my fingers wrinkle in the bath" misses Skin maceration, but
+    // "fingers wrinkle in bath" surfaces it at rank 1.
+    // Both run in parallel — no latency cost.
+    (async () => {
+      const stripped = query
+        .replace(/^(?:why|how|what|who|when|where|which)\s+(?:does|did|do|is|are|was|were|can|could)?\s*/i, "")
+        .replace(/\b(?:you|your|my|i|we|they|he|she|it|the|a|an)\b\s*/gi, "")
+        .replace(/\s+/g, " ").trim()
+      const [full, short] = await Promise.all([
+        serperSearch(query),
+        stripped && stripped !== query ? serperSearch(stripped) : Promise.resolve([]),
+      ])
+      // Union: full query results first (Google's intent), then any new titles from short query
+      const seenTitles = new Set(full.map(r => r.title))
+      const extra = short.filter(r => !seenTitles.has(r.title))
+      return [...full, ...extra].slice(0, 6)
+    })(),
   ])
 
   const allSearchHits = wikiSearchResults.flat()
@@ -298,7 +315,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         // Running all 4 fetches in parallel keeps wall-clock time the same as fetching 1.
         let passages: string[] = []
         const fullText = await wikiFullText(r.title)
-        const limit = idx === 0 ? 25 : 12
+        const limit = idx === 0 ? 25 : 15  // was 12; Thermal shock key sentence is at index 12
         passages = fullText ? splitPassages(fullText).slice(0, limit) : splitPassages(art.extract).slice(0, limit)
         if (r.snippet && r.snippet.length > 30) passages.unshift(r.snippet)
         const scored = await rankPassages(query, passages)
