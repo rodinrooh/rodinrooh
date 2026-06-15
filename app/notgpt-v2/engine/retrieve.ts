@@ -14,7 +14,7 @@
  *      no timeout, semantic scoring picks Bird migration correctly over Atlantic Flyway.
  */
 
-import { wikiSummary, wikiFullText, splitPassages } from "./wiki"
+import { wikiSummary, wikiFullText, splitPassages, wikiSearch } from "./wiki"
 import { rankPassages } from "./embed"
 
 const SNIPPET_THRESHOLD = 0.7
@@ -67,7 +67,18 @@ function bm25Prefilter(query: string, passages: string[], topN: number): string[
   if (!qWords.length) return passages.slice(0, topN)
 
   const scored = passages.map(p => {
+    // Refutation passages explain what something ISN'T, not how it works.
+    // A passage saying "X has no scientific evidence" or "is a myth" actively misleads
+    // HF into scoring it high because it repeats the topic vocabulary many times.
+    // Score these near-zero so they don't contaminate the BM25 top-N.
     const pLow = " " + p.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ") + " "
+    // Refutation passages explain what something ISN'T (not the mechanism):
+    const isRefutation = /without\s+scientific\s+evidence|no\s+(?:scientific\s+)?evidence|old\s+wives|debunks?\s+the|myth\s+that|is\s+not\s+supported\s+by/.test(p.toLowerCase())
+    // Pure statistics passages describe WHEN/HOW OFTEN, not WHY:
+    // "of those between 45 and 65, 74% have grey hair" → describes frequency, not cause
+    const isPureStats = /\d+%\s+(?:of|have|had)\b.*?\baccording\s+to|according\s+to\s+(?:a|the)\s+study\s+by|\bof\s+those\s+between\s+\d+\s+and\s+\d+/.test(p)
+    if (isRefutation || isPureStats) return { passage: p, score: 0 }
+
     let hits = 0
     for (const w of qWords) {
       const stem = w.endsWith("e") ? w.slice(0, -1) : w
@@ -156,10 +167,21 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   const bestIsRank0 = bestPair.serperIdx === 0
   const rank1 = candidateResults[1], rank2 = candidateResults[2]
-  const [full0, full1, full2] = await Promise.all([
+
+  // Also try Wikipedia's own search as a 4th source. Serper finds the most popular article,
+  // but Wikipedia search sometimes surfaces more specific mechanism articles (e.g., "Lift (force)"
+  // for "how do airplanes stay in the air" when Serper only returns the general "Airplane" article).
+  const wikiResults = await wikiSearch(query, 3)
+  const serperTitles = new Set(candidateResults.map(r => r.title.toLowerCase()))
+  const wikiExtra = wikiResults.find(r => !serperTitles.has(r.title.toLowerCase()) &&
+    !r.title.startsWith("Wikipedia:") && !r.title.includes("(disambiguation)") &&
+    !r.title.startsWith("List of"))
+
+  const [full0, full1, full2, fullWiki] = await Promise.all([
     wikiFullText(rank0.title),
     wikiFullText(rank1?.title ?? ""),
     wikiFullText(rank2?.title ?? ""),
+    wikiExtra ? wikiFullText(wikiExtra.title) : Promise.resolve(null),
   ])
 
   // Build pool from each article: extract + first-4 intro passages + BM25-top-N
@@ -173,8 +195,16 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     if (!seen.has(key)) { seen.add(key); pool.push({ p, title, url }) }
   }
 
+  // Passages that describe myths/correlations/culture rather than mechanisms.
+  // Detecting text STRUCTURE (refutation, statistics, cultural belief), not topic vocabulary.
+  const isJunkPassage = (p: string) =>
+    /without\s+scientific\s+evidence|no\s+(?:scientific\s+)?evidence|old\s+wives|debunks?\s+the|myth\s+that|is\s+not\s+supported\s+by/.test(p.toLowerCase()) ||
+    /\bof\s+those\s+between\s+\d+\s+and\s+\d+|according\s+to\s+(?:a|the)\s+(?:\d{4}\s+)?study\s+by\s+\w|\d+%\s+(?:of|have|had)\b/.test(p) ||
+    /\bcultures?\s+believe\b|\bfolklore\s+(?:states?|says?)\b|\btraditionally\s+associated\s+with\s+(?:good|bad|luck)\b|\bbelieved\s+to\s+bring\s+(?:good|bad)\b/.test(p.toLowerCase())
+
   const addArticle = (text: string | null, sum: { extract: string; title: string; url: string }, snippet: string, introN: number, bm25N: number) => {
-    if (sum.extract) addP(sum.extract, sum.title, sum.url)
+    // Add extract unless it's a cultural-belief or myth passage (not a mechanism explanation)
+    if (sum.extract && !isJunkPassage(sum.extract)) addP(sum.extract, sum.title, sum.url)
     if (snippet && snippet.length > 30) addP(snippet, sum.title, sum.url)
     const passages = splitPassages(text ?? sum.extract)
     passages.slice(0, introN).forEach(p => addP(p, sum.title, sum.url))
@@ -195,6 +225,12 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   if (sum1?.extract && !isEntertainment(sum1.description ?? "")) addArticle(full1, sum1, "", 2, 3)
   const sum2 = summaries[2] ?? (rank2 ? await wikiSummary(rank2.title) : null)
   if (sum2?.extract && !isEntertainment(sum2.description ?? "")) addArticle(full2, sum2, "", 2, 3)
+  // 4th source: Wikipedia's own search top result (skips duplicates already in pool)
+  if (wikiExtra && fullWiki) {
+    const sumWiki = await wikiSummary(wikiExtra.title)
+    if (sumWiki?.extract && !isEntertainment(sumWiki.description ?? ""))
+      addArticle(fullWiki, sumWiki, "", 2, 3)
+  }
 
   if (!pool.length) return null
 
