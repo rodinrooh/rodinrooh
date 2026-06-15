@@ -118,30 +118,34 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   }
 
   // Snippet wasn't confident enough — scan full articles.
-  // Scan rank-0 (25 passages) AND rank-1 (15 passages) in parallel.
-  // When Serper rank 0 is wrong (e.g., Puberphonia for helium), rank-1 (Helium)
-  // full text has the right passage and HF picks it.
-  if (!bestSummary?.extract) return null
+  // Always scan Serper rank-0 (Google's top result) PLUS the best-snippet article if different.
+  // "birds fly south" → Bird migration is rank-0 (correct) but Atlantic Flyway (rank-2) had
+  // higher BM25 snippet score. Always including rank-0 ensures Bird migration gets scanned.
+  const rank0Result = candidateResults[0]
+  const rank0Summary = summaries[0] ?? await wikiSummary(rank0Result.title)
+  if (!rank0Summary?.extract) return null
 
-  const rank1Result = candidateResults[1]
-  const [fullText0, fullText1, summary1] = await Promise.all([
-    wikiFullText(bestResult.title),
-    rank1Result ? wikiFullText(rank1Result.title) : Promise.resolve(null),
-    rank1Result ? wikiSummary(rank1Result.title) : Promise.resolve(null),
+  // Also scan the best-snippet article if it's different from rank-0
+  const alsoScanBest = bestResult.title !== rank0Result.title
+  const [rank0Full, bestFull, bestSummaryFetched] = await Promise.all([
+    wikiFullText(rank0Result.title),
+    alsoScanBest ? wikiFullText(bestResult.title) : Promise.resolve(null),
+    alsoScanBest ? (bestSummary ?? wikiSummary(bestResult.title)) : Promise.resolve(null),
   ])
 
   type PassageMeta = { passage: string; title: string; url: string }
   const allPassages: PassageMeta[] = []
 
-  // Rank-0 passages (25)
-  const p0 = splitPassages(fullText0 ?? bestSummary.extract).slice(0, 25)
-  if (bestPair.snippet.length > 30) p0.unshift(bestPair.snippet)
-  p0.forEach(p => allPassages.push({ passage: p, title: bestSummary.title, url: bestSummary.url }))
+  // Rank-0 passages (25) — always first
+  const p0 = splitPassages(rank0Full ?? rank0Summary.extract).slice(0, 25)
+  const rank0Snippet = candidateResults[0].snippet
+  if (rank0Snippet && rank0Snippet.length > 30) p0.unshift(rank0Snippet)
+  p0.forEach(p => allPassages.push({ passage: p, title: rank0Summary.title, url: rank0Summary.url }))
 
-  // Rank-1 passages (15) if available
-  if (fullText1 && summary1?.extract) {
-    splitPassages(fullText1).slice(0, 15)
-      .forEach(p => allPassages.push({ passage: p, title: summary1.title, url: summary1.url }))
+  // Best-snippet article passages (15) if different from rank-0
+  if (alsoScanBest && bestFull && bestSummaryFetched?.extract) {
+    splitPassages(bestFull).slice(0, 15)
+      .forEach(p => allPassages.push({ passage: p, title: bestSummaryFetched.title, url: bestSummaryFetched.url }))
   }
 
   const passageScores = await rankPassages(query, allPassages.map(m => m.passage))
