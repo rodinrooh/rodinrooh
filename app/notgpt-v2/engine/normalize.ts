@@ -169,11 +169,10 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
         const isContent = firstDoc.match("#ProperNoun").length > 0 || firstDoc.has("#Value")
         if (!isContent) {
           const rest = words.slice(1).join(" ")
-          const restDoc = nlp(rest) as any
-          // Only strip if the rest has at least one content word
-          if (restDoc.nouns().length > 0 || restDoc.verbs().length > 0) {
-            q = rest
-          }
+          // Strip unconditionally — "alr great" → "great" even if "great" has no detected nouns
+          // (compromise often tags adjectives/exclamations without noun role).
+          // The goal is to remove the leading discourse marker regardless.
+          if (rest.length > 0) q = rest
         }
       } catch { /* leave as-is */ }
     }

@@ -106,7 +106,11 @@ export async function POST(req: Request) {
   const lastBotWithArticle = [...contextMessages].reverse().find(m => m.role !== "user" && m.entities?.[0])
   const lastArticle = lastBotWithArticle?.entities?.[0]
 
-  const intent = classify(message)
+  // Normalize BEFORE classifying so "alr great" → "great" before isSocial sees it.
+  // This also means classify operates on the clean query, not raw slang/filler.
+  const classifyContext = lastArticle ? { article: lastArticle } : undefined
+  const queryForClassify = normalizeQuery(message, classifyContext)
+  const intent = classify(queryForClassify, classifyContext)
 
   let stream: ReadableStream
   if (intent === "math") stream = handleMath(message)

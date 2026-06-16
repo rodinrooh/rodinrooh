@@ -26,15 +26,25 @@ const BM25_PREFILTER_N = 8
 
 type SerperResult = { title: string; snippet: string; url: string }
 
+// In-memory Serper cache keyed by query string — 60s TTL.
+// This replaces Next.js's broken POST cache (which keys on URL only, ignoring body,
+// causing all Serper calls to return the same cached result).
+const _serperCache = new Map<string, { result: SerperResult[]; expires: number }>()
+
 async function serperSearch(query: string): Promise<SerperResult[]> {
   const key = process.env.SERPER_API_KEY
   if (!key) return []
   try {
+    // IMPORTANT: Next.js caches POST requests by URL only (ignores body), causing all
+    // Serper queries to return the same cached result. Use cache:'no-store' and implement
+    // our own per-query in-memory cache keyed by the actual query string.
+    const cached = _serperCache.get(query)
+    if (cached && cached.expires > Date.now()) return cached.result
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       body: JSON.stringify({ q: `${query} site:en.wikipedia.org`, num: 5 }),
-      next: { revalidate: 60 },
+      cache: "no-store",  // disable Next.js body-ignoring cache
     })
     if (!res.ok) return []
     const data = await res.json()
@@ -49,6 +59,7 @@ async function serperSearch(query: string): Promise<SerperResult[]> {
       if (/\(\d{4}\s*(?:film|movie|TV series|song|album|novel)\)|!+$|\bSeason \d+\b/i.test(title)) continue
       results.push({ title, snippet: r.snippet ?? "", url: r.link })
     }
+    _serperCache.set(query, { result: results, expires: Date.now() + 60_000 })
     return results
   } catch { return [] }
 }
