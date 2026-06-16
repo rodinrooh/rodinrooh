@@ -50,7 +50,13 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   // These are unambiguous shorthands — "u" alone is always "you" in a query context.
   q = q
     .replace(/\b(u)\b/gi, "you")         // "how r u" → "how are you"
-    .replace(/\bur\b/gi, "your")          // "ur bored" → "your bored"
+    .replace(/\bur\b(?=\s+\w)/gi, (_, offset, str) => {
+      // "ur" before an adjective (bored, tired, right, sure, ok, good, bad, etc.) = "you're"
+      // "ur" before a noun/possessive context = "your"
+      const nextWord = str.slice(offset + 2).trim().split(/\s+/)[0]?.toLowerCase() || ""
+      const adjectives = /^(bored|tired|right|wrong|sure|ok|good|bad|late|early|ready|done|sick|fine|welcome|awesome|amazing|crazy|stupid|smart|funny|weird|nice|cool|hot|cold)$/
+      return adjectives.test(nextWord) ? "you're" : "your"
+    })        // "when ur bored" → "when you're bored", "ur hair" → "your hair"
     .replace(/\b(r)\b/g, "are")           // "sum ppl r" → "sum people are"
     .replace(/\b(w)\b/g, "with")          // "atoms w our eyes" → "atoms with our eyes"
     .replace(/\bb4\b/gi, "before")        // "b4 alarm" → "before alarm"
