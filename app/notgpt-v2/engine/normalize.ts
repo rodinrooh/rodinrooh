@@ -155,23 +155,42 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   }
 
   // ── Step 3b: Fallback prefix strip when no question word found ──
-  // Handles typos in question words: "bruh expalin black holes" — "expalin" ≠ "explain"
-  // so QUESTION_START_RE misses it, and "bruh" never gets stripped.
-  // If NO question word was found (qMatch is null) and the query starts with a single
-  // short word (≤5 chars) that doesn't look like the main topic, strip it.
+  // Handles filler prefixes with typos: "bruh expalin black holes" — "expalin" ≠ "explain"
+  // so QUESTION_START_RE misses it, and "bruh" never gets stripped by step 3.
+  //
+  // Guards (DO NOT strip when):
+  //   - First word is #Adjective: "black holes", "dark matter", "cold war" → compound modifier
+  //   - First word is #ProperNoun: "NASA stuff" → "NASA" is content
+  //   - Second word is a Noun: "stock market" → Noun+Noun compound → keep "stock"
+  //
+  // DO strip when:
+  //   - First word is #Expression (yo, ok, hey, um) → discourse filler
+  //   - First word is none of the above guards → "alr great" (alr=Noun, great=Adj, nextIsNoun=false)
+  //
+  // Context-aware parsing is CRITICAL: "market" alone → Verb, but "stock market" → both Noun.
+  // Isolated word checks lose context and get compound nouns wrong.
   if (!qMatch) {
     const words = q.split(/\s+/).filter(Boolean)
     if (words.length >= 2 && words[0].length <= 5) {
       try {
-        const firstDoc = nlp(words[0]) as any
-        // If the first word has no content meaning (not a named entity, not a proper noun),
-        // strip it and see if the rest forms a valid query
-        const isContent = firstDoc.match("#ProperNoun").length > 0 || firstDoc.has("#Value")
-        if (!isContent) {
+        // Parse the full query for context-aware POS tags.
+        // Critical: "market" alone → Verb (to market). "stock market" → both Noun.
+        // Isolated word parsing loses context; full-query parsing gets it right.
+        const fullDoc = nlp(q) as any
+        const terms = (fullDoc.json()[0]?.terms ?? []) as Array<{ tags: string[] }>
+        const firstTags: string[] = terms[0]?.tags ?? []
+        const secondTags: string[] = terms[1]?.tags ?? []
+
+        const isExpression = firstTags.includes("Expression")          // yo, ok, hey, um
+        const isAdj = firstTags.includes("Adjective")                  // black, dark, cold
+        const isProper = firstTags.some(t => ["ProperNoun", "Person", "Place", "Organization"].includes(t))
+        const hasValue = firstTags.includes("Value")
+        // Noun+Noun compound: "stock market crash" → stock=Noun, market=Noun → don't strip
+        const nextIsNoun = secondTags.some(t => t === "Noun" || t === "Singular" || t === "Plural" || t === "Uncountable")
+
+        const shouldStrip = isExpression || (!isAdj && !isProper && !hasValue && !nextIsNoun)
+        if (shouldStrip) {
           const rest = words.slice(1).join(" ")
-          // Strip unconditionally — "alr great" → "great" even if "great" has no detected nouns
-          // (compromise often tags adjectives/exclamations without noun role).
-          // The goal is to remove the leading discourse marker regardless.
           if (rest.length > 0) q = rest
         }
       } catch { /* leave as-is */ }

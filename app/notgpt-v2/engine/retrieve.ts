@@ -353,34 +353,42 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
   const { results: scored } = await rankPassages(query, pool.map(x => x.p))
   if (!scored.length) return null
 
-  // Coreference override — MUST run before threshold check.
-  // When the user asked a follow-up about a specific entity (via pronoun "they/it"),
-  // we must return that entity's passage even if its score is below the normal threshold.
-  // Without this, "how much money have they made" after Supreme → Supreme's passages
-  // score 0.30 (below threshold 0.37) → threshold check fires → "Nothing found".
-  // "Nothing found" is wrong when the user explicitly asked about Supreme.
+  // Coreference override — only fires when the normalized query explicitly mentions
+  // the context entity name (meaning normalizeQuery resolved a pronoun and injected it).
+  //
+  // This gate is critical: "how does it work" after WiFi → normalized to "how does WiFi work"
+  // → query contains "wifi" → override fires → return WiFi passage even if score is low.
+  //
+  // WITHOUT the gate (old bug): "what about black holes" after Stock market crash → query
+  // doesn't contain "stock market" → override skipped → Black hole passage returned ✓.
+  // WITH the old code: override fired for ALL context queries → returned Stock market
+  // crash passage even when user explicitly switched topics to black holes.
   let best = scored[0]
   let meta = pool.find(x => x.p === best.passage)!
   if (context?.article) {
     const ctxLower = context.article.replace(/\s*\([^)]+\)\s*$/, "").trim().toLowerCase()
-    const resultIsCtxEntity = meta.title.toLowerCase().includes(ctxLower)
-    if (!resultIsCtxEntity) {
-      // Result is a generic article, not the context entity. Override with context entity's
-      // best passage — any score is acceptable since the user asked about this entity.
-      for (const s of scored) {
-        const m = pool.find(x => x.p === s.passage)
-        if (m?.title.toLowerCase().includes(ctxLower)) {
-          best = s
-          meta = m
-          break
+    // Only override when the query actually mentions the context entity — i.e., pronoun
+    // resolution injected the entity name into the query. New-topic queries ("what about
+    // black holes") will never mention "stock market" → they fall through to normal retrieval.
+    if (query.toLowerCase().includes(ctxLower)) {
+      const resultIsCtxEntity = meta.title.toLowerCase().includes(ctxLower)
+      if (!resultIsCtxEntity) {
+        // Best HF result is not the context entity. Override with context entity's passage
+        // since user made an explicit pronoun-referential follow-up about it.
+        for (const s of scored) {
+          const m = pool.find(x => x.p === s.passage)
+          if (m?.title.toLowerCase().includes(ctxLower)) {
+            best = s
+            meta = m
+            break
+          }
         }
+        if (!meta.title.toLowerCase().includes(ctxLower)) return null
       }
-      // Still not context entity? Generic article is definitely wrong — return nothing
-      if (!meta.title.toLowerCase().includes(ctxLower)) return null
+      // Skip threshold for pronoun follow-ups — user explicitly asked about this entity
+      return { passage: truncateAtSentence(best.passage), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
     }
-    // For context-entity results: skip threshold (return even low-score passages)
-    // since the user made an explicit referential follow-up
-    return { passage: truncateAtSentence(best.passage), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
+    // New topic: query doesn't mention context entity → fall through to normal threshold check
   }
 
   if (!best || best.score < PASSAGE_THRESHOLD) return null
