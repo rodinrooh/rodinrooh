@@ -23,9 +23,21 @@ export function classify(query: string): Intent {
   const q = query.trim()
 
   if (MATH_RE.test(q)) return "math"
+  if (isRepeatedFiller(q)) return "social"
   if (isSocial(q)) return "social"
   if (isPreference(q)) return "social"
   return "factual"
+}
+
+/**
+ * Structural repeated-word detection. "yo yo yo", "ha ha ha", "lol lol" are pure filler —
+ * detected by pattern (same word ≥2 times, each word ≤5 chars), not by enumerating words.
+ */
+function isRepeatedFiller(q: string): boolean {
+  const words = q.toLowerCase().split(/\s+/)
+  if (words.length < 2) return false
+  const unique = new Set(words)
+  return unique.size === 1 && words[0].length <= 5
 }
 
 /**
@@ -58,13 +70,14 @@ function isSocial(q: string): boolean {
     const namedEntities = doc.match("#ProperNoun").length
     // A query with no content nouns AND no named entities has nothing to retrieve
     if (contentNouns === 0 && namedEntities === 0) return true
-    // Secondary structural check: greeting/farewell pattern detected by NLP.
-    // If the query has a #Greeting tag AND is short (< 20 chars), it's a social exchange.
-    // Short length prevents false positives on "hello world" in programming context.
-    try {
-      const hasGreeting = doc.has("#Greeting")
-      if (hasGreeting && q.length < 20) return true
-    } catch { /* ignore */ }
+    // Short social-pattern: "hello there", "hi there" — "there" gets tagged as a noun
+    // but it's clearly social. Pattern: very short query, all nouns are ≤5 chars, no
+    // noun is ≤2 chars (abbreviations like "la" or "tv" indicate real topics), no named entities.
+    const contentNounWords: string[] = doc.nouns().not("#Pronoun").not("#Interjection").out("array")
+    const allNounsShort = contentNounWords.length > 0 &&
+      contentNounWords.every((n: string) => n.length <= 5) &&
+      !contentNounWords.some((n: string) => n.length <= 2)  // exclude abbreviations ("la", "tv", "ny")
+    if (allNounsShort && namedEntities === 0 && q.length < 15) return true
     return false
   } catch {
     return q.length < 8 && !/[a-z]{5}/i.test(q)

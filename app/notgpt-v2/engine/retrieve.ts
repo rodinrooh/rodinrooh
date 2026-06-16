@@ -17,6 +17,8 @@
 import { wikiSummary, wikiFullText, splitPassages, wikiSearch } from "./wiki"
 import { rankPassages } from "./embed"
 import { normalizeQuery, QueryContext } from "./normalize"
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nlp = require("compromise")
 
 const SNIPPET_THRESHOLD = 0.7
 const PASSAGE_THRESHOLD = 0.37
@@ -101,10 +103,27 @@ export type RetrievalResult = { passage: string; articleTitle: string; articleUr
 
 /** Cut text at the last complete sentence within maxChars, never mid-word or mid-sentence. */
 function truncateAtSentence(text: string, maxChars = 1000): string {
-  // Clean trailing "..." — the Wikipedia REST API appends this when truncating extracts
+  // Strip trailing "..." — Serper and Wikipedia REST API use this for mid-sentence truncation
   const cleaned = text.replace(/\s*\.{3}\s*$/, "").trim()
-  if (cleaned.length <= maxChars) return cleaned
-  const candidate = cleaned.slice(0, maxChars)
+
+  // Core insight: Serper snippets often end mid-sentence after "..." is stripped.
+  // We must detect incomplete sentences BEFORE checking length — a 200-char passage that
+  // ends with "Because REM sleep is" is worse than a 130-char complete sentence.
+  const endsClean = /[.!?:]\s*$/.test(cleaned)
+  const textToProcess = endsClean ? cleaned : (() => {
+    // Find the last complete sentence in the text
+    const lastPeriod = Math.max(cleaned.lastIndexOf(". "), cleaned.lastIndexOf(".\n"))
+    const lastQ = cleaned.lastIndexOf("? ")
+    const lastBang = cleaned.lastIndexOf("! ")
+    const lastEnd = Math.max(lastPeriod, lastQ, lastBang)
+    // If we found a sentence boundary that isn't too early, use it
+    if (lastEnd > cleaned.length * 0.2) return cleaned.slice(0, lastEnd + 1).trim()
+    // No good boundary found — return as-is (better than nothing)
+    return cleaned
+  })()
+
+  if (textToProcess.length <= maxChars) return textToProcess
+  const candidate = textToProcess.slice(0, maxChars)
   const lastEnd = Math.max(
     candidate.lastIndexOf(". "),
     candidate.lastIndexOf("? "),
@@ -257,12 +276,40 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
   if (sum1?.extract && !isEntertainment(sum1.description ?? "")) addArticle(full1, sum1, "", 2, 3)
   const sum2 = summaries[2] ?? (rank2 ? await wikiSummary(rank2.title) : null)
   if (sum2?.extract && !isEntertainment(sum2.description ?? "")) addArticle(full2, sum2, "", 2, 3)
-  // 4th source: Wikipedia's own search — only add when Serper rank-0 is uncertain
-  // (score < 0.5). If rank-0 is confident (GPS for "how does gps work"), wikiSearch
-  // adding "Computer cartography" just injects noise that beats the real article.
-  // Add all non-duplicate wikiSearch results when rank-0 confidence is low.
-  // This catches articles like "List of common misconceptions" for debunking queries.
-  if (rank0SnippetScore < 0.5 && wikiExtras.length > 0) {
+  // 4th source: Wikipedia's own search — fire when rank-0 is uncertain OR when a named
+  // entity in the query is absent from the rank-0 article title.
+  // Example: "who is the ceo of apple" → rank-0 = "Chief executive officer" (generic).
+  // "Apple" is a named entity in the query but not in rank-0 title → wikiSearch fires → Tim Cook.
+  // Skip wikiSearch when context entity is already in pool (avoids Money for "how much Supreme").
+  const contextEntityInPool = context?.article ?
+    pool.some(p => p.title.toLowerCase().includes(
+      context.article!.replace(/\s*\([^)]+\)\s*$/, "").trim().toLowerCase()
+    )) : false
+
+  // Check if named entity in query is absent from rank-0 (signals wrong article from Serper).
+  // Also checks if rank-0 describes a GENERIC ROLE/CONCEPT when the query asks about a specific
+  // entity (e.g. "who is the ceo of apple" → rank-0 "Chief executive officer" is a concept,
+  // but the query is about a specific person at Apple → wikiSearch finds Tim Cook).
+  const queryHasEntityMissingFromRank0 = (() => {
+    try {
+      // Named entity check (works for properly capitalized entities)
+      const qDoc = (nlp as any)(normalizedQuery)
+      const entities: string[] = qDoc.match("#ProperNoun").out("array")
+      if (entities.length > 0) {
+        const rank0Lower = (sum0.title + " " + (sum0.extract || "")).toLowerCase()
+        if (entities.some((e: string) => e.length > 2 && !rank0Lower.includes(e.toLowerCase()))) return true
+      }
+      // Role/concept article check: "who is the [role] of [entity]" queries.
+      // If rank-0 describes a generic role/position rather than a specific person/thing,
+      // wikiSearch should find the specific answer.
+      const isGenericRole = /\b(officer|role|position|job|title|highest-ranking|executive)\b/i.test(sum0.description || "")
+      const queryAsksPerson = /\b(who\s+is|who\s+was|who\s+are|who\s+runs|who\s+founded|who\s+leads?)\b/i.test(normalizedQuery)
+      if (isGenericRole && queryAsksPerson) return true
+      return false
+    } catch { return false }
+  })()
+
+  if ((rank0SnippetScore < 0.65 || queryHasEntityMissingFromRank0) && !contextEntityInPool && wikiExtras.length > 0) {
     // Fetch full text for all wikiExtras (first one already fetched as fullWiki)
     const fullTexts = [fullWiki, ...await Promise.all(
       wikiExtras.slice(1).map(r => wikiFullText(r.title))
@@ -274,14 +321,58 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
     }
   }
 
+  // If coreference context was used, pin the context article in the pool.
+  // Without this, wikiSearch can inject generic articles (e.g. "Money" for
+  // "how much money has Supreme made") that beat the real context article.
+  if (context?.article) {
+    const ctxTitle = context.article.replace(/\s*\([^)]+\)\s*$/, "").trim()
+    const alreadyInPool = pool.some(p => p.title.toLowerCase().includes(ctxTitle.toLowerCase()))
+    if (!alreadyInPool) {
+      const ctxSum = await wikiSummary(ctxTitle)
+      if (ctxSum?.extract && !isEntertainment(ctxSum.description ?? "")) {
+        const ctxFull = await wikiFullText(ctxTitle)
+        addArticle(ctxFull, ctxSum, "", 3, 4)
+      }
+    }
+  }
+
   if (!pool.length) return null
 
   // HF final scorer on the pre-filtered pool — small batch, reliably completes
   const { results: scored } = await rankPassages(query, pool.map(x => x.p))
-  const best = scored[0]
-  if (scored.length) console.log(`[BEST] score=${scored[0].score.toFixed(3)} src=${pool.find(x=>x.p===scored[0].passage)?.title} pass=${scored[0].score >= PASSAGE_THRESHOLD}`)
+  if (!scored.length) return null
+
+  // Coreference override — MUST run before threshold check.
+  // When the user asked a follow-up about a specific entity (via pronoun "they/it"),
+  // we must return that entity's passage even if its score is below the normal threshold.
+  // Without this, "how much money have they made" after Supreme → Supreme's passages
+  // score 0.30 (below threshold 0.37) → threshold check fires → "Nothing found".
+  // "Nothing found" is wrong when the user explicitly asked about Supreme.
+  let best = scored[0]
+  let meta = pool.find(x => x.p === best.passage)!
+  if (context?.article) {
+    const ctxLower = context.article.replace(/\s*\([^)]+\)\s*$/, "").trim().toLowerCase()
+    const resultIsCtxEntity = meta.title.toLowerCase().includes(ctxLower)
+    if (!resultIsCtxEntity) {
+      // Result is a generic article, not the context entity. Override with context entity's
+      // best passage — any score is acceptable since the user asked about this entity.
+      for (const s of scored) {
+        const m = pool.find(x => x.p === s.passage)
+        if (m?.title.toLowerCase().includes(ctxLower)) {
+          best = s
+          meta = m
+          break
+        }
+      }
+      // Still not context entity? Generic article is definitely wrong — return nothing
+      if (!meta.title.toLowerCase().includes(ctxLower)) return null
+    }
+    // For context-entity results: skip threshold (return even low-score passages)
+    // since the user made an explicit referential follow-up
+    return { passage: truncateAtSentence(best.passage), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
+  }
+
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 
-  const meta = pool.find(x => x.p === best.passage)!
   return { passage: truncateAtSentence(best.passage), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
 }

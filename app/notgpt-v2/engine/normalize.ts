@@ -154,6 +154,31 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
     }
   }
 
+  // ── Step 3b: Fallback prefix strip when no question word found ──
+  // Handles typos in question words: "bruh expalin black holes" — "expalin" ≠ "explain"
+  // so QUESTION_START_RE misses it, and "bruh" never gets stripped.
+  // If NO question word was found (qMatch is null) and the query starts with a single
+  // short word (≤5 chars) that doesn't look like the main topic, strip it.
+  if (!qMatch) {
+    const words = q.split(/\s+/).filter(Boolean)
+    if (words.length >= 2 && words[0].length <= 5) {
+      try {
+        const firstDoc = nlp(words[0]) as any
+        // If the first word has no content meaning (not a named entity, not a proper noun),
+        // strip it and see if the rest forms a valid query
+        const isContent = firstDoc.match("#ProperNoun").length > 0 || firstDoc.has("#Value")
+        if (!isContent) {
+          const rest = words.slice(1).join(" ")
+          const restDoc = nlp(rest) as any
+          // Only strip if the rest has at least one content word
+          if (restDoc.nouns().length > 0 || restDoc.verbs().length > 0) {
+            q = rest
+          }
+        }
+      } catch { /* leave as-is */ }
+    }
+  }
+
   // ── Step 4: Strip trailing noise — NLP POS detection, no word lists ──
   q = stripTrailingNoise(q)
 
