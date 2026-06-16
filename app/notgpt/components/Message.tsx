@@ -33,14 +33,15 @@ function renderInlineMarkdown(text: string): React.ReactNode {
         </strong>
       );
     } else if (match[2] && match[3]) {
-      // Link
+      // Link — amber tint on dark background
       parts.push(
         <a
           key={match.index}
           href={match[3]}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[#10a37f] hover:underline"
+          style={{ color: "#f0a04b" }}
+          className="hover:underline"
         >
           {match[2]}
         </a>
@@ -76,31 +77,39 @@ function renderMarkdownText(text: string): React.ReactNode {
   );
 }
 
-// ---- AssistantAvatar ----
+// ---- AssistantAvatar — question-mark starburst ----
 function AssistantAvatar() {
   return (
     <div
-      className="flex-shrink-0 w-7 h-7 rounded-full bg-[#10a37f] flex items-center justify-center text-white select-none"
+      className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center select-none"
+      style={{ backgroundColor: "#f0a04b" }}
       aria-hidden="true"
     >
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 700,
-          textDecoration: "line-through",
-          textDecorationColor: "#ef4444",
-          lineHeight: 1,
-          fontFamily: "inherit",
-        }}
-      >
-        G
-      </span>
+      {/* Simple stylized ? in dark */}
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <text
+          x="7"
+          y="11"
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="700"
+          fontFamily="inherit"
+          fill="#1a1a1a"
+        >
+          ?
+        </text>
+      </svg>
     </div>
   );
 }
 
 // ---- Block renderer ----
 function BlockRenderer({ block }: { block: Block }) {
+  const cardStyle = {
+    backgroundColor: "#2a2a2a",
+    border: "1px solid #3a3a3a",
+  };
+
   switch (block.type) {
     case "wikipedia":
       return null; // text is in delta stream, no box
@@ -114,40 +123,39 @@ function BlockRenderer({ block }: { block: Block }) {
       return <SOResults block={block} />;
     case "math":
       return (
-        <div className="my-2 px-4 py-3 rounded-lg bg-[#f7f7f8] dark:bg-[#2a2a2a] border border-[#e5e7eb] dark:border-[#3f3f3f] font-mono text-[14px]">
-          <span className="text-[#6b7280] dark:text-[#9ca3af]">
-            {block.expression}
-          </span>
-          <span className="text-[#d1d5db] dark:text-[#525252] mx-2">=</span>
-          <span className="font-semibold text-[#0d0d0d] dark:text-[#ececec]">
-            {block.result}
-          </span>
+        <div className="my-2 px-4 py-3 rounded-lg font-mono text-[14px]" style={cardStyle}>
+          <span style={{ color: "#9ca3af" }}>{block.expression}</span>
+          <span className="mx-2" style={{ color: "#4b5563" }}>=</span>
+          <span className="font-semibold" style={{ color: "#ececec" }}>{block.result}</span>
         </div>
       );
     case "definition":
       return (
-        <div className="my-3 rounded-lg border border-[#e5e7eb] dark:border-[#3f3f3f] bg-[#f7f7f8] dark:bg-[#2a2a2a] p-4 max-w-lg">
+        <div className="my-3 rounded-lg p-4 max-w-lg" style={cardStyle}>
           <div className="mb-3">
-            <span className="text-[16px] font-semibold text-[#0d0d0d] dark:text-[#ececec]">
+            <span className="text-[16px] font-semibold" style={{ color: "#ececec" }}>
               {block.word}
             </span>
             {block.phonetic && (
-              <span className="ml-2 text-[13px] text-[#9ca3af] font-mono">
+              <span className="ml-2 text-[13px] font-mono" style={{ color: "#9ca3af" }}>
                 {block.phonetic}
               </span>
             )}
           </div>
           {block.meanings.slice(0, 3).map((meaning, mi) => (
             <div key={mi} className="mb-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-[#9ca3af] dark:text-[#6b7280] italic">
+              <span
+                className="text-[11px] font-medium uppercase tracking-wide italic"
+                style={{ color: "#6b7280" }}
+              >
                 {meaning.partOfSpeech}
               </span>
               <ol className="mt-1 space-y-1">
                 {meaning.definitions.slice(0, 2).map((def, di) => (
-                  <li key={di} className="text-[13px] text-[#374151] dark:text-[#d1d5db] leading-relaxed pl-2">
+                  <li key={di} className="text-[13px] leading-relaxed pl-2" style={{ color: "#d1d5db" }}>
                     {di + 1}. {def.definition}
                     {def.example && (
-                      <span className="block pl-3 mt-0.5 text-[12px] text-[#9ca3af] italic">
+                      <span className="block pl-3 mt-0.5 text-[12px] italic" style={{ color: "#9ca3af" }}>
                         &ldquo;{def.example}&rdquo;
                       </span>
                     )}
@@ -160,38 +168,36 @@ function BlockRenderer({ block }: { block: Block }) {
       );
     case "currency":
       return (
-        <div className="my-2 px-4 py-3 rounded-lg bg-[#f7f7f8] dark:bg-[#2a2a2a] border border-[#e5e7eb] dark:border-[#3f3f3f] text-[14px]">
-          <span className="font-medium text-[#0d0d0d] dark:text-[#ececec]">
+        <div className="my-2 px-4 py-3 rounded-lg text-[14px]" style={cardStyle}>
+          <span className="font-medium" style={{ color: "#ececec" }}>
             {block.amount} {block.from}
           </span>
-          <span className="text-[#d1d5db] dark:text-[#525252] mx-2">=</span>
-          <span className="font-semibold text-[#0d0d0d] dark:text-[#ececec]">
+          <span className="mx-2" style={{ color: "#4b5563" }}>=</span>
+          <span className="font-semibold" style={{ color: "#ececec" }}>
             {block.result.toFixed(2)} {block.to}
           </span>
-          <span className="ml-3 text-[12px] text-[#9ca3af]">
+          <span className="ml-3 text-[12px]" style={{ color: "#9ca3af" }}>
             1 {block.from} = {block.rate.toFixed(4)} {block.to} · {block.date}
           </span>
         </div>
       );
     case "unit":
       return (
-        <div className="my-2 px-4 py-3 rounded-lg bg-[#f7f7f8] dark:bg-[#2a2a2a] border border-[#e5e7eb] dark:border-[#3f3f3f] font-mono text-[14px]">
-          <span className="text-[#0d0d0d] dark:text-[#ececec]">
+        <div className="my-2 px-4 py-3 rounded-lg font-mono text-[14px]" style={cardStyle}>
+          <span style={{ color: "#ececec" }}>
             {block.value} {block.fromUnit}
           </span>
-          <span className="text-[#d1d5db] dark:text-[#525252] mx-2">=</span>
-          <span className="font-semibold text-[#0d0d0d] dark:text-[#ececec]">
+          <span className="mx-2" style={{ color: "#4b5563" }}>=</span>
+          <span className="font-semibold" style={{ color: "#ececec" }}>
             {block.result} {block.toUnit}
           </span>
         </div>
       );
     case "time":
       return (
-        <div className="my-2 px-4 py-3 rounded-lg bg-[#f7f7f8] dark:bg-[#2a2a2a] border border-[#e5e7eb] dark:border-[#3f3f3f] text-[14px]">
-          <span className="font-semibold text-[#0d0d0d] dark:text-[#ececec]">
-            {block.display}
-          </span>
-          <span className="ml-2 text-[12px] text-[#9ca3af]">{block.timezone}</span>
+        <div className="my-2 px-4 py-3 rounded-lg text-[14px]" style={cardStyle}>
+          <span className="font-semibold" style={{ color: "#ececec" }}>{block.display}</span>
+          <span className="ml-2 text-[12px]" style={{ color: "#9ca3af" }}>{block.timezone}</span>
         </div>
       );
     default:
@@ -206,8 +212,9 @@ function StreamingDots() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-1 h-1 rounded-full bg-current opacity-60"
+          className="w-1 h-1 rounded-full opacity-60"
           style={{
+            backgroundColor: "#f0a04b",
             animation: `pulse 1.4s ease-in-out ${i * 0.2}s infinite`,
           }}
         />
@@ -223,7 +230,7 @@ function StreamingDots() {
 }
 
 // ---- Provenance footer ----
-// Shows a single unobtrusive "Source →" link. Multiple sources get comma-separated links.
+// Shows article title + link as a small source badge
 function ProvenanceFooter({ provenance }: { provenance: ProvenanceEntry[] }) {
   // Only show links to real external sources (not local-computation, social responses, etc.)
   const externalSources = provenance.filter(
@@ -232,16 +239,27 @@ function ProvenanceFooter({ provenance }: { provenance: ProvenanceEntry[] }) {
   if (!externalSources.length) return null;
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="mt-3 flex flex-wrap items-center gap-2">
       {externalSources.map((p, i) => (
         <a
           key={i}
           href={p.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] text-[#9ca3af] dark:text-[#6b7280] hover:text-[#6b7280] dark:hover:text-[#9ca3af] transition-colors no-underline"
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] no-underline transition-colors hover:opacity-80"
+          style={{
+            backgroundColor: "#2a2a2a",
+            border: "1px solid #3a3a3a",
+            color: "#9ca3af",
+          }}
         >
-          Source →
+          {/* Wikipedia W icon */}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <circle cx="5" cy="5" r="4.5" stroke="#6b7280" strokeWidth="1" />
+            <text x="5" y="8" textAnchor="middle" fontSize="6" fontWeight="700" fill="#6b7280" fontFamily="serif">W</text>
+          </svg>
+          <span>{p.label || "Source"}</span>
+          <span style={{ color: "#4b5563" }}>→</span>
         </a>
       ))}
     </div>
@@ -258,11 +276,18 @@ export default function Message({ message, onClarify }: MessageProps) {
   const { role, content, blocks, provenance, clarify, status, isStreaming } =
     message;
 
-  // ---- User message ----
+  // ---- User message — right-aligned, slightly lighter bg ----
   if (role === "user") {
     return (
-      <div className="flex justify-end px-4 py-2 group">
-        <div className="max-w-[85%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl bg-[#f4f4f4] dark:bg-[#2f2f2f] text-[14px] text-[#0d0d0d] dark:text-[#ececec] leading-relaxed whitespace-pre-wrap">
+      <div className="flex justify-end px-4 py-2">
+        <div
+          className="max-w-[85%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed whitespace-pre-wrap"
+          style={{
+            backgroundColor: "#2a2a2a",
+            color: "#ececec",
+            border: "1px solid #3a3a3a",
+          }}
+        >
           {content}
         </div>
       </div>
@@ -271,7 +296,7 @@ export default function Message({ message, onClarify }: MessageProps) {
 
   // ---- Assistant message ----
   return (
-    <div className="flex gap-3 px-4 py-4 group">
+    <div className="flex gap-3 px-4 py-4">
       {/* Avatar */}
       <div className="pt-0.5">
         <AssistantAvatar />
@@ -279,9 +304,9 @@ export default function Message({ message, onClarify }: MessageProps) {
 
       {/* Content */}
       <div className="flex-1 min-w-0 max-w-[calc(100%-44px)]">
-        {/* Streaming status */}
+        {/* Streaming status — before content appears */}
         {isStreaming && status && !content && (
-          <div className="flex items-center gap-2 text-[13px] text-[#9ca3af] dark:text-[#6b7280] mb-2">
+          <div className="flex items-center gap-2 text-[13px] mb-2" style={{ color: "#9ca3af" }}>
             <span>{status}</span>
             <StreamingDots />
           </div>
@@ -289,12 +314,15 @@ export default function Message({ message, onClarify }: MessageProps) {
 
         {/* Main text content */}
         {content && (
-          <div className="text-[14px] text-[#0d0d0d] dark:text-[#ececec] leading-[1.65]">
+          <div className="text-[14px] leading-[1.65]" style={{ color: "#ececec" }}>
             {renderMarkdownText(content)}
             {isStreaming && (
               <span
-                className="inline-block w-0.5 h-[1em] bg-current ml-0.5 align-middle"
-                style={{ animation: "blink 1s step-end infinite" }}
+                className="inline-block w-0.5 h-[1em] ml-0.5 align-middle"
+                style={{
+                  backgroundColor: "#f0a04b",
+                  animation: "blink 1s step-end infinite",
+                }}
               />
             )}
             <style>{`
@@ -305,7 +333,7 @@ export default function Message({ message, onClarify }: MessageProps) {
 
         {/* Streaming status below content */}
         {isStreaming && status && content && (
-          <div className="flex items-center gap-1.5 text-[12px] text-[#9ca3af] dark:text-[#6b7280] mt-1.5">
+          <div className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "#9ca3af" }}>
             <span>{status}</span>
             <StreamingDots />
           </div>

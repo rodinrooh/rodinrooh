@@ -7,9 +7,8 @@ import type {
   Block,
   ProvenanceEntry,
   ClassifyTrace,
-  SSEEvent,
 } from "../engine/envelope";
-import Sidebar, { ChatGPTWordmark } from "./Sidebar";
+import Sidebar from "./Sidebar";
 import MessageComponent from "./Message";
 import Composer from "./Composer";
 import DevPanel from "./DevPanel";
@@ -57,79 +56,125 @@ function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// ---- Theme toggle ----
-function ThemeToggle() {
-  const [dark, setDark] = useState(false);
+// ---- Suggestion chips for empty state ----
+const SUGGESTIONS = [
+  "What is dark matter?",
+  "Why do we dream?",
+  "How does WiFi work?",
+  "What causes earthquakes?",
+];
 
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    setDark(document.documentElement.classList.contains("dark") || mq.matches);
-  }, []);
+// ---- Rotating taglines ----
+const TAGLINES = [
+  "Powered by the sum of all human knowledge.",
+  "Wikipedia or bust.",
+  "No hallucinations. Just citations.",
+  "Ask anything. I'll check Wikipedia.",
+  "The encyclopedia strikes back.",
+  "Every answer is sourced. Nothing is made up.",
+];
 
-  const toggle = () => {
-    const html = document.documentElement;
-    if (dark) {
-      html.classList.remove("dark");
-      setDark(false);
-    } else {
-      html.classList.add("dark");
-      setDark(true);
-    }
-  };
+// ---- Question-mark starburst logo ----
+function NotGPTLogo({ size = 48 }: { size?: number }) {
+  const center = size / 2;
+  const innerR = size * 0.28;
+  const outerR = size * 0.44;
+
+  // 8 rays of question marks radiating outward
+  const rays = Array.from({ length: 8 }, (_, i) => {
+    const angle = (i * 360) / 8 - 90; // start from top
+    const rad = (angle * Math.PI) / 180;
+    const x = center + outerR * Math.cos(rad);
+    const y = center + outerR * Math.sin(rad);
+    return { x, y, angle };
+  });
 
   return (
-    <button
-      onClick={toggle}
-      className="p-2 rounded-lg text-[#9ca3af] dark:text-[#6b7280] hover:text-[#0d0d0d] dark:hover:text-[#ececec] hover:bg-[#f7f7f8] dark:hover:bg-[#2a2a2a] transition-colors"
-      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      fill="none"
+      aria-hidden="true"
     >
-      {dark ? (
-        // Sun
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
-          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
-            const rad = (deg * Math.PI) / 180;
-            const x1 = 8 + 5 * Math.cos(rad);
-            const y1 = 8 + 5 * Math.sin(rad);
-            const x2 = 8 + 7 * Math.cos(rad);
-            const y2 = 8 + 7 * Math.sin(rad);
-            return (
-              <line
-                key={deg}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            );
-          })}
-        </svg>
-      ) : (
-        // Moon
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path
-            d="M13 10A6 6 0 0 1 6 3c0-.3.02-.6.07-.9A6 6 0 1 0 13.9 9.93c-.3.05-.6.07-.9.07z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-    </button>
+      {/* Outer glow ring */}
+      <circle
+        cx={center}
+        cy={center}
+        r={outerR + 2}
+        stroke="#f0a04b"
+        strokeWidth="0.5"
+        opacity="0.2"
+      />
+      {/* Rays */}
+      {rays.map((ray, i) => (
+        <line
+          key={i}
+          x1={center + innerR * Math.cos(((i * 360) / 8 - 90) * (Math.PI / 180))}
+          y1={center + innerR * Math.sin(((i * 360) / 8 - 90) * (Math.PI / 180))}
+          x2={ray.x}
+          y2={ray.y}
+          stroke="#f0a04b"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          opacity="0.5"
+        />
+      ))}
+      {/* Center circle */}
+      <circle
+        cx={center}
+        cy={center}
+        r={innerR}
+        fill="#f0a04b"
+        opacity="0.15"
+        stroke="#f0a04b"
+        strokeWidth="1"
+      />
+      {/* Center question mark */}
+      <text
+        x={center}
+        y={center + size * 0.085}
+        textAnchor="middle"
+        fontSize={size * 0.32}
+        fontWeight="700"
+        fontFamily="Inter, system-ui, sans-serif"
+        fill="#f0a04b"
+      >
+        ?
+      </text>
+    </svg>
   );
 }
 
-// ---- Suggestion chips for empty state ----
-const SUGGESTIONS = [
-  "Who is Ada Lovelace",
-  "How tall is the Eiffel Tower",
-  "What does serendipity mean",
-  "Weather in Tokyo",
-];
+// ---- Rotating tagline component ----
+function RotatingTagline() {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx((prev) => (prev + 1) % TAGLINES.length);
+        setVisible(true);
+      }, 300); // fade out, swap, fade in
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <p
+      className="text-[14px] text-center transition-opacity duration-300 select-none"
+      style={{
+        color: "#6b7280",
+        opacity: visible ? 1 : 0,
+        minHeight: "1.5em",
+      }}
+    >
+      {TAGLINES[idx]}
+    </p>
+  );
+}
 
 // ---- Main Chat component ----
 export default function Chat() {
@@ -156,11 +201,6 @@ export default function Chat() {
     isMountedRef.current = true;
     const stored = loadConversations();
     setConversations(stored);
-
-    // Apply dark mode from system preference initially
-    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      document.documentElement.classList.add("dark");
-    }
 
     return () => {
       isMountedRef.current = false;
@@ -548,13 +588,17 @@ export default function Chat() {
   const isEmpty = currentMessages.length === 0;
 
   return (
-    <div className="flex h-full overflow-hidden bg-white dark:bg-[#212121]">
+    <div
+      className="flex h-full overflow-hidden"
+      style={{ backgroundColor: "#1e1e1e" }}
+    >
       {/* ---- Sidebar (desktop always visible, mobile toggleable) ---- */}
       <div
-        className={`flex-shrink-0 transition-all duration-200 overflow-hidden ${
-          sidebarOpen ? "w-[260px]" : "w-0"
-        } hidden sm:block`}
-        style={{ minWidth: sidebarOpen ? 260 : 0 }}
+        className={`flex-shrink-0 transition-all duration-200 overflow-hidden hidden sm:block`}
+        style={{
+          width: sidebarOpen ? 260 : 0,
+          minWidth: sidebarOpen ? 260 : 0,
+        }}
       >
         <Sidebar
           conversations={conversations}
@@ -584,21 +628,37 @@ export default function Chat() {
             />
           </div>
           <div
-            className="flex-1 bg-black/40"
+            className="flex-1"
+            style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
             onClick={() => setSidebarOpen(false)}
           />
         </div>
       )}
 
       {/* ---- Main content ---- */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div
+        className="flex-1 flex flex-col min-w-0 overflow-hidden"
+        style={{ backgroundColor: "#1e1e1e" }}
+      >
         {/* Header */}
-        <header className="flex items-center justify-between px-4 py-2.5 border-b border-[#e5e7eb] dark:border-[#2a2a2a] flex-shrink-0">
+        <header
+          className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
+          style={{ borderBottom: "1px solid #2a2a2a" }}
+        >
           <div className="flex items-center gap-2">
             {/* Hamburger/sidebar toggle */}
             <button
               onClick={() => setSidebarOpen((v) => !v)}
-              className="p-2 rounded-lg text-[#9ca3af] dark:text-[#6b7280] hover:text-[#0d0d0d] dark:hover:text-[#ececec] hover:bg-[#f7f7f8] dark:hover:bg-[#2a2a2a] transition-colors"
+              className="p-2 rounded-lg transition-colors"
+              style={{ color: "#6b7280" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#ececec";
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "#6b7280";
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
+              }}
               aria-label="Toggle sidebar"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -612,46 +672,34 @@ export default function Chat() {
             </button>
 
             {/* Show wordmark when sidebar is closed */}
-            {!sidebarOpen && <ChatGPTWordmark size="sm" />}
+            {!sidebarOpen && (
+              <span
+                className="text-sm font-semibold tracking-[-0.01em] select-none"
+                style={{ color: "#f0a04b" }}
+              >
+                notgpt
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-          </div>
+          {/* No model selector, no theme toggle — always dark */}
         </header>
 
         {/* Messages / Empty state */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "#1e1e1e" }}>
           {isEmpty ? (
             // ---- Empty state ----
             <div className="h-full flex flex-col items-center justify-center px-4 pb-8">
-              <div className="flex flex-col items-center gap-3 mb-8">
-                {/* Large logo */}
-                <div className="w-12 h-12 rounded-full bg-[#10a37f] flex items-center justify-center">
-                  <span
-                    className="text-white font-bold text-[22px]"
-                    style={{
-                      textDecoration: "line-through",
-                      textDecorationColor: "#ef4444",
-                    }}
-                  >
-                    G
-                  </span>
-                </div>
-                <h1 className="text-[24px] font-semibold text-[#0d0d0d] dark:text-[#ececec] tracking-tight select-none">
-                  chat
-                  <span
-                    style={{
-                      textDecoration: "line-through",
-                      textDecorationColor: "#ef4444",
-                    }}
-                  >
-                    GPT
-                  </span>
+              <div className="flex flex-col items-center gap-4 mb-10">
+                {/* Question-mark starburst logo */}
+                <NotGPTLogo size={56} />
+                <h1
+                  className="text-[26px] font-semibold tracking-[-0.02em] select-none"
+                  style={{ color: "#f0a04b" }}
+                >
+                  notgpt
                 </h1>
-                <p className="text-[14px] text-[#6b7280] dark:text-[#9ca3af] text-center">
-                  Looks like ChatGPT. Runs on Wikipedia.
-                </p>
+                <RotatingTagline />
               </div>
 
               {/* Suggestion chips */}
@@ -660,7 +708,22 @@ export default function Chat() {
                   <button
                     key={s}
                     onClick={() => sendMessage(s)}
-                    className="px-4 py-2.5 rounded-xl border border-[#e5e7eb] dark:border-[#3f3f3f] bg-white dark:bg-[#2a2a2a] text-[13px] text-[#374151] dark:text-[#d1d5db] hover:bg-[#f7f7f8] dark:hover:bg-[#333] hover:border-[#d1d5db] dark:hover:border-[#525252] transition-colors text-left"
+                    className="px-4 py-2.5 rounded-xl text-[13px] transition-colors text-left"
+                    style={{
+                      backgroundColor: "#2a2a2a",
+                      border: "1px solid #3a3a3a",
+                      color: "#d1d5db",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#333";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#f0a04b";
+                      (e.currentTarget as HTMLButtonElement).style.color = "#ececec";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#3a3a3a";
+                      (e.currentTarget as HTMLButtonElement).style.color = "#d1d5db";
+                    }}
                   >
                     {s}
                   </button>
@@ -683,7 +746,7 @@ export default function Chat() {
         </main>
 
         {/* Composer */}
-        <div className="flex-shrink-0 bg-white dark:bg-[#212121]">
+        <div className="flex-shrink-0" style={{ backgroundColor: "#1e1e1e" }}>
           <Composer
             onSend={sendMessage}
             isLoading={isLoading}

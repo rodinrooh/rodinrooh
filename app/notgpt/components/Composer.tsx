@@ -54,9 +54,24 @@ export default function Composer({
   const canSend = !disabled && !isLoading && value.trim().length > 0;
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="px-4 pb-5 pt-2" style={{ backgroundColor: "#1e1e1e" }}>
       <div className="max-w-3xl mx-auto">
-        <div className="relative flex items-end gap-2 rounded-2xl border border-[#e5e7eb] dark:border-[#3f3f3f] bg-white dark:bg-[#2f2f2f] px-4 py-3 shadow-sm focus-within:border-[#d1d5db] dark:focus-within:border-[#525252] transition-colors">
+        <div
+          className="relative flex items-end gap-2 rounded-2xl px-4 py-3 shadow-lg transition-colors focus-within:ring-1"
+          style={{
+            backgroundColor: "#2a2a2a",
+            border: "1px solid #3a3a3a",
+          }}
+          // @ts-ignore — CSS custom property trick for focus ring color
+          onFocusCapture={(e) => {
+            (e.currentTarget as HTMLDivElement).style.borderColor = "#f0a04b";
+          }}
+          onBlurCapture={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              (e.currentTarget as HTMLDivElement).style.borderColor = "#3a3a3a";
+            }
+          }}
+        >
           <textarea
             ref={textareaRef}
             value={value}
@@ -65,37 +80,28 @@ export default function Composer({
               grow();
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Ask me anything (I'll tell you the truth, or admit I can't)"
+            placeholder="Ask anything — I'll check Wikipedia"
             rows={1}
             disabled={disabled || isLoading}
-            className="flex-1 resize-none bg-transparent text-[14px] text-[#0d0d0d] dark:text-[#ececec] placeholder-[#9ca3af] dark:placeholder-[#6b7280] outline-none leading-6 overflow-y-auto max-h-[120px] disabled:opacity-60"
-            style={{ minHeight: "24px" }}
+            className="flex-1 resize-none bg-transparent text-[14px] outline-none leading-6 overflow-y-auto max-h-[120px] disabled:opacity-50"
+            style={{
+              color: "#ececec",
+              minHeight: "24px",
+            }}
           />
 
           {/* Send / Stop button */}
           <div className="flex-shrink-0 mb-0.5">
             {isLoading ? (
-              // Stop button
+              // Stop button — amber
               <button
                 onClick={onStop}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-[#0d0d0d] dark:bg-[#ececec] hover:opacity-80 transition-opacity"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
+                style={{ backgroundColor: "#f0a04b" }}
                 aria-label="Stop generating"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  className="text-white dark:text-[#0d0d0d]"
-                >
-                  <rect
-                    x="3"
-                    y="3"
-                    width="8"
-                    height="8"
-                    rx="1.5"
-                    fill="currentColor"
-                  />
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect x="2" y="2" width="8" height="8" rx="1.5" fill="#1a1a1a" />
                 </svg>
               </button>
             ) : (
@@ -103,19 +109,15 @@ export default function Composer({
               <button
                 onClick={handleSend}
                 disabled={!canSend}
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
-                  canSend
-                    ? "bg-[#10a37f] hover:bg-[#0d8f6e] text-white"
-                    : "bg-[#e5e7eb] dark:bg-[#3f3f3f] text-[#9ca3af] dark:text-[#6b7280] cursor-not-allowed"
-                }`}
+                className="w-8 h-8 flex items-center justify-center rounded-full transition-all"
+                style={{
+                  backgroundColor: canSend ? "#f0a04b" : "#3a3a3a",
+                  color: canSend ? "#1a1a1a" : "#6b7280",
+                  cursor: canSend ? "pointer" : "not-allowed",
+                }}
                 aria-label="Send message"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path
                     d="M7 11V3M7 3L3.5 6.5M7 3L10.5 6.5"
                     stroke="currentColor"
@@ -130,7 +132,7 @@ export default function Composer({
         </div>
 
         {/* Disclaimer */}
-        <p className="text-center text-[11px] text-[#9ca3af] dark:text-[#6b7280] mt-2">
+        <p className="text-center text-[11px] mt-2" style={{ color: "#4b5563" }}>
           Every answer is sourced. Nothing is stored.
         </p>
       </div>
