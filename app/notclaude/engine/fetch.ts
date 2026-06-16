@@ -54,8 +54,12 @@ function htmlToPassages(html: string): string[] {
 
   const passages: string[] = []
 
-  // Extract from <p> tags — the primary source of paragraph content
-  const pRe = /<p(?:\s[^>]*)?>(?!<)([\s\S]*?)<\/p>/gi
+  // Extract from <p> tags — the primary source of paragraph content.
+  // NOTE: do NOT use (?!<) lookahead — it incorrectly excludes paragraphs that
+  // start with inline elements like <p><b>Ada Lovelace</b> was...</p>, which is
+  // the standard Wikipedia intro format. Just match everything inside <p>...</p>
+  // and let stripTags() clean up the inline HTML.
+  const pRe = /<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/gi
   let m: RegExpExecArray | null
   while ((m = pRe.exec(cleaned)) !== null) {
     const raw = stripTags(decodeEntities(m[1])).trim()
@@ -63,13 +67,13 @@ function htmlToPassages(html: string): string[] {
   }
 
   // Also extract from <dd> (definition list answers) and <li> (list items ≥ 80 chars)
-  const ddRe = /<dd(?:\s[^>]*)?>(?!<)([\s\S]*?)<\/dd>/gi
+  const ddRe = /<dd(?:\s[^>]*)?>([\s\S]*?)<\/dd>/gi
   while ((m = ddRe.exec(cleaned)) !== null) {
     const raw = stripTags(decodeEntities(m[1])).trim()
     if (raw.length > 60) passages.push(raw)
   }
 
-  const liRe = /<li(?:\s[^>]*)?>(?!<)([\s\S]*?)<\/li>/gi
+  const liRe = /<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/gi
   while ((m = liRe.exec(cleaned)) !== null) {
     const raw = stripTags(decodeEntities(m[1])).trim()
     if (raw.length > 80) passages.push(raw)
