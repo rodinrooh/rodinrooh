@@ -136,10 +136,13 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
           const contentNouns = prefixDoc.nouns().not("#Pronoun").length
           const contentVerbs = prefixDoc.match("#Verb").not("(be|have|do|get|want|need|#Modal|#Copula)").length
           const isFiller = contentNouns === 0 && contentVerbs === 0
-          // Single-word prefix ≤5 chars before a question word: structurally almost always
-          // a discourse marker regardless of NLP tags ("bruh", "bro", "dude", "yo", "ok")
+          // Single-word prefix ≤5 chars: almost always a discourse marker
           const isSingleShort = prefixWordCount === 1 && prefixWords[0].length <= 5
-          if (isFiller || isSingleShort) {
+          // All-short-word prefix: if every word is ≤4 chars and no proper nouns,
+          // it's structurally almost certainly discourse filler ("wait hol up", "ok so yo").
+          // Short genuine content words before question words are extremely rare in practice.
+          const allShortWords = prefixWordCount <= 4 && prefixWords.every(w => w.length <= 4)
+          if (isFiller || isSingleShort || allShortWords) {
             q = q.slice(qMatch.index).trim()
           }
         }

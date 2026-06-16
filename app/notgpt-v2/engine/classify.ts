@@ -40,8 +40,14 @@ export function classify(query: string): Intent {
  * Examples that return true: "hey", "thanks", "lol ok", "bye", "hello there"
  * Examples that return false: "gravity" (noun), "what time is it" (factual), "Netflix" (named entity)
  */
+// Question words that signal informational intent — any query with these is factual
+const QUESTION_WORDS_RE = /\b(what|why|how|who|where|when|which|is|are|was|were|does|do|did|can|could|will|would|should)\b/i
+
 function isSocial(q: string): boolean {
-  if (q.length > 30) return false  // longer queries almost always have informational intent
+  if (q.length > 30) return false  // longer queries almost certainly have informational content
+  // Any query containing a question word has informational intent and cannot be social.
+  // "who founded it", "are they still around" — these are queries, not greetings.
+  if (QUESTION_WORDS_RE.test(q)) return false
   try {
     // Lowercase before NLP to avoid false positives: "Hello" → "hello" (not a ProperNoun)
     const doc = nlp(q.toLowerCase()) as any
@@ -52,11 +58,12 @@ function isSocial(q: string): boolean {
     const namedEntities = doc.match("#ProperNoun").length
     // A query with no content nouns AND no named entities has nothing to retrieve
     if (contentNouns === 0 && namedEntities === 0) return true
-    // Secondary structural check: greeting/farewell pattern detected by NLP
-    // compromise has a #Greeting tag for salutations like "hello", "hi", "hey"
+    // Secondary structural check: greeting/farewell pattern detected by NLP.
+    // If the query has a #Greeting tag AND is short (< 20 chars), it's a social exchange.
+    // Short length prevents false positives on "hello world" in programming context.
     try {
       const hasGreeting = doc.has("#Greeting")
-      if (hasGreeting && contentNouns === 0) return true
+      if (hasGreeting && q.length < 20) return true
     } catch { /* ignore */ }
     return false
   } catch {
@@ -77,11 +84,11 @@ function isSocial(q: string): boolean {
 function isPreference(q: string): boolean {
   try {
     const doc = nlp(q) as any
-    // Check for recommendation-class verbs (compromise knows these from its vocabulary)
-    const hasRecommendVerb = doc.has("(recommend|suggest|advise|prescribe)")
-    // Check for first-person modal question structure: "what should I", "could you suggest"
-    const hasFirstPersonModal = doc.has("#Modal") && (doc.has("(i|me|my|we|us|our)") || doc.has("you #Verb (i|me|my)"))
-    return hasRecommendVerb || hasFirstPersonModal
+    // Check for explicit recommendation-class verbs — clearest signal
+    const hasRecommendVerb = doc.has("(recommend|suggest|advise)")
+    // "what should I [do/eat/watch/buy]" — strict first-person decision request
+    const hasWhatShouldI = /\bwhat\s+should\s+i\b/i.test(q) || /\bshould\s+i\b/i.test(q)
+    return hasRecommendVerb || hasWhatShouldI
   } catch {
     return false
   }
