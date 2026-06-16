@@ -74,19 +74,17 @@ const TAGLINES = [
   "Every answer is sourced. Nothing is made up.",
 ];
 
-// ---- Question-mark starburst logo ----
-function NotGPTLogo({ size = 48 }: { size?: number }) {
+// ---- 8-ray asterisk logo (NO question mark) ----
+function NotGPTLogo({ size = 40 }: { size?: number }) {
   const center = size / 2;
-  const innerR = size * 0.28;
-  const outerR = size * 0.44;
-
-  // 8 rays of question marks radiating outward
-  const rays = Array.from({ length: 8 }, (_, i) => {
-    const angle = (i * 360) / 8 - 90; // start from top
-    const rad = (angle * Math.PI) / 180;
-    const x = center + outerR * Math.cos(rad);
-    const y = center + outerR * Math.sin(rad);
-    return { x, y, angle };
+  const r = size * 0.45; // tip radius
+  // 8 lines from center, each at 45° increments
+  const lines = Array.from({ length: 8 }, (_, i) => {
+    const angle = (i * Math.PI * 2) / 8;
+    return {
+      x2: center + r * Math.cos(angle),
+      y2: center + r * Math.sin(angle),
+    };
   });
 
   return (
@@ -97,51 +95,18 @@ function NotGPTLogo({ size = 48 }: { size?: number }) {
       fill="none"
       aria-hidden="true"
     >
-      {/* Outer glow ring */}
-      <circle
-        cx={center}
-        cy={center}
-        r={outerR + 2}
-        stroke="#f0a04b"
-        strokeWidth="0.5"
-        opacity="0.2"
-      />
-      {/* Rays */}
-      {rays.map((ray, i) => (
+      {lines.map((l, i) => (
         <line
           key={i}
-          x1={center + innerR * Math.cos(((i * 360) / 8 - 90) * (Math.PI / 180))}
-          y1={center + innerR * Math.sin(((i * 360) / 8 - 90) * (Math.PI / 180))}
-          x2={ray.x}
-          y2={ray.y}
-          stroke="#f0a04b"
-          strokeWidth="1.2"
+          x1={center}
+          y1={center}
+          x2={l.x2}
+          y2={l.y2}
+          stroke="#d4854a"
+          strokeWidth="2.5"
           strokeLinecap="round"
-          opacity="0.5"
         />
       ))}
-      {/* Center circle */}
-      <circle
-        cx={center}
-        cy={center}
-        r={innerR}
-        fill="#f0a04b"
-        opacity="0.15"
-        stroke="#f0a04b"
-        strokeWidth="1"
-      />
-      {/* Center question mark */}
-      <text
-        x={center}
-        y={center + size * 0.085}
-        textAnchor="middle"
-        fontSize={size * 0.32}
-        fontWeight="700"
-        fontFamily="Inter, system-ui, sans-serif"
-        fill="#f0a04b"
-      >
-        ?
-      </text>
     </svg>
   );
 }
@@ -590,14 +555,14 @@ export default function Chat() {
   return (
     <div
       className="flex h-full overflow-hidden"
-      style={{ backgroundColor: "#1e1e1e" }}
+      style={{ backgroundColor: "#1c1c1c" }}
     >
       {/* ---- Sidebar (desktop always visible, mobile toggleable) ---- */}
       <div
-        className={`flex-shrink-0 transition-all duration-200 overflow-hidden hidden sm:block`}
+        className="flex-shrink-0 transition-all duration-200 overflow-hidden hidden sm:block"
         style={{
-          width: sidebarOpen ? 260 : 0,
-          minWidth: sidebarOpen ? 260 : 0,
+          width: sidebarOpen ? 240 : 0,
+          minWidth: sidebarOpen ? 240 : 0,
         }}
       >
         <Sidebar
@@ -612,7 +577,7 @@ export default function Chat() {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="sm:hidden fixed inset-0 z-40 flex">
-          <div className="w-[260px] flex-shrink-0">
+          <div className="w-[240px] flex-shrink-0">
             <Sidebar
               conversations={conversations}
               currentId={currentConvId}
@@ -638,25 +603,25 @@ export default function Chat() {
       {/* ---- Main content ---- */}
       <div
         className="flex-1 flex flex-col min-w-0 overflow-hidden"
-        style={{ backgroundColor: "#1e1e1e" }}
+        style={{ backgroundColor: "#1c1c1c" }}
       >
-        {/* Header */}
+        {/* Header — always present */}
         <header
           className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
-          style={{ borderBottom: "1px solid #2a2a2a" }}
+          style={{ borderBottom: "1px solid #242424" }}
         >
           <div className="flex items-center gap-2">
             {/* Hamburger/sidebar toggle */}
             <button
               onClick={() => setSidebarOpen((v) => !v)}
               className="p-2 rounded-lg transition-colors"
-              style={{ color: "#6b7280" }}
+              style={{ color: "#6b6b6b" }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "#ececec";
-                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a";
+                (e.currentTarget as HTMLButtonElement).style.color = "#e5e5e5";
+                (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#242424";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = "#6b7280";
+                (e.currentTarget as HTMLButtonElement).style.color = "#6b6b6b";
                 (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
               }}
               aria-label="Toggle sidebar"
@@ -671,58 +636,76 @@ export default function Chat() {
               </svg>
             </button>
 
-            {/* Show wordmark when sidebar is closed */}
+            {/* Wordmark when sidebar is closed */}
             {!sidebarOpen && (
               <span
-                className="text-sm font-semibold tracking-[-0.01em] select-none"
-                style={{ color: "#f0a04b" }}
+                className="text-[15px] font-semibold select-none"
+                style={{ color: "#e5e5e5" }}
               >
-                notgpt
+                notclaude
               </span>
             )}
           </div>
-
-          {/* No model selector, no theme toggle — always dark */}
         </header>
 
-        {/* Messages / Empty state */}
-        <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "#1e1e1e" }}>
-          {isEmpty ? (
-            // ---- Empty state ----
-            <div className="h-full flex flex-col items-center justify-center px-4 pb-8">
-              <div className="flex flex-col items-center gap-4 mb-10">
-                {/* Question-mark starburst logo */}
-                <NotGPTLogo size={56} />
-                <h1
-                  className="text-[26px] font-semibold tracking-[-0.02em] select-none"
-                  style={{ color: "#f0a04b" }}
-                >
-                  notgpt
-                </h1>
-                <RotatingTagline />
+        {isEmpty ? (
+          // ---- SPLASH STATE: logo + heading + composer + chips all centered ----
+          <div
+            className="flex-1 flex flex-col items-center justify-center"
+            style={{ backgroundColor: "#1c1c1c" }}
+          >
+            {/* Single centered unit */}
+            <div className="flex flex-col items-center" style={{ width: "100%", maxWidth: 680 }}>
+              {/* Asterisk logo */}
+              <NotGPTLogo size={40} />
+
+              {/* "notclaude" heading in Instrument Serif */}
+              <h1
+                className="select-none"
+                style={{
+                  fontFamily: '"Instrument Serif", serif',
+                  fontStyle: "normal",
+                  fontWeight: 400,
+                  fontSize: "2.5rem",
+                  color: "#e5e5e5",
+                  marginTop: 4,
+                  marginBottom: 28,
+                  lineHeight: 1.1,
+                }}
+              >
+                notclaude
+              </h1>
+
+              {/* Composer inline (centered) */}
+              <div style={{ width: "100%" }}>
+                <Composer
+                  onSend={sendMessage}
+                  isLoading={isLoading}
+                  onStop={stopGeneration}
+                  value={composerValue}
+                  onChange={setComposerValue}
+                />
               </div>
 
               {/* Suggestion chips */}
-              <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+              <div className="flex flex-wrap justify-center gap-2 mt-4">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     onClick={() => sendMessage(s)}
-                    className="px-4 py-2.5 rounded-xl text-[13px] transition-colors text-left"
+                    className="px-4 py-2 rounded-full text-[13px] transition-colors"
                     style={{
-                      backgroundColor: "#2a2a2a",
-                      border: "1px solid #3a3a3a",
-                      color: "#d1d5db",
+                      backgroundColor: "#252525",
+                      border: "1px solid #383838",
+                      color: "#9ca3af",
                     }}
                     onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#333";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#f0a04b";
-                      (e.currentTarget as HTMLButtonElement).style.color = "#ececec";
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2e2e2e";
+                      (e.currentTarget as HTMLButtonElement).style.color = "#e5e5e5";
                     }}
                     onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a2a2a";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = "#3a3a3a";
-                      (e.currentTarget as HTMLButtonElement).style.color = "#d1d5db";
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#252525";
+                      (e.currentTarget as HTMLButtonElement).style.color = "#9ca3af";
                     }}
                   >
                     {s}
@@ -730,31 +713,41 @@ export default function Chat() {
                 ))}
               </div>
             </div>
-          ) : (
-            // ---- Messages list ----
-            <div className="max-w-3xl mx-auto py-4 space-y-1">
-              {currentMessages.map((msg) => (
-                <MessageComponent
-                  key={msg.id}
-                  message={msg}
-                  onClarify={(query) => sendMessage(query)}
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </main>
+          </div>
+        ) : (
+          // ---- CHAT STATE: scrollable messages + fixed bottom composer ----
+          <>
+            <main
+              className="flex-1 overflow-y-auto"
+              style={{ backgroundColor: "#1c1c1c" }}
+            >
+              <div className="max-w-3xl mx-auto py-4 space-y-1">
+                {currentMessages.map((msg) => (
+                  <MessageComponent
+                    key={msg.id}
+                    message={msg}
+                    onClarify={(query) => sendMessage(query)}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            </main>
 
-        {/* Composer */}
-        <div className="flex-shrink-0" style={{ backgroundColor: "#1e1e1e" }}>
-          <Composer
-            onSend={sendMessage}
-            isLoading={isLoading}
-            onStop={stopGeneration}
-            value={composerValue}
-            onChange={setComposerValue}
-          />
-        </div>
+            {/* Composer pinned to bottom */}
+            <div
+              className="flex-shrink-0"
+              style={{ backgroundColor: "#1c1c1c" }}
+            >
+              <Composer
+                onSend={sendMessage}
+                isLoading={isLoading}
+                onStop={stopGeneration}
+                value={composerValue}
+                onChange={setComposerValue}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Dev panel */}

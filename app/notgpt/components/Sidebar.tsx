@@ -11,22 +11,6 @@ type SidebarProps = {
   onDelete: (id: string) => void;
 };
 
-// notgpt wordmark — amber accent, minimal
-function NotGPTWordmark({ size = "base" }: { size?: "sm" | "base" | "lg" }) {
-  const cls =
-    size === "lg"
-      ? "text-2xl font-semibold tracking-[-0.02em]"
-      : size === "sm"
-      ? "text-sm font-semibold tracking-[-0.01em]"
-      : "text-[15px] font-semibold tracking-[-0.01em]";
-
-  return (
-    <span className={`${cls} text-[#f0a04b] select-none`}>
-      notgpt
-    </span>
-  );
-}
-
 function PlusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -56,13 +40,7 @@ function TrashIcon() {
 
 function ChatBubbleIcon() {
   return (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 14 14"
-      fill="none"
-      aria-hidden="true"
-    >
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path
         d="M2 2.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8L5 13v-2.5H2a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"
         stroke="currentColor"
@@ -81,18 +59,38 @@ export default function Sidebar({
   onDelete,
 }: SidebarProps) {
   return (
-    <div className="flex flex-col h-full w-full bg-[#1a1a1a] border-r border-[#2a2a2a]">
-      {/* Top section: logo + new chat */}
-      <div className="px-3 pt-4 pb-2 space-y-1">
-        {/* Logo row */}
-        <div className="flex items-center px-2 py-1 mb-2">
-          <NotGPTWordmark />
+    <div
+      className="flex flex-col h-full w-full"
+      style={{
+        backgroundColor: "#141414",
+        borderRight: "1px solid #242424",
+      }}
+    >
+      {/* Top: app name + new chat */}
+      <div className="px-3 pt-4 pb-2">
+        {/* App name */}
+        <div className="px-3 py-1 mb-3">
+          <span
+            className="text-[15px] font-semibold select-none"
+            style={{ color: "#e5e5e5" }}
+          >
+            notclaude
+          </span>
         </div>
 
         {/* New chat button */}
         <button
           onClick={onNew}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-[#9ca3af] hover:text-[#ececec] hover:bg-[#2a2a2a] transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] transition-colors"
+          style={{ color: "#6b6b6b" }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "#e5e5e5";
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "#6b6b6b";
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
+          }}
         >
           <PlusIcon />
           <span>New chat</span>
@@ -101,55 +99,98 @@ export default function Sidebar({
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {conversations.length === 0 ? (
-          <p className="px-3 py-2 text-[12px] text-[#6b7280]">
-            No conversations yet
-          </p>
-        ) : (
-          <ul className="space-y-0.5">
-            {conversations
-              .slice()
-              .sort((a, b) => b.createdAt - a.createdAt)
-              .map((conv) => (
-                <li key={conv.id} className="group relative">
-                  <button
-                    onClick={() => onSelect(conv.id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-left transition-colors ${
-                      conv.id === currentId
-                        ? "bg-[#2a2a2a] text-[#ececec]"
-                        : "text-[#9ca3af] hover:bg-[#242424] hover:text-[#ececec]"
-                    }`}
-                  >
-                    <ChatBubbleIcon />
-                    <span className="flex-1 truncate leading-snug">
-                      {conv.title || "New conversation"}
-                    </span>
-                  </button>
+        {conversations.length > 0 && (
+          <>
+            <p
+              className="px-3 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider select-none"
+              style={{ color: "#6b6b6b" }}
+            >
+              Recents
+            </p>
+            <ul className="space-y-0.5">
+              {conversations
+                .slice()
+                .sort((a, b) => b.createdAt - a.createdAt)
+                .map((conv) => {
+                  const isActive = conv.id === currentId;
+                  return (
+                    <li key={conv.id} className="group relative">
+                      <button
+                        onClick={() => onSelect(conv.id)}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-left transition-colors"
+                        style={{
+                          color: isActive ? "#e5e5e5" : "#6b6b6b",
+                          backgroundColor: isActive ? "#242424" : "transparent",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1e1e1e";
+                            (e.currentTarget as HTMLButtonElement).style.color = "#e5e5e5";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
+                            (e.currentTarget as HTMLButtonElement).style.color = "#6b6b6b";
+                          }
+                        }}
+                      >
+                        <ChatBubbleIcon />
+                        <span className="flex-1 truncate leading-snug">
+                          {conv.title || "New conversation"}
+                        </span>
+                      </button>
 
-                  {/* Delete button — shows on hover */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(conv.id);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded text-[#6b7280] hover:text-[#ef4444] hover:bg-[#2a1515] transition-all"
-                    aria-label="Delete conversation"
-                  >
-                    <TrashIcon />
-                  </button>
-                </li>
-              ))}
-          </ul>
+                      {/* Delete — visible on hover */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(conv.id);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded transition-all"
+                        style={{ color: "#6b6b6b" }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.color = "#ef4444";
+                          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2a1515";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.color = "#6b6b6b";
+                          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
+                        }}
+                        aria-label="Delete conversation"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+          </>
         )}
       </div>
 
-      {/* Bottom section */}
-      <div className="px-3 py-3 border-t border-[#2a2a2a]">
+      {/* Bottom */}
+      <div
+        className="px-3 py-3"
+        style={{ borderTop: "1px solid #242424" }}
+      >
         <Link
           href="/notgpt/about"
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#6b7280] hover:text-[#9ca3af] hover:bg-[#2a2a2a] transition-colors no-underline"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] no-underline transition-colors"
+          style={{ color: "#6b6b6b" }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.color = "#9ca3af";
+            (e.currentTarget as HTMLAnchorElement).style.backgroundColor = "#1e1e1e";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.color = "#6b6b6b";
+            (e.currentTarget as HTMLAnchorElement).style.backgroundColor = "transparent";
+          }}
         >
-          <span className="flex items-center justify-center w-5 h-5 rounded-full border border-[#3a3a3a] text-[11px] font-semibold text-[#6b7280]">
+          <span
+            className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold flex-shrink-0"
+            style={{ border: "1px solid #383838", color: "#6b6b6b" }}
+          >
             ?
           </span>
           <span>What is this?</span>
@@ -158,7 +199,3 @@ export default function Sidebar({
     </div>
   );
 }
-
-export { NotGPTWordmark };
-// Keep ChatGPTWordmark as an alias so existing imports in Chat.tsx don't break
-export { NotGPTWordmark as ChatGPTWordmark };
