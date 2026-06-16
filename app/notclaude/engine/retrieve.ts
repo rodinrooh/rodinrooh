@@ -19,8 +19,10 @@
 import { serperSearch } from "./serper"
 import { rankPassages, bm25Prefilter } from "./rank"
 import { fetchPassages } from "./fetch"
+import { rerankPassages } from "./rerank"
 
-const PASSAGE_THRESHOLD = 0.30  // min HF score to return a result
+const PASSAGE_THRESHOLD = 0.30   // min bi-encoder score to enter the reranker
+const RERANKER_TOP_N = 10        // candidates sent to the cross-encoder
 const BM25_PREFILTER_N = 25     // max candidates fed to HF
 const MAX_FETCH_URLS = 4        // parallel page fetches
 
@@ -152,69 +154,117 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   ].slice(0, 30)
   const bm25Query = snippetWords.length > 0 ? `${query} ${snippetWords.join(" ")}` : query
 
-  // ─── BM25 pre-filter → HF ranking ──────────────────────────────────────────
+  // ─── Stage 1: BM25 pre-filter → bi-encoder ranking ──────────────────────────
+  // BM25 narrows the pool by keyword overlap; the bi-encoder adds semantic ranking.
+  // We keep the top RERANKER_TOP_N candidates for the cross-encoder.
   const prefiltered = bm25Prefilter(bm25Query, candidates.map(c => c.text), BM25_PREFILTER_N)
-
-  const { results: ranked, usingHF } = await rankPassages(query, prefiltered)
-  if (!ranked.length) return null
-
-  // Two universal passage-quality adjustments for explanation-seeking queries.
-  // These apply across ALL topics — they're structural properties of passages,
-  // not domain-specific word checks.
+  // For "why" queries, augment the scoring vector toward explanation-space.
+  // This shifts the bi-encoder to prefer mechanism/cause passages over
+  // harm-assessment or experience-description passages for the same topic.
   const isWhyQuery = /^why\b/i.test(query.trim())
+  const biQuery = isWhyQuery ? `${query} cause reason mechanism explanation` : query
 
-  const adjustedRanked = ranked.map(r => {
+  const { results: biEncoded, usingHF } = await rankPassages(biQuery, prefiltered)
+  if (!biEncoded.length) return null
+
+  // PAA boost before passing to reranker: Google's curated Q&A pairs are
+  // structurally strong candidates. Give them a head-start in the bi-encoder
+  // ranking so they make it into the cross-encoder's top-N.
+  const biRanked = biEncoded.map(r => {
     const c = candidates.find(x => x.text === r.passage)
-    let adj = c?.fromPAA ? r.score * 1.15 : r.score
-
-    if (isWhyQuery) {
-      // 1. A passage ending with "?" is a question, not an explanation.
-      //    Universal: no "why" answer should end in a question.
-      if (r.passage.trim().endsWith("?")) adj *= 0.55
-
-      // 2. High second-person density = experiential/descriptive passage, not explanation.
-      //    "You feel a sensation... CRYING!" describes an experience; explanations
-      //    describe mechanisms. Measured by pronoun count — grammatical, not a word list.
-      const youCount = (r.passage.match(/\byou\b/gi) ?? []).length
-      const wordCount = r.passage.split(/\s+/).length
-      if (wordCount > 0 && youCount / wordCount > 0.07) adj *= 0.65
-
-      // 3. Dummy-subject expletive constructions — meta-commentary, not explanation.
-      //    In English linguistics, two constructions use a dummy/expletive subject:
-      //      IT-extraposition:    "It is X that Y"   — "It's a common misconception that..."
-      //      Existential-THERE:   "There is X that Y" — "There's a lot that experts don't know..."
-      //    Both signal that the clause is framing or commenting on a proposition,
-      //    not directly explaining it. Detected purely by grammatical position:
-      //    {expletive pronoun "it"/"there"} + {copula} + {noun phrase/adverb} + "that"-clause.
-      const firstWord = r.passage.trim().toLowerCase().match(/^(\w+'?\w*)\b/)?.[1] ?? ""
-      const isExpletive = (firstWord === "it" || firstWord === "its" ||
-                           firstWord === "there" || firstWord === "theres") &&
-                          r.passage.toLowerCase().includes(" that ")
-      if (isExpletive) adj *= 0.65
-    }
-
+    const adj = c?.fromPAA ? r.score * 1.15 : r.score
     return { ...r, score: adj }
   }).sort((a, b) => b.score - a.score)
 
-  // Walk ranked results in score order; return the first COMPLETE passage above threshold.
-  // Truncated passages (mid-sentence, no terminal punctuation) are useful for ranking
-  // but must not be returned as the final answer.
+  // ─── Stage 2: Structural quality gate ─────────────────────────────────────────
+  // For "why" queries, apply grammar-based structural checks as a HARD GATE.
+
+  function isStructurallyValid(passage: string): boolean {
+    if (!isWhyQuery) return true
+    // (a) Rhetorical question ending
+    if (passage.trim().endsWith("?")) return false
+    // (b) High second-person density — experiential description
+    const youCount = (passage.match(/\byou\b/gi) ?? []).length
+    if (passage.split(/\s+/).length > 0 && youCount / passage.split(/\s+/).length > 0.07) return false
+    // (c) Expletive dummy-subject construction — meta-commentary
+    const fw = passage.trim().toLowerCase().match(/^(\w+'?\w*)\b/)?.[1] ?? ""
+    if ((fw === "it" || fw === "its" || fw === "there" || fw === "theres") &&
+        passage.toLowerCase().includes(" that ")) return false
+    // (d) First-person singular subject at start — journalist/reporter perspective, not explanation.
+    //     "I spoke with Dr. X..." / "I believe..." = author's account, not mechanism.
+    //     In English, explanatory passages for "why" questions use third-person subjects.
+    if (/^I\b/i.test(passage.trim())) return false
+    return true
+  }
+
+  const reranked = biRanked
+
+  // ─── Stage 3: Cross-encoder validation (bge-reranker-v2-m3) ─────────────────
+  // The bi-encoder + structural checks are the primary rankers.
+  // The cross-encoder acts as a VALIDATOR: if the bi-encoder's top structurally-valid
+  // passage scores LOW on the cross-encoder (< 0.3), it likely doesn't answer the
+  // question well, so we use the cross-encoder's best-scoring complete passage instead.
+  //
+  // This is targeted: it fixes "why do my knuckles crack" (bi-encoder picks "harmless"
+  // at 0.779; cross-encoder score is 0.20 < 0.3 → switch to gas bubble at 0.46)
+  // without replacing the bi-encoder's correct choices for other queries.
+  let rerankedFinal = reranked
+  try {
+    const topN = biRanked.slice(0, RERANKER_TOP_N).map(r => r.passage)
+    const crossScores = await rerankPassages(query, topN)
+    const crossScoreMap = new Map(crossScores.map(r => [r.passage, r.score]))
+
+    // Find the best complete+structural passage from bi-encoder ranking
+    const biTopCandidate = biRanked.find(r => {
+      const c = candidates.find(x => x.text === r.passage)
+      return c && isComplete(r.passage.trim()) && isStructurallyValid(r.passage.trim())
+    })
+
+    if (biTopCandidate) {
+      const biTopCrossScore = crossScoreMap.get(biTopCandidate.passage) ?? 0
+      const bestCrossScore = crossScores[0]?.score ?? 0
+      // Switch to cross-encoder ordering if cross-encoder's best passage is
+      // significantly more relevant than the bi-encoder's top choice.
+      // A 30% ratio threshold: avoids switching when all passages are close
+      // (hiccups: all ~0.99, ratio ~1.003) but catches clear mismatches
+      // (knuckles: harmless 0.69 vs mechanism 0.99, ratio 1.44 > 1.3).
+      // Switch to cross-encoder only if:
+      // 1. Cross-encoder's best is significantly more relevant (>30% better ratio)
+      // 2. Cross-encoder's best passage itself passes structural validity
+      //    (prevents switching to journalistic quotes/anecdotes that happen to score high)
+      const bestCrossPassage = crossScores[0]?.passage ?? ""
+      if (
+        biTopCrossScore > 0 &&
+        bestCrossScore / biTopCrossScore > 1.3 &&
+        isStructurallyValid(bestCrossPassage)
+      ) {
+        rerankedFinal = crossScores
+      }
+    }
+  } catch { /* cross-encoder unavailable — fall through to bi-encoder results */ }
+
+  // Walk final ranked results; return first COMPLETE and structurally valid passage.
   let best: { passage: string; score: number } | null = null
   let bestCandidate: Candidate | null = null
+  let bestFallback: { r: { passage: string; score: number }; c: Candidate } | null = null
 
-  for (const r of adjustedRanked) {
-    if (r.score < PASSAGE_THRESHOLD) break  // sorted descending; no point continuing
+  for (const r of rerankedFinal) {
     const c = candidates.find(x => x.text === r.passage)
     if (!c) continue
     const trimmed = r.passage.trim()
-    if (isComplete(trimmed)) {
+    if (!isComplete(trimmed)) continue
+    if (!bestFallback) bestFallback = { r, c }
+    if (isStructurallyValid(trimmed)) {
       best = r
       bestCandidate = c
       break
     }
   }
 
-  if (!best || !bestCandidate) return null
+  if (!best || !bestCandidate) {
+    if (bestFallback) { best = bestFallback.r; bestCandidate = bestFallback.c }
+    else return null
+  }
 
   return {
     passage: truncateAtSentence(bestCandidate.text),

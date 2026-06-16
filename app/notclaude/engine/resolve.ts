@@ -77,13 +77,16 @@ function isLeadingFiller(t: CompromiseTerm, rest: CompromiseTerm[]): boolean {
   if (hasTag(t, "Expression")) return true
   if (hasTag(t, "Interjection")) return true
   if (hasTag(t, "Abbreviation")) return true
-  // Discourse-marker heuristic: Noun token (non-proper, non-verb) before a content opener
+  // Discourse-marker heuristic: leading Noun (non-proper, non-verb) followed by a
+  // content opener. Also handles Conjunctions ("k SO what is…") because bare nouns
+  // at sentence start followed by conjunctions like "so" are acknowledgment particles.
   if (
     hasTag(t, "Noun") && !hasTag(t, "ProperNoun") && !hasTag(t, "Verb") &&
     rest.length > 0 && (
       hasTag(rest[0], "QuestionWord") ||
       hasTag(rest[0], "Verb") ||
-      hasTag(rest[0], "Expression")
+      hasTag(rest[0], "Expression") ||
+      hasTag(rest[0], "Conjunction")
     )
   ) return true
   return false
@@ -111,8 +114,16 @@ const FIRST_SECOND_PERSON = new Set([
 ])
 
 function isAnaphoricPronoun(t: CompromiseTerm): boolean {
-  if (!hasTag(t, "Pronoun")) return false
-  return !FIRST_SECOND_PERSON.has(t.normal.toLowerCase())
+  const normal = t.normal.toLowerCase()
+  // Primary check: tagged as Pronoun and not first/second person
+  if (hasTag(t, "Pronoun")) {
+    return !FIRST_SECOND_PERSON.has(normal)
+  }
+  // Fallback: "it" is almost always anaphoric even when compromise tags it as
+  // Particle (e.g. "has it actually been proven" → "it" = dummy subject, not particle).
+  // The rare non-anaphoric "it" (fixed idioms: "tough it out") is an acceptable miss.
+  if (normal === "it") return true
+  return false
 }
 
 /**
@@ -250,14 +261,31 @@ export function resolveQuery(
     return { resolved: `what are the different types of ${thereM[1].trim()}`, isNewTopic: false }
   }
 
-  // 6. Check for anaphoric pronouns
+  // 6. Orphaned-determiner check (VP/NP ellipsis).
+  // "has anyone found any" → "any" is a Determiner at end with no Noun object after the Verb.
+  // The Determiner implicitly refers to the context entity ("any [dark matter]").
+  // Structural: last token = Determiner, preceded by Verb/Adverb, no content noun in query.
+  // Must run BEFORE the pronoun check early-return (pronIdx === -1 would skip this otherwise).
+  if (ts.length >= 2) {
+    const last = ts[ts.length - 1]
+    const secondLast = ts[ts.length - 2]
+    if (
+      hasTag(last, "Determiner") && !hasTag(last, "Pronoun") &&
+      (hasTag(secondLast, "Verb") || hasTag(secondLast, "Adverb") || hasTag(secondLast, "Particle")) &&
+      !ts.some(t => hasTag(t, "Noun") && !hasTag(t, "Pronoun") && !hasTag(t, "Determiner") && !hasTag(t, "Uncountable"))
+    ) {
+      return { resolved: `${q} ${ctx}`, isNewTopic: false }
+    }
+  }
+
+  // 7. Check for anaphoric pronouns
   const pronIdx = firstAnaphoricPronounIdx(ts)
   if (pronIdx === -1) return { resolved: q, isNewTopic: false }
 
-  // 7. Pronoun-before-noun rule: if a noun precedes the pronoun, it's self-referential
+  // 8. Pronoun-before-noun rule: if a noun precedes the pronoun, it's self-referential
   if (pronounRefersToOwnSubject(ts, pronIdx)) return { resolved: q, isNewTopic: false }
 
-  // 8. Replace anaphoric pronouns with context entity
+  // 9. Replace anaphoric pronouns with context entity
   let resolved = replacePronounsWithContext(ts, ctx)
 
   // 9. "which one" → "which [context]" (indefinite pronoun pattern)

@@ -22,16 +22,9 @@ function entityFromResult(
   fallback: string
 ): string {
   if (result) {
-    // ── "Who X" queries: answer is a PERSON — check passage first ────────────
-    // For "who is/was/did X", the entity we want going forward is the person
-    // the passage names. Title says "Who discovered evolution?" → "evolution";
-    // passage says "Charles Darwin is commonly cited" → "charles darwin". Passage wins.
-    if (/^who\b/i.test(resolvedQuery.trim())) {
-      const pm = result.passage.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/)
-      if (pm?.[1]) return pm[1].toLowerCase()
-    }
-
-    // ── 1. Wikipedia URL slug ────────────────────────────────────────────────
+    // ── 1. Wikipedia URL slug — most reliable, always check first ────────────
+    // The Wikipedia URL slug IS the canonical entity name, normalized and clean.
+    // e.g. /wiki/Marie_Curie → "marie curie" (correct, regardless of passage text)
     try {
       const u = new URL(result.url)
       if (u.hostname.includes("wikipedia.org")) {
@@ -40,6 +33,14 @@ function entityFromResult(
         if (slug && slug.length < 80 && !slug.includes("/")) return slug.toLowerCase()
       }
     } catch { /* ignore */ }
+
+    // ── "Who X" queries: passage person name (non-Wikipedia sources) ─────────
+    // For "who is/was/did X", the entity is the person the passage names.
+    // Only used when Wikipedia URL isn't available (non-Wikipedia sources).
+    if (/^who\b/i.test(resolvedQuery.trim())) {
+      const pm = result.passage.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/)
+      if (pm?.[1]) return pm[1].toLowerCase()
+    }
 
     // ── 2. Title → NLP entity extraction (no stop-word list) ─────────────────
     if (result.title) {
@@ -131,15 +132,14 @@ export async function POST(req: NextRequest) {
   const { resolved, isNewTopic } = resolveQuery(query, context)
   const result = await retrieveBestPassage(resolved)
 
-  // Prefer query-based entity when it appears in the resolved query
-  // (the query explicitly names the topic → more reliable than title parsing).
+  // Entity tracking: what we FOUND is always more authoritative than what we asked for.
+  // The result URL/title/passage tells us definitively what was retrieved — the query
+  // may contain leading filler ("k so", "lmaooo ok") that corrupts query-based extraction.
+  // Query-based extraction is only used as a fallback when the result is null.
   const queryBasedEntity = extractEntity(resolved)
-  const queryEntityInResolved = Boolean(
-    queryBasedEntity && resolved.toLowerCase().includes(queryBasedEntity.toLowerCase())
-  )
 
   let nextContext = result
-    ? (queryEntityInResolved ? queryBasedEntity : entityFromResult(result, resolved, context))
+    ? (entityFromResult(result, resolved, context) || queryBasedEntity || context)
     : context
 
   // Context stability: keep old context when either:
