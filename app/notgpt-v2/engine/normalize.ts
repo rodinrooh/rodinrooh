@@ -207,22 +207,37 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
 }
 
 function resolvePronouns(q: string, topic: string): string {
-  const hasAnaphoricPronoun = /\b(it|they|them|their|its|he|she|him|her|his)\b/i.test(q)
+  // "one" as anaphoric pronoun: "when was the first one found" → black hole context → resolve
+  const hasAnaphoricPronoun = /\b(it|they|them|their|its|he|she|him|her|his|one)\b/i.test(q)
   if (!hasAnaphoricPronoun) return q
   const words = q.split(/\s+/)
   const hasInternalCapital = words.slice(1).some(w => /^[A-Z][a-zA-Z]/.test(w) && w.length > 2)
   if (hasInternalCapital) return q
   try {
     const doc = nlp(q) as any
-    // Only block pronoun resolution when a NEW NAMED ENTITY is in the query (ProperNoun).
-    // Common nouns like "capital", "exports", "size" do NOT indicate a topic change.
-    // Old check (contentNouns > 0) blocked: "what is its capital" → "capital" is a noun → no resolve.
-    // New check: "what is its capital" → no ProperNoun → resolve "its" → "what is France capital" ✓
-    // "what about WiFi" → no pronoun anyway (returns early above) ✓
-    const namedEntities = doc.match("#ProperNoun")
-    if ((namedEntities as any).length > 0) return q
+    // Treat POSSESSIVE pronouns (its/their/his/her) differently from SUBJECT/OBJECT pronouns.
+    //
+    // POSSESSIVE ("what is its capital", "what are its exports"):
+    //   - Only block when a new NAMED ENTITY (ProperNoun) appears in query
+    //   - "capital" and "exports" are common nouns, not new topics → resolve
+    //
+    // SUBJECT/OBJECT ("it", "they", "he", "she", "one"):
+    //   - Block when ANY content noun is present — this catches expletive "it"
+    //   - "is it safe to sleep with wet hair" → "hair" is a content noun → DO NOT resolve
+    //   - "how does it work" → no content nouns → resolve ✓
+    //   - "when was the first one found" → no content nouns → resolve ✓
+    const hasPossessive = /\b(its|their|his|her|hers|theirs)\b/i.test(q)
+    if (hasPossessive) {
+      // For possessive: only block when user introduced a new named entity
+      const namedEntities = doc.match("#ProperNoun")
+      if ((namedEntities as any).length > 0) return q
+    } else {
+      // For subject/object: block if any content noun present (conservative — avoids expletive "it")
+      const contentNouns = doc.nouns().not("#Pronoun")
+      if ((contentNouns as any).length > 0) return q
+    }
   } catch { /* fall through */ }
-  return q.replace(/\b(it|they|them|their|its|he|she|him|her|his)\b/gi, topic)
+  return q.replace(/\b(it|they|them|their|its|he|she|him|her|his|one)\b/gi, topic)
 }
 
 function stripTrailingNoise(q: string): string {
@@ -266,11 +281,14 @@ function stripTrailingByStructure(q: string): string {
   const lastWord = tokens[tokens.length - 1].toLowerCase().replace(/\W/g, "")
   if (lastWord.length < 3 || lastWord.length > 5) return q
 
-  // Don't strip if preceded by a determiner (last word is part of a noun phrase)
+  // Don't strip if preceded by a determiner or adjective — last word is part of a noun phrase
+  // "wet hair" → "wet" is Adjective → "hair" is a noun modified by it → keep
+  // "the sun" → "the" is Determiner → "sun" is the noun → keep
   const secondLast = tokens[tokens.length - 2].toLowerCase().replace(/\W/g, "")
   try {
     const secondLastDoc = nlp(secondLast) as any
     if (secondLastDoc.has("#Determiner") || secondLastDoc.has("(a|an|the|my|your|this|that)")) return q
+    if (secondLastDoc.has("#Adjective")) return q
   } catch { /* continue */ }
 
   try {
@@ -285,6 +303,10 @@ function stripTrailingByStructure(q: string): string {
     // Don't strip if the last word is tagged as a named entity (it's probably content)
     const lastDoc = nlp(lastWord) as any
     if (lastDoc.has("#ProperNoun") || lastDoc.has("#Place") || lastDoc.has("#Organization")) return q
+
+    // Don't strip predicate adjectives — "why is the dead sea so salty" → "salty" is Adjective
+    // These are the meaningful predicate of the question, not trailing filler.
+    if (lastDoc.has("#Adjective")) return q
 
     // Don't strip main verbs — "how do black holes form", "how does gravity work",
     // "how do they live". Verbs in infinitive/present position at the end of a question
