@@ -19,7 +19,7 @@ import { rankPassages } from "./embed"
 import { normalizeQuery, QueryContext } from "./normalize"
 
 const SNIPPET_THRESHOLD = 0.7
-const PASSAGE_THRESHOLD = 0.45
+const PASSAGE_THRESHOLD = 0.37
 const BM25_PREFILTER_N = 8
 
 type SerperResult = { title: string; snippet: string; url: string }
@@ -188,14 +188,18 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
   const bestIsRank0 = bestPair.serperIdx === 0
   const rank1 = candidateResults[1], rank2 = candidateResults[2]
 
-  // Also try Wikipedia's own search as a 4th source. Serper finds the most popular article,
-  // but Wikipedia search sometimes surfaces more specific mechanism articles (e.g., "Lift (force)"
-  // for "how do airplanes stay in the air" when Serper only returns the general "Airplane" article).
-  const wikiResults = await wikiSearch(query, 3)
+  // Also try Wikipedia's own search as additional sources. Serper finds the most popular article,
+  // but Wikipedia search sometimes surfaces more specific mechanism articles.
+  // We use all non-duplicate wikiSearch results — this catches "List of common misconceptions"
+  // for debunking queries (was previously blocked by overly broad "List of" filter).
+  const wikiResults = await wikiSearch(normalizedQuery, 3)
   const serperTitles = new Set(candidateResults.map(r => r.title.toLowerCase()))
-  const wikiExtra = wikiResults.find(r => !serperTitles.has(r.title.toLowerCase()) &&
+  const wikiExtras = wikiResults.filter(r =>
+    !serperTitles.has(r.title.toLowerCase()) &&
     !r.title.startsWith("Wikipedia:") && !r.title.includes("(disambiguation)") &&
-    !r.title.startsWith("List of"))
+    !r.title.includes("Talk:") && !r.title.includes("Archive")
+  )
+  const wikiExtra = wikiExtras[0]  // for fullWiki fetch (backward compat)
 
   const [full0, full1, full2, fullWiki] = await Promise.all([
     wikiFullText(rank0.title),
@@ -256,10 +260,18 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
   // 4th source: Wikipedia's own search — only add when Serper rank-0 is uncertain
   // (score < 0.5). If rank-0 is confident (GPS for "how does gps work"), wikiSearch
   // adding "Computer cartography" just injects noise that beats the real article.
-  if (wikiExtra && fullWiki && rank0SnippetScore < 0.5) {
-    const sumWiki = await wikiSummary(wikiExtra.title)
-    if (sumWiki?.extract && !isEntertainment(sumWiki.description ?? ""))
-      addArticle(fullWiki, sumWiki, "", 2, 3)
+  // Add all non-duplicate wikiSearch results when rank-0 confidence is low.
+  // This catches articles like "List of common misconceptions" for debunking queries.
+  if (rank0SnippetScore < 0.5 && wikiExtras.length > 0) {
+    // Fetch full text for all wikiExtras (first one already fetched as fullWiki)
+    const fullTexts = [fullWiki, ...await Promise.all(
+      wikiExtras.slice(1).map(r => wikiFullText(r.title))
+    )]
+    for (let i = 0; i < wikiExtras.length; i++) {
+      const sumW = await wikiSummary(wikiExtras[i].title)
+      if (sumW?.extract && !isEntertainment(sumW.description ?? ""))
+        addArticle(fullTexts[i] ?? null, sumW, "", 2, 2)
+    }
   }
 
   if (!pool.length) return null
@@ -267,6 +279,7 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
   // HF final scorer on the pre-filtered pool — small batch, reliably completes
   const { results: scored } = await rankPassages(query, pool.map(x => x.p))
   const best = scored[0]
+  if (scored.length) console.log(`[BEST] score=${scored[0].score.toFixed(3)} src=${pool.find(x=>x.p===scored[0].passage)?.title} pass=${scored[0].score >= PASSAGE_THRESHOLD}`)
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 
   const meta = pool.find(x => x.p === best.passage)!

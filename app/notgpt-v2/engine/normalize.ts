@@ -67,8 +67,14 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
     .replace(/\bwont\b/gi, "won't")
     .replace(/\barent\b/gi, "aren't")
     .replace(/\bisnt\b/gi, "isn't")
-    // Compress repeated vowels (sooooo → so, heyyyy → hey, lmaoo → lmao)
+    // Compress 3+ repeated vowels (sooooo → so, heyyyy → hey, noooo → no)
+    // Requires 3+ same vowels to avoid breaking normal English ("see", "feel", "tree")
     .replace(/([aeiou])\1{2,}/gi, "$1")
+    // Also handle 2-char vowel repeats in specific known slang tokens
+    // (can't use general 2+ compress without breaking "see", "feel", "free", etc.)
+    .replace(/\blmaoo+\b/gi, "lmao")
+    .replace(/\bomgg+\b/gi, "omg")
+    .replace(/\bheyy+\b/gi, "hey")
     // Strip trailing conversational fillers that turn statements into questions
     .replace(/\s+(or\s+nah|right\??|innit|tho|doe|amirite)\s*$/i, "")
     .trim()
@@ -78,10 +84,26 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   q = q.replace(/\b(wtf|wth|wdym)\b/gi, (match: string) => {
     return QUESTION_SYNONYMS[match.toLowerCase()] ?? match
   })
+  // Standalone "y" as first meaningful content word = "why" (text speak)
+  // "y does spicy food burn" → "why does spicy food burn"
+  q = q.replace(/\by\b(?=\s+(?:does|do|did|is|are|was|were|can|could|would|should|have|has|had|will)\b)/gi, "why")
   // Drop opinion/hedge markers (these carry no information-seeking intent)
   q = q.replace(/\b(imo|tbh|ngl|fwiw)\b\s*/gi, "").trim()
   // "how come" → "why" improves Serper results ("how come we can't see atoms")
   q = q.replace(/\bhow come\b/gi, "why")
+  // Strip trailing confirmation tags FIRST (before claim extraction check)
+  // Must be before "my grandma says" extraction so "is" in "is that true" doesn't block myth appending
+  q = q.replace(/\s+(?:is\s+that\s+(?:even\s+)?(?:true|real|right|accurate|a\s+thing)|right\??|innit|for\s+real\??)\s*$/i, "").trim()
+  // "my [person] says/told me [claim]" → extract the claim, append "myth" for debunking searches
+  // "my grandma says X" → "X myth" → helps find debunking articles (List of common misconceptions)
+  let _claimExtracted = false
+  q = q.replace(/^(?:my|this\s+one\s+)[\w\s]{1,20}?\s+(?:says?|told\s+me|thinks?|believes?|claims?)\s+(?:that\s+)?/i, () => { _claimExtracted = true; return "" })
+  if (_claimExtracted && !/\b(what|why|how|who|where|when|which|is|are|was|were|does|do|did|can)\b/i.test(q)) {
+    // It's a factual claim with no question word — add myth framing for better debunking results
+    q = q + " myth"
+  }
+  // "why [we/you/humans] can't see [X]" → "why can't [X] be seen" (better Serper ranking)
+  q = q.replace(/\bwhy\s+(?:we|you|i|humans?)\s+can'?t\s+see\s+(.+?)(?:\s+with\s+(?:our|your|the)\s+(?:naked\s+)?eyes?)?\s*$/i, "why can't $1 be seen")
   // Possessive-as-question: "my hair turns gray" → "why does hair turn gray"
   // Only applies when the query does NOT start with a question word.
   // We check the START of the query specifically, not embedded words like "when" in
@@ -111,8 +133,9 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
         const prefixWords = prefix.split(/\s+/).filter(Boolean)
         // Discourse/vocative words that are safe to strip even though NLP may tag them as nouns
         const DISCOURSE = new Set(['bruh','bro','sis','man','fam','yo','dude','babe','mate',
-          'lol','lmao','haha','smh','omg','huh','omfg','ngl','tbh','imo','ok','okay',
-          'hol','nah','fr','deadass','lowkey','highkey','rn','irl','smth','aight','ight'])
+          'lol','lmao','lmaoo','lmaooo','haha','smh','omg','omgg','huh','omfg','ngl','tbh',
+          'imo','ok','okay','hol','nah','fr','deadass','lowkey','highkey','rn','irl','smth',
+          'aight','ight','lmfao','lol','lolol','hehe','xd','ugh','oof','yikes'])
         const STOPS_NORM = new Set(['the','a','an','is','are','was','were','do','does','did',
           'why','how','what','who','when','where','which','my','your','i','we','they',
           'he','she','it','and','or','but','in','of','to','for','with','on','at','from',
