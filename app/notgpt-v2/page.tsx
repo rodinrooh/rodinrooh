@@ -6,6 +6,8 @@ export default function NotGPTV2() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  // Tracks last retrieved article for coreference resolution ("are they successful" → Supreme)
+  const lastContextRef = useRef<{ article: string } | undefined>(undefined)
 
   async function submit() {
     const q = input.trim()
@@ -24,7 +26,7 @@ export default function NotGPTV2() {
       const res = await fetch("/notgpt-v2/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: q }),
+        body: JSON.stringify({ message: q, context: lastContextRef.current }),
         signal: abort.signal,
       })
 
@@ -60,6 +62,9 @@ export default function NotGPTV2() {
 
       if (source) {
         setMessages(m => m.map((msg, i) => i === botIdx ? { ...msg, source } : msg))
+        // Update context for next query's coreference resolution
+        const articleTitle = source.split(" (score:")[0].trim()
+        lastContextRef.current = { article: articleTitle }
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") {

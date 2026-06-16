@@ -16,6 +16,7 @@
 
 import { wikiSummary, wikiFullText, splitPassages, wikiSearch } from "./wiki"
 import { rankPassages } from "./embed"
+import { normalizeQuery, QueryContext } from "./normalize"
 
 const SNIPPET_THRESHOLD = 0.7
 const PASSAGE_THRESHOLD = 0.25
@@ -98,8 +99,27 @@ function queryIsAboutLanguage(q: string): boolean {
 
 export type RetrievalResult = { passage: string; articleTitle: string; articleUrl: string; score: number }
 
-export async function retrieveBestPassage(query: string): Promise<RetrievalResult | null> {
-  const serperResults = await serperSearch(query)
+/** Cut text at the last complete sentence within maxChars, never mid-word or mid-sentence. */
+function truncateAtSentence(text: string, maxChars = 1000): string {
+  // Clean trailing "..." — the Wikipedia REST API appends this when truncating extracts
+  const cleaned = text.replace(/\s*\.{3}\s*$/, "").trim()
+  if (cleaned.length <= maxChars) return cleaned
+  const candidate = cleaned.slice(0, maxChars)
+  const lastEnd = Math.max(
+    candidate.lastIndexOf(". "),
+    candidate.lastIndexOf("? "),
+    candidate.lastIndexOf("! "),
+    candidate.lastIndexOf(".\n"),
+  )
+  if (lastEnd > maxChars * 0.35) return candidate.slice(0, lastEnd + 1).trim()
+  const lastSpace = candidate.lastIndexOf(" ")
+  return (lastSpace > maxChars * 0.5 ? candidate.slice(0, lastSpace) : candidate).trim()
+}
+
+export async function retrieveBestPassage(query: string, context?: QueryContext): Promise<RetrievalResult | null> {
+  // Normalize the query: strip filler, resolve pronouns, extract question nucleus
+  const normalizedQuery = normalizeQuery(query, context)
+  const serperResults = await serperSearch(normalizedQuery)
   if (!serperResults.length) return null
 
   const candidateResults = serperResults.slice(0, 3)
@@ -114,6 +134,7 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
       const desc = summary.description ?? ""
       if (/\b(pronoun|preposition|determiner|conjunction|grammatical|linguistics?|English word)\b/i.test(desc)) continue
       if (/\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game|rock band|pop band|music group|musical group|punk band|metal band|jazz ensemble)\b/i.test(desc)) continue
+      if (/^colou?r$/i.test(desc.trim()) || /^shade of\b/i.test(desc.trim())) continue
     }
     snippetPairs.push({ snippet, serperIdx: i })
   }
@@ -145,13 +166,12 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // Detect image captions: "A young girl hastily consuming ice cream..." pattern
   // (animate subject + participial phrase). For those, return the Wikipedia extract instead
   // since image captions describe photos, not the topic mechanism.
-  if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD) {
-    const snip = rank0Pair.snippet
-    const isImageCaption = /^(?:A|An|The)(?:\s+\w+){2,3}\s+\w+ing\b/.test(snip) && snip.length < 300
-    const passage = isImageCaption ? (summaries[0]?.extract ?? snip) : snip
-    if (passage && summaries[0]) {
-      return { passage: passage.slice(0, 800), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
-    }
+  if (snippetHF && rank0Pair && rank0SnippetScore >= SNIPPET_THRESHOLD && summaries[0]) {
+    // Return the Wikipedia extract (complete sentences) not the Serper snippet.
+    // Serper snippets are truncated mid-sentence by Google (e.g. "bounded by Florida, Bermuda, and ...")
+    // The Wikipedia REST API extract is always the article's intro in full sentences.
+    const passage = summaries[0].extract || rank0Pair.snippet
+    return { passage: truncateAtSentence(passage), articleTitle: summaries[0].title, articleUrl: summaries[0].url, score: rank0SnippetScore }
   }
 
   // ── BM25 pre-filter → HF final scoring ──
@@ -216,9 +236,12 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   // Wikipedia extracts are reliable article intros; secondary article Serper snippets
   // can be deceptive (Atlantic Flyway "warm climates... birds in winter" = 0.73 vs
   // Bird migration extract = 0.65 → Bird migration WINS from extract, not snippet).
-  // Helper: true if an article's Wikipedia description marks it as entertainment
+  // Helper: true if an article should be excluded (entertainment entity or pure color swatch)
   const isEntertainment = (desc: string) =>
-    /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game|rock band|pop band|music group|musical group|punk band|metal band|jazz ensemble)\b/i.test(desc)
+    /\b(studio album|debut album|extended play|live album|single by|music video|television series|TV series|animated series|video game|rock band|pop band|music group|musical group|punk band|metal band|jazz ensemble)\b/i.test(desc) ||
+    /^colou?r$/i.test(desc.trim()) ||            // desc is just "Color"
+    /^shade of\b/i.test(desc.trim()) ||          // desc is "Shade of blue" etc.
+    /^colou?r\s+(?:in|by|from)\b/i.test(desc)   // "Color in art" type articles
 
   addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
   const sum1 = summaries[1] ?? (rank1 ? await wikiSummary(rank1.title) : null)
@@ -240,5 +263,5 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   if (!best || best.score < PASSAGE_THRESHOLD) return null
 
   const meta = pool.find(x => x.p === best.passage)!
-  return { passage: best.passage.slice(0, 800), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
+  return { passage: truncateAtSentence(best.passage), articleTitle: meta.title, articleUrl: meta.url, score: best.score }
 }

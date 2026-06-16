@@ -13,6 +13,7 @@ export const runtime = "nodejs"
 
 import { classify } from "../../engine/classify"
 import { retrieveBestPassage } from "../../engine/retrieve"
+import type { QueryContext } from "../../engine/normalize"
 import { evaluate, format } from "mathjs"
 
 function sse(event: string, data: unknown): string {
@@ -45,13 +46,13 @@ function streamText(text: string): ReadableStream {
   })
 }
 
-async function handleFactual(query: string): Promise<ReadableStream> {
+async function handleFactual(query: string, context?: QueryContext): Promise<ReadableStream> {
   const encoder = new TextEncoder()
   return new ReadableStream({
     async start(controller) {
       controller.enqueue(encoder.encode(sse("status", { message: "Searching..." })))
 
-      const result = await retrieveBestPassage(query)
+      const result = await retrieveBestPassage(query, context)
 
       if (!result) {
         controller.enqueue(encoder.encode(sse("delta", { text: "Nothing found — I searched Wikipedia and couldn't find a relevant passage." })))
@@ -97,7 +98,9 @@ function handleSocial(): ReadableStream {
 }
 
 export async function POST(req: Request) {
-  const { message } = await req.json()
+  const body = await req.json()
+  const message: string = body.message
+  const context: QueryContext | undefined = body.context
   if (!message?.trim()) {
     return new Response("No message", { status: 400 })
   }
@@ -107,7 +110,7 @@ export async function POST(req: Request) {
   let stream: ReadableStream
   if (intent === "math") stream = handleMath(message)
   else if (intent === "social") stream = handleSocial()
-  else stream = await handleFactual(message)
+  else stream = await handleFactual(message, context)
 
   return new Response(stream, {
     headers: {
