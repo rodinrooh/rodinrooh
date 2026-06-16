@@ -8,14 +8,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "chatGPT",
+  title: "notgpt",
   description:
-    "ChatGPT, but every answer comes from a real source. No AI. No hallucinations. Just Wikipedia, a dictionary, and the truth.",
+    "Powered by the sum of all human knowledge. Wikipedia or bust. No hallucinations — just citations.",
   icons: { icon: "/notgpt/icon" },
   openGraph: {
-    title: "chatGPT",
+    title: "notgpt",
     description:
-      "Looks like ChatGPT. Runs on Wikipedia. Every answer is sourced.",
+      "Every answer is sourced. Nothing is made up.",
     type: "website",
     url: "https://rodinrooh.com/notgpt",
   },
@@ -29,7 +29,11 @@ export default function NotGPTLayout({
   return (
     <div
       className={`${inter.className} h-full`}
-      style={{ fontFamily: inter.style.fontFamily }}
+      style={{
+        fontFamily: inter.style.fontFamily,
+        backgroundColor: "#1a1a1a",
+        colorScheme: "dark",
+      }}
     >
       {children}
     </div>
