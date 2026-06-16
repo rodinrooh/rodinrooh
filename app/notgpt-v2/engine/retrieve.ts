@@ -19,7 +19,7 @@ import { rankPassages } from "./embed"
 import { normalizeQuery, QueryContext } from "./normalize"
 
 const SNIPPET_THRESHOLD = 0.7
-const PASSAGE_THRESHOLD = 0.25
+const PASSAGE_THRESHOLD = 0.45
 const BM25_PREFILTER_N = 8
 
 type SerperResult = { title: string; snippet: string; url: string }
@@ -243,13 +243,20 @@ export async function retrieveBestPassage(query: string, context?: QueryContext)
     /^shade of\b/i.test(desc.trim()) ||          // desc is "Shade of blue" etc.
     /^colou?r\s+(?:in|by|from)\b/i.test(desc)   // "Color in art" type articles
 
-  addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
+  // Apply entertainment filter to rank-0 too. When Serper rank-0 is a junk article
+  // (e.g. "Slippery When Wet" album for "wet hair" query), don't add its passages —
+  // they'd dilute the pool and the next-best wrong article would win.
+  if (!isEntertainment(sum0.description ?? "")) {
+    addArticle(full0, sum0, rank0.snippet, 4, BM25_PREFILTER_N)
+  }
   const sum1 = summaries[1] ?? (rank1 ? await wikiSummary(rank1.title) : null)
   if (sum1?.extract && !isEntertainment(sum1.description ?? "")) addArticle(full1, sum1, "", 2, 3)
   const sum2 = summaries[2] ?? (rank2 ? await wikiSummary(rank2.title) : null)
   if (sum2?.extract && !isEntertainment(sum2.description ?? "")) addArticle(full2, sum2, "", 2, 3)
-  // 4th source: Wikipedia's own search top result (skips duplicates already in pool)
-  if (wikiExtra && fullWiki) {
+  // 4th source: Wikipedia's own search — only add when Serper rank-0 is uncertain
+  // (score < 0.5). If rank-0 is confident (GPS for "how does gps work"), wikiSearch
+  // adding "Computer cartography" just injects noise that beats the real article.
+  if (wikiExtra && fullWiki && rank0SnippetScore < 0.5) {
     const sumWiki = await wikiSummary(wikiExtra.title)
     if (sumWiki?.extract && !isEntertainment(sumWiki.description ?? ""))
       addArticle(fullWiki, sumWiki, "", 2, 3)
