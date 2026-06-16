@@ -8,8 +8,15 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nlp = require("compromise") as (text: string) => Record<string, unknown>
 
-const HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+// multi-qa-MiniLM-L6-cos-v1 is trained on 215M QA pairs from the web —
+// specifically designed for asymmetric retrieval (short question → long passage).
+// all-MiniLM-L6-v2 is symmetric (sentence ↔ sentence), which is the wrong task.
+// The QA model naturally ranks explanatory passages over introductory ones
+// without any structural heuristics.
+const HF_MODEL = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+const HF_MODEL_FALLBACK = "sentence-transformers/all-MiniLM-L6-v2"
 const HF_API_URL = `https://router.huggingface.co/hf-inference/models/${HF_MODEL}`
+const HF_API_URL_FALLBACK = `https://router.huggingface.co/hf-inference/models/${HF_MODEL_FALLBACK}`
 
 function contentWords(text: string): string[] {
   try {
@@ -56,11 +63,10 @@ export async function rankPassages(query: string, passages: string[]): Promise<R
   const token = process.env.HF_TOKEN
   const trimmed = passages.map(p => p.slice(0, 512))
 
-  try {
+  const tryHF = async (apiUrl: string): Promise<RankResult | null> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" }
     if (token) headers["Authorization"] = `Bearer ${token}`
-
-    const res = await fetch(HF_API_URL, {
+    const res = await fetch(apiUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -69,17 +75,22 @@ export async function rankPassages(query: string, passages: string[]): Promise<R
       }),
       signal: AbortSignal.timeout(15_000),
     })
+    if (!res.ok) return null
+    const scores = await res.json() as number[]
+    if (!Array.isArray(scores) || scores.length !== passages.length) return null
+    return {
+      usingHF: true,
+      results: passages
+        .map((p, i) => ({ passage: p, score: scores[i] }))
+        .sort((a, b) => b.score - a.score),
+    }
+  }
 
-    if (res.ok) {
-      const scores = await res.json() as number[]
-      if (Array.isArray(scores) && scores.length === passages.length) {
-        return {
-          usingHF: true,
-          results: passages
-            .map((p, i) => ({ passage: p, score: scores[i] }))
-            .sort((a, b) => b.score - a.score),
-        }
-      }
+  try {
+    // Try QA-optimised model first; fall back to general similarity model if unavailable
+    const result = await tryHF(HF_API_URL) ?? await tryHF(HF_API_URL_FALLBACK)
+    if (result) {
+      return result
     }
   } catch { /* fall through */ }
 

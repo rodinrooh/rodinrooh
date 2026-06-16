@@ -154,34 +154,45 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
 
   // ─── BM25 pre-filter → HF ranking ──────────────────────────────────────────
   const prefiltered = bm25Prefilter(bm25Query, candidates.map(c => c.text), BM25_PREFILTER_N)
+
   const { results: ranked, usingHF } = await rankPassages(query, prefiltered)
   if (!ranked.length) return null
 
-  // For "why" queries, prefer passages that contain causal language.
-  // The bi-encoder frequently ranks introductory/rhetorical paragraphs higher than
-  // explanatory ones. Apply a bonus multiplier to passages with causal indicators.
+  // Two universal passage-quality adjustments for explanation-seeking queries.
+  // These apply across ALL topics — they're structural properties of passages,
+  // not domain-specific word checks.
   const isWhyQuery = /^why\b/i.test(query.trim())
-  // For "why" queries, boost passages that describe mechanisms/processes over those
-  // that merely describe the experience/sensation of the phenomenon.
-  // "When you cut an onion, enzymes release sulfenic acid..." explains the mechanism.
-  // "Something takes over when you cut into an onion... CRYING!" describes the experience.
-  const CAUSAL_RE = /\b(because|due to|caused? by|result(?:s)? from|occur(?:s|red)? when|from the|scattering|mechanism|process by which|produces?|releases?|reacts?|enzyme|chemical|compound|molecule|react(?:s|ed)|formed? (?:when|by)|converts?|triggers?)\b/i
-  // Also penalize passages that are primarily anecdotal (first person, exclamation, informal)
-  const isAnecdote = (p: string) =>
-    /^[^.]{0,30}\.\.\.|^(something|i |when i |you feel|my |suddenly|first you|just like)/i.test(p)
 
-  // PAA boost: Google's curated Q&A answers earn a 15% score premium.
-  // They're specifically designed to answer questions like the user's query — which
-  // makes them structurally better answers than the generic organic definition passage.
-  // Combined with causal-language boost for "why" queries.
   const adjustedRanked = ranked.map(r => {
-    let adj = r.score
     const c = candidates.find(x => x.text === r.passage)
-    if (c?.fromPAA) adj *= 1.15
+    let adj = c?.fromPAA ? r.score * 1.15 : r.score
+
     if (isWhyQuery) {
-      if (CAUSAL_RE.test(r.passage)) adj *= 1.3
-      if (isAnecdote(r.passage)) adj *= 0.75
+      // 1. A passage ending with "?" is a question, not an explanation.
+      //    Universal: no "why" answer should end in a question.
+      if (r.passage.trim().endsWith("?")) adj *= 0.55
+
+      // 2. High second-person density = experiential/descriptive passage, not explanation.
+      //    "You feel a sensation... CRYING!" describes an experience; explanations
+      //    describe mechanisms. Measured by pronoun count — grammatical, not a word list.
+      const youCount = (r.passage.match(/\byou\b/gi) ?? []).length
+      const wordCount = r.passage.split(/\s+/).length
+      if (wordCount > 0 && youCount / wordCount > 0.07) adj *= 0.65
+
+      // 3. Dummy-subject expletive constructions — meta-commentary, not explanation.
+      //    In English linguistics, two constructions use a dummy/expletive subject:
+      //      IT-extraposition:    "It is X that Y"   — "It's a common misconception that..."
+      //      Existential-THERE:   "There is X that Y" — "There's a lot that experts don't know..."
+      //    Both signal that the clause is framing or commenting on a proposition,
+      //    not directly explaining it. Detected purely by grammatical position:
+      //    {expletive pronoun "it"/"there"} + {copula} + {noun phrase/adverb} + "that"-clause.
+      const firstWord = r.passage.trim().toLowerCase().match(/^(\w+'?\w*)\b/)?.[1] ?? ""
+      const isExpletive = (firstWord === "it" || firstWord === "its" ||
+                           firstWord === "there" || firstWord === "theres") &&
+                          r.passage.toLowerCase().includes(" that ")
+      if (isExpletive) adj *= 0.65
     }
+
     return { ...r, score: adj }
   }).sort((a, b) => b.score - a.score)
 

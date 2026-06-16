@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { retrieveBestPassage } from "../../engine/retrieve"
 import { resolveQuery, extractEntity } from "../../engine/resolve"
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nlpLib = require("compromise") as (text: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  topics(): any; match(p: string): any; nouns(): any; not(p: string): any; terms(): any; out(f: "array"): string[]; found: boolean
+}
+
 /**
- * Extract the best entity string from a successful response.
- * Prefers URL-based (most stable), then title-based, then query-based.
+ * Extract a concise entity string from the response for conversation tracking.
+ *
+ * "Who X" queries need special handling: the query title says "who discovered evolution?"
+ * (topic = evolution) but the right entity for the NEXT turn's context is the PERSON
+ * who answered that question ("Charles Darwin"). The answer is in the passage, not the title.
+ * For all other query types, URL → title → passage → query priority works well.
  */
 function entityFromResult(
   result: { url: string; title: string; passage: string } | null,
@@ -12,7 +22,16 @@ function entityFromResult(
   fallback: string
 ): string {
   if (result) {
-    // Wikipedia URL: /wiki/Article_Name → cleanest entity
+    // ── "Who X" queries: answer is a PERSON — check passage first ────────────
+    // For "who is/was/did X", the entity we want going forward is the person
+    // the passage names. Title says "Who discovered evolution?" → "evolution";
+    // passage says "Charles Darwin is commonly cited" → "charles darwin". Passage wins.
+    if (/^who\b/i.test(resolvedQuery.trim())) {
+      const pm = result.passage.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/)
+      if (pm?.[1]) return pm[1].toLowerCase()
+    }
+
+    // ── 1. Wikipedia URL slug ────────────────────────────────────────────────
     try {
       const u = new URL(result.url)
       if (u.hostname.includes("wikipedia.org")) {
@@ -22,68 +41,73 @@ function entityFromResult(
       }
     } catch { /* ignore */ }
 
-    // Page title: "Article Title - Site Name" → extract the core topic noun(s).
-    // Order matters: strip prefixes BEFORE subtitle separators, so "Video: Entropy"
-    // becomes "Entropy" not "Video".
+    // ── 2. Title → NLP entity extraction (no stop-word list) ─────────────────
     if (result.title) {
-      let t = result.title
-        // 1. Strip known site name suffixes: "Title | Wikipedia"
-        .replace(/\s*[-–|]\s*(?:Wikipedia|NASA|Britannica|BBC|CNN|Reuters|AP|NPR|PBS|NIH|DOE|Mayo Clinic|Cleveland Clinic|WebMD|Reddit|Quora|YouTube|Medium|TikTok|Twitter|X\.com|Study\.com|Cloudflare|HowToGeek|Merriam-Webster|Science Museum|Science\s*\+\s*Media|Harvard|MIT|Stanford|Oxford|Cambridge)[^|–\-]*/gi, "")
-        // 2. Strip generic " | Anything" suffixes
-        .replace(/\s*[|]\s*.{2,80}$/, "")
-        // 3. Strip article-type prefixes FIRST: "Video: X" → "X", "Guide: X" → "X"
-        .replace(/^(?:Video|Article|Guide|Tutorial|Lesson|Watch|Read|Learn|Photo|Review|Explainer|Podcast|Webinar)\s*[:–-]\s*/gi, "")
-        // 4. Strip story/editorial prefixes: "Celebrating X", "A Brief History of X"
-        .replace(/^(?:celebrating|understanding|exploring|introducing|everything\s+(?:about|you\s+need)|all\s+about|the\s+(?:truth\s+about|story\s+of|science\s+of))\s+/gi, "")
-        .replace(/^(?:a\s+(?:brief\s+)?(?:short\s+)?|the\s+)?(?:history|story|introduction|guide|overview|explanation|definition|meaning)\s+(?:of|to|about)\s+/gi, "")
-        // 5. Strip question-word prefixes: "What is X" → "X"
-        .replace(/^(?:What\s+is|What\s+are|Who\s+is|Who\s+was|How\s+does|How\s+do|Why\s+does|Why\s+did|When\s+was|Where\s+is)\s+/gi, "")
-        // 6. Now strip subtitle separators: "Entropy: Lesson for Kids" → "Entropy"
-        .replace(/\s*[-–:]\s*.{3,80}$/, "")
-        // 7. Strip trailing articles and punctuation
-        .replace(/^(?:a|an|the)\s+/i, "")
-        .replace(/[?!.,]+$/, "")
-        .trim()
-        .toLowerCase()
-
-      // 8. Take at most 2 meaningful words to prevent noise like "what would happen black hole"
-      //    Include question words, auxiliaries, pronouns, and common title words as stops
-      const TITLE_STOPS = new Set([
-        // Articles/prepositions
-        "a", "an", "the", "of", "in", "on", "at", "for", "to", "and", "or", "by", "with", "from", "into", "upon", "over", "under", "between", "through",
-        // Copulas/auxiliaries
-        "is", "are", "was", "were", "be", "been", "being", "do", "does", "did", "has", "have", "had", "will", "would", "could", "should", "can", "may", "might", "must", "shall",
-        // Question words / topic-change words
-        "what", "who", "why", "how", "when", "where", "which", "that", "if", "whether",
-        // Pronouns
-        "you", "i", "we", "they", "it", "this", "those", "these", "he", "she", "me", "him", "her", "us", "them",
-        // Common verb forms that don't identify the topic
-        "happen", "happens", "happened", "fall", "fell", "fallen", "fell", "makes", "make", "made", "gets", "get", "got",
-        "discovered", "invented", "created", "found", "found", "work", "works", "worked",
-        // Title noise words
-        "about", "about", "its", "their", "our", "your", "his",
-        "kids", "children", "beginners", "students", "people", "everyone",
-        "explained", "explanation", "video", "lesson", "tutorial", "guide", "article", "book", "post", "blog",
-        // Common quantifiers
-        "many", "most", "some", "any", "all", "every", "each", "both", "few", "more", "less",
-        // Common adjectives that don't identify the topic
-        "brief", "short", "long", "simple", "basic", "advanced", "complete", "full", "real", "true", "new", "old",
-      ])
-      const words = t.split(/\s+/).filter(w => w.length > 1 && !TITLE_STOPS.has(w.toLowerCase()))
-      const capped = words.slice(0, 2).join(" ")
-      if (capped.length >= 2 && capped.length <= 60) return capped
+      const entity = entityFromTitleNLP(result.title)
+      if (entity && entity.length >= 2) return entity
     }
 
-    // Passage: first proper noun pair (e.g. "Charles Darwin", "Marie Curie")
-    const m = result.passage.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/)
-    if (m?.[1] && m[1] !== result.passage.slice(0, m[1].length)) {
-      return m[1].toLowerCase()
-    }
+    // ── 3. First proper-noun pair in passage ──────────────────────────────────
+    const m = result.passage.match(
+      /\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/
+    )
+    if (m?.[1]) return m[1].toLowerCase()
   }
 
-  // Last resort: extract from the resolved query
-  const qe = extractEntity(resolvedQuery)
-  return qe || fallback
+  // ── 4. Query-based NLP extraction ─────────────────────────────────────────
+  return extractEntity(resolvedQuery) || fallback
+}
+
+/**
+ * Extract the main topic entity from a page title using NLP.
+ * No stop-word arrays. Uses compromise POS categories to identify
+ * non-function words (proper nouns, named entities, content nouns).
+ *
+ * Structural cleaning (strip " | Site" suffixes, subtitle separators) is
+ * pattern-based on punctuation, which is different from word lists.
+ */
+function entityFromTitleNLP(rawTitle: string): string {
+  // Step 1: structural cleanup — punctuation-based, not word-based
+  let title = rawTitle
+    // Strip " | site name" or " - site name" at end
+    .replace(/\s*[|–]\s*.{2,80}$/, "")
+    // Strip "Word: subtitle" — colon-based subtitle separator
+    .replace(/\s*:\s*.{3,80}$/, "")
+    // Strip " - subtitle" at end
+    .replace(/\s*-\s*.{3,80}$/, "")
+    .trim()
+
+  if (!title) return ""
+
+  try {
+    const doc = nlpLib(title)
+
+    // Named entities / topics first (most precise: "Marie Curie", "Coriolis effect")
+    const topics = doc.topics().out("array") as string[]
+    if (topics.length > 0) return topics[0].toLowerCase().slice(0, 80)
+
+    // Proper nouns
+    const proper = doc.match("#ProperNoun+").out("array") as string[]
+    if (proper.length > 0) return proper[0].toLowerCase().slice(0, 80)
+
+    // Content nouns (filter function words by POS, not by word list)
+    const nouns = doc.nouns().not("#Pronoun").out("array") as string[]
+    if (nouns.length > 0) {
+      // Take last 2 nouns (often the topic rather than the predicate)
+      const last = nouns.slice(-2).join(" ").toLowerCase()
+      if (last.length >= 2) return last.slice(0, 80)
+    }
+
+    // Any non-function term (POS-filtered, not a word list)
+    const content = doc
+      .not("#Preposition").not("#Conjunction").not("#Auxiliary")
+      .not("#Modal").not("#Determiner").not("#QuestionWord").not("#Pronoun")
+      .terms()
+      .out("array") as string[]
+    if (content.length > 0) return content.slice(-2).join(" ").toLowerCase().slice(0, 80)
+  } catch { /* compromise parse failure */ }
+
+  return title.toLowerCase().slice(0, 80)
 }
 
 export async function POST(req: NextRequest) {
@@ -107,10 +131,8 @@ export async function POST(req: NextRequest) {
   const { resolved, isNewTopic } = resolveQuery(query, context)
   const result = await retrieveBestPassage(resolved)
 
-  // Prefer query-based entity when it actually appears in the resolved query —
-  // titles can be misleading ("A Look Back at Why Blockbuster Failed" → "look back"
-  // instead of "blockbuster"). But if the extracted entity isn't in the query,
-  // the query-based extraction is also wrong → fall back to title/URL.
+  // Prefer query-based entity when it appears in the resolved query
+  // (the query explicitly names the topic → more reliable than title parsing).
   const queryBasedEntity = extractEntity(resolved)
   const queryEntityInResolved = Boolean(
     queryBasedEntity && resolved.toLowerCase().includes(queryBasedEntity.toLowerCase())
@@ -118,15 +140,18 @@ export async function POST(req: NextRequest) {
 
   let nextContext = result
     ? (queryEntityInResolved ? queryBasedEntity : entityFromResult(result, resolved, context))
-    : context  // on miss, keep current context — user might rephrase
+    : context
 
-  // Context stability: if the new entity doesn't appear anywhere in the resolved
-  // query, the title/URL extraction grabbed something irrelevant (e.g. Reddit
-  // "person stuck" when the topic is "black hole"). In that case, keep old context.
-  // e.g. resolved "is black hole slower" → entity "black hole" ✓ (appears in query)
-  //      resolved "is black hole slower" → entity "person stuck" ✗ (NOT in query) → keep "black hole"
+  // Context stability: keep old context when either:
+  //   a) New entity doesn't appear in resolved query (it came from a noisy title)
+  //   b) BOTH old and new entities appear in resolved query — the old one was
+  //      explicitly injected via pronoun resolution, making it more authoritative
+  //      than an accidentally-included sub-phrase (e.g. "hole slower" vs "black hole")
   if (context && nextContext !== context && !isNewTopic) {
-    if (!resolved.toLowerCase().includes(nextContext.toLowerCase())) {
+    const resolvedLower   = resolved.toLowerCase()
+    const oldInResolved   = resolvedLower.includes(context.toLowerCase())
+    const newInResolved   = resolvedLower.includes(nextContext.toLowerCase())
+    if (!newInResolved || (oldInResolved && newInResolved)) {
       nextContext = context
     }
   }
@@ -148,4 +173,3 @@ export async function POST(req: NextRequest) {
     nextContext,
   })
 }
-
