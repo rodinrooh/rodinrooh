@@ -33,14 +33,14 @@ function renderInlineMarkdown(text: string): React.ReactNode {
         </strong>
       );
     } else if (match[2] && match[3]) {
-      // Link — amber tint on dark background
+      // Link — warm orange accent
       parts.push(
         <a
           key={match.index}
           href={match[3]}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "#f0a04b" }}
+          style={{ color: "#d4854a" }}
           className="hover:underline"
         >
           {match[2]}
@@ -77,27 +77,38 @@ function renderMarkdownText(text: string): React.ReactNode {
   );
 }
 
-// ---- AssistantAvatar — question-mark starburst ----
+// ---- AssistantAvatar — 8-ray asterisk ----
 function AssistantAvatar() {
+  // 8 lines from center (7,7) outward at 45° increments, radius 5
+  const center = 7;
+  const r = 5;
+  const lines = Array.from({ length: 8 }, (_, i) => {
+    const angle = (i * Math.PI * 2) / 8;
+    return {
+      x2: center + r * Math.cos(angle),
+      y2: center + r * Math.sin(angle),
+    };
+  });
+
   return (
     <div
       className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center select-none"
-      style={{ backgroundColor: "#f0a04b" }}
+      style={{ backgroundColor: "transparent" }}
       aria-hidden="true"
     >
-      {/* Simple stylized ? in dark */}
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <text
-          x="7"
-          y="11"
-          textAnchor="middle"
-          fontSize="11"
-          fontWeight="700"
-          fontFamily="inherit"
-          fill="#1a1a1a"
-        >
-          ?
-        </text>
+      <svg width="24" height="24" viewBox="0 0 14 14" fill="none">
+        {lines.map((l, i) => (
+          <line
+            key={i}
+            x1={center}
+            y1={center}
+            x2={l.x2}
+            y2={l.y2}
+            stroke="#d4854a"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        ))}
       </svg>
     </div>
   );
@@ -214,7 +225,7 @@ function StreamingDots() {
           key={i}
           className="w-1 h-1 rounded-full opacity-60"
           style={{
-            backgroundColor: "#f0a04b",
+            backgroundColor: "#d4854a",
             animation: `pulse 1.4s ease-in-out ${i * 0.2}s infinite`,
           }}
         />
@@ -248,9 +259,9 @@ function ProvenanceFooter({ provenance }: { provenance: ProvenanceEntry[] }) {
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] no-underline transition-colors hover:opacity-80"
           style={{
-            backgroundColor: "#2a2a2a",
-            border: "1px solid #3a3a3a",
-            color: "#9ca3af",
+            backgroundColor: "#242424",
+            border: "1px solid #383838",
+            color: "#6b6b6b",
           }}
         >
           {/* Wikipedia W icon */}
@@ -276,16 +287,16 @@ export default function Message({ message, onClarify }: MessageProps) {
   const { role, content, blocks, provenance, clarify, status, isStreaming } =
     message;
 
-  // ---- User message — right-aligned, slightly lighter bg ----
+  // ---- User message — right-aligned bubble ----
   if (role === "user") {
     return (
       <div className="flex justify-end px-4 py-2">
         <div
-          className="max-w-[85%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed whitespace-pre-wrap"
+          className="max-w-[85%] sm:max-w-[70%] px-4 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap"
           style={{
             backgroundColor: "#2a2a2a",
-            color: "#ececec",
-            border: "1px solid #3a3a3a",
+            color: "#e5e5e5",
+            borderRadius: 18,
           }}
         >
           {content}
@@ -314,13 +325,13 @@ export default function Message({ message, onClarify }: MessageProps) {
 
         {/* Main text content */}
         {content && (
-          <div className="text-[14px] leading-[1.65]" style={{ color: "#ececec" }}>
+          <div className="text-[14px] leading-[1.65]" style={{ color: "#e5e5e5" }}>
             {renderMarkdownText(content)}
             {isStreaming && (
               <span
                 className="inline-block w-0.5 h-[1em] ml-0.5 align-middle"
                 style={{
-                  backgroundColor: "#f0a04b",
+                  backgroundColor: "#d4854a",
                   animation: "blink 1s step-end infinite",
                 }}
               />
