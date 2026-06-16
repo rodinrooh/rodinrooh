@@ -25,12 +25,56 @@ export interface ClassifyContext {
 
 const MATH_RE = /^[\d\s+\-*/^().%,=]+$|what\s+is\s+[\d].*[\d]|^\d+\s*[+\-*/]\s*\d+|how\s+much\s+is\s+\d|convert\s+\d/i
 
-// Social function words used in "what is X" / "how is it X" social patterns
-// These are position-gated (only checked in specific contexts), not general slang suppression
-const SOCIAL_PLACEHOLDER_WORDS = new Set([
-  "up", "on", "off", "there", "here", "it", "going", "happening",
-  "good", "great", "alright", "ok", "okay", "fine",
-])
+/**
+ * Entity/topic presence check — replaces SOCIAL_PLACEHOLDER_WORDS list.
+ *
+ * Google's approach (from research): queries are social when they have no
+ * resolvable knowledge entity. "what's up" → "up" has no entity. "what is
+ * dark matter" → "dark matter" resolves as a physics concept.
+ *
+ * We approximate this structurally: if the topic after "what is / how is" etc.
+ * has NO content noun and NO named entity → it's a placeholder → social.
+ * "up", "going", "there", "it going" → adverbs/particles/pronouns → social
+ * "dark matter", "supreme", "nasa" → noun phrases / named entities → factual
+ *
+ * No word list. Uses NLP POS structure only.
+ */
+/**
+ * Check if the topic word(s) after "what is / how is" are real content vs placeholder.
+ *
+ * Research finding (Agent 1 + 4): The key signal is entity/noun presence.
+ * "up", "there", "it going" → particles/pronouns/adverbs → placeholder → social
+ * "dark matter", "supreme" → nouns/concepts → real topic → factual
+ *
+ * Edge case: "supreme" lowercase → tagged as adjective by compromise.js, not noun.
+ * Fix: substantial words (≥5 chars each) that aren't recognized as pronouns/adverbs
+ * are likely content words even if tagged as adjectives. This covers proper nouns
+ * typed in lowercase ("supreme", "nasa") and technical terms.
+ */
+function isPlaceholderTopic(topic: string): boolean {
+  if (!topic || topic.trim().length === 0) return true
+  try {
+    const doc = nlp(topic.toLowerCase()) as any
+    // Has a content noun (not pronoun) → real topic
+    if (doc.nouns().not("#Pronoun").length > 0) return false
+    // Has a named entity → real topic
+    if (doc.match("#ProperNoun").length > 0) return false
+    // Substantial content word (≥5 chars, not a function word OR verb) → likely a real topic.
+    // "supreme" (7 chars, adjective but substantive) → real topic
+    // "going" (5 chars, verb) → NOT a real topic in "it going" (state verb in social formula)
+    // "happening" → verb → not substantial topic
+    // Including #Verb in exclusion so "it going", "what is going on" → social
+    const words = topic.trim().split(/\s+/)
+    const hasSubstantialWord = words.some(w =>
+      w.length >= 5 && !doc.match(w).has("(#Pronoun|#Adverb|#Preposition|#Conjunction|#Determiner|#Verb)")
+    )
+    if (hasSubstantialWord) return false
+    // All words are short/functional → placeholder ("up", "on", "there", "it going")
+    return true
+  } catch {
+    return topic.trim().length <= 4 && !/[a-z]{4}/i.test(topic)
+  }
+}
 
 export function classify(query: string, context?: ClassifyContext): Intent {
   const q = query.trim()
@@ -97,22 +141,28 @@ function isSocial(q: string, context?: ClassifyContext): boolean {
       if (ctxLower.length > 2 && q.toLowerCase().includes(ctxLower)) return false
     }
 
+    // "Why" questions are always causal/explanatory — never social greetings.
+    // "why do we dream", "why do we yawn" → informational even though subject is "we"
+    // Research (Agent 5): "why" queries seek explanations; they have no phatic use case.
+    if (/^why\b/i.test(q)) return false
+
     // SECOND-PERSON PATTERN: asking about "you/we" → social greeting/personal
     // "how are you", "how are we doing", "are you ok", "what do you think"
     const hasSecondPerson: boolean = doc.has("(you|your|yourself|yourselves|we|our|ourselves)")
     if (hasSecondPerson) return true
 
     // QUESTION-WORD + TOPIC pattern: "what is X" / "who is X" / etc.
-    // If X is NOT a placeholder function word → this is an informational question
+    // Google's insight: queries are informational when X is a resolvable entity/concept.
+    // We check structurally: does X parse as a content noun phrase?
+    // "what is dark matter" → "dark matter" = noun phrase → factual
+    // "what's up" → "up" = adverb/particle, no noun → social
+    // "how is it going" → "it going" = pronoun + particle, no noun → social
     const questionVerbMatch = /^(?:what|who|where|when|why|how)\s*(?:'?s|is|are|was|were|does|do|did|can|could|will|would|should|has|have)\s*(.*)/i.exec(q)
     if (questionVerbMatch) {
-      const topic = questionVerbMatch[1].trim().toLowerCase()
-      if (!topic) return true  // "what is" with nothing after → social
-      // If topic is a function/placeholder word → social ("what's up", "how's it going")
-      const words = topic.split(/\s+/)
-      if (words.every(w => SOCIAL_PLACEHOLDER_WORDS.has(w))) return true
-      // Real topic word → factual ("what is dark matter", "what is supreme")
-      return false
+      const topic = questionVerbMatch[1].trim()
+      // Use NLP to check if topic is a real content noun phrase (not a placeholder)
+      if (isPlaceholderTopic(topic)) return true  // social: "what's up", "how's it going"
+      return false  // factual: "what is dark matter", "what is supreme"
     }
 
     // Has a question word at start without copula — "who founded it", "why do we exist"
