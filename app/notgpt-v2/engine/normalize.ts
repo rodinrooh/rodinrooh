@@ -84,6 +84,9 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   q = q.replace(/\b(wtf|wth|wdym)\b/gi, (match: string) => {
     return QUESTION_SYNONYMS[match.toLowerCase()] ?? match
   })
+  // "tf" as a standalone mid-sentence intensifier ("how tf do black holes form")
+  // is always expletive filler — remove it. Different from "tf" in "tf2" or file paths.
+  q = q.replace(/\btf\b/gi, "").replace(/\s{2,}/g, " ").trim()
   q = q.replace(/\by\b(?=\s+(?:does|do|did|is|are|was|were|can|could|would|should|have|has|had|will)\b)/gi, "why")
   q = q.replace(/\b(imo|tbh|ngl|fwiw)\b\s*/gi, "").trim()
   q = q.replace(/\bhow come\b/gi, "why")
@@ -211,8 +214,13 @@ function resolvePronouns(q: string, topic: string): string {
   if (hasInternalCapital) return q
   try {
     const doc = nlp(q) as any
-    const contentNouns = doc.nouns().not("#Pronoun")
-    if ((contentNouns as any).length > 0) return q
+    // Only block pronoun resolution when a NEW NAMED ENTITY is in the query (ProperNoun).
+    // Common nouns like "capital", "exports", "size" do NOT indicate a topic change.
+    // Old check (contentNouns > 0) blocked: "what is its capital" → "capital" is a noun → no resolve.
+    // New check: "what is its capital" → no ProperNoun → resolve "its" → "what is France capital" ✓
+    // "what about WiFi" → no pronoun anyway (returns early above) ✓
+    const namedEntities = doc.match("#ProperNoun")
+    if ((namedEntities as any).length > 0) return q
   } catch { /* fall through */ }
   return q.replace(/\b(it|they|them|their|its|he|she|him|her|his)\b/gi, topic)
 }
@@ -277,6 +285,12 @@ function stripTrailingByStructure(q: string): string {
     // Don't strip if the last word is tagged as a named entity (it's probably content)
     const lastDoc = nlp(lastWord) as any
     if (lastDoc.has("#ProperNoun") || lastDoc.has("#Place") || lastDoc.has("#Organization")) return q
+
+    // Don't strip main verbs — "how do black holes form", "how does gravity work",
+    // "how do they live". Verbs in infinitive/present position at the end of a question
+    // are the main predicate, not trailing filler. Only interjections/expressions
+    // at the end qualify as trailing noise.
+    if (lastDoc.has("#Verb")) return q
 
     const candidate = tokens.slice(0, -1).join(" ")
     const candDoc = nlp(candidate) as any
