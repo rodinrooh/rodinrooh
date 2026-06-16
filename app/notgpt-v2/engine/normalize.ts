@@ -45,6 +45,28 @@ export interface QueryContext {
 export function normalizeQuery(raw: string, context?: QueryContext): string {
   let q = raw.trim()
 
+  // ── Step 0: Text-speak normalization ──
+  // 1:1 shorthand substitutions that confuse Serper ("cant see atoms w our eyes")
+  // These are unambiguous shorthands — "u" alone is always "you" in a query context.
+  q = q
+    .replace(/\b(u)\b/gi, "you")         // "how r u" → "how are you"
+    .replace(/\bur\b/gi, "your")          // "ur bored" → "your bored"
+    .replace(/\b(r)\b/g, "are")           // "sum ppl r" → "sum people are"
+    .replace(/\b(w)\b/g, "with")          // "atoms w our eyes" → "atoms with our eyes"
+    .replace(/\bb4\b/gi, "before")        // "b4 alarm" → "before alarm"
+    .replace(/\bppl\b/gi, "people")       // "sum ppl" → "sum people"
+    .replace(/\babt\b/gi, "about")        // "confused abt" → "confused about"
+    .replace(/\bcant\b/gi, "can't")       // "we cant see" → "we can't see"
+    .replace(/\bdont\b/gi, "don't")
+    .replace(/\bwont\b/gi, "won't")
+    .replace(/\barent\b/gi, "aren't")
+    .replace(/\bisnt\b/gi, "isn't")
+    // Compress repeated vowels (sooooo → so, heyyyy → hey, lmaoo → lmao)
+    .replace(/([aeiou])\1{2,}/gi, "$1")
+    // Strip trailing conversational fillers that turn statements into questions
+    .replace(/\s+(or\s+nah|right\??|innit|tho|doe|amirite)\s*$/i, "")
+    .trim()
+
   // ── Step 1: Translate informal question markers anywhere in the query ──
   // "yo yo yo wtf is dark matter" → "yo yo yo what is dark matter"
   q = q.replace(/\b(wtf|wth|wdym)\b/gi, (match: string) => {
@@ -52,6 +74,16 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   })
   // Drop opinion/hedge markers (these carry no information-seeking intent)
   q = q.replace(/\b(imo|tbh|ngl|fwiw)\b\s*/gi, "").trim()
+  // "how come" → "why" improves Serper results ("how come we can't see atoms")
+  q = q.replace(/\bhow come\b/gi, "why")
+  // Possessive-as-question: "my hair turns gray" → "why does hair turn gray"
+  // Only applies when the query does NOT start with a question word.
+  // We check the START of the query specifically, not embedded words like "when" in
+  // "my head hurts WHEN i stand up" (where "when" is temporal, not a question).
+  const STARTS_WITH_QUESTION = /^(?:what|why|how|who|where|when|which|is|are|was|were|does|do|did|can|could|will|would)\b/i
+  if (!STARTS_WITH_QUESTION.test(q)) {
+    q = q.replace(/^(?:(?:ok|so|well|like|wait|literally)\s+)*my\s+/i, "why does ")
+  }
 
   // ── Step 2: Pronoun resolution ──
   // "are they successful" + ctx{article: "Supreme"} → "are Supreme successful"
@@ -62,14 +94,45 @@ export function normalizeQuery(raw: string, context?: QueryContext): string {
   }
 
   // ── Step 3: Strip leading filler (≤ 5 words before first question word) ──
-  // "yo yo yo wtf is dark matter" → "what is dark matter"  (4 words stripped)
-  // "um excuse me but what even is a neutron star" → "what even is a neutron star"
+  // Only strip if the prefix contains NO content nouns/verbs (e.g. "um excuse me but" is
+  // all function words — strip it. "my head hurts" has content words — don't strip it.)
   const qMatch = q.match(QUESTION_START_RE)
   if (qMatch && qMatch.index !== undefined && qMatch.index > 0) {
     const prefix = q.slice(0, qMatch.index).trim()
     const prefixWordCount = prefix.split(/\s+/).filter(Boolean).length
     if (prefixWordCount <= 5) {
-      q = q.slice(qMatch.index).trim()
+      try {
+        const prefixWords = prefix.split(/\s+/).filter(Boolean)
+        // Discourse/vocative words that are safe to strip even though NLP may tag them as nouns
+        const DISCOURSE = new Set(['bruh','bro','sis','man','fam','yo','dude','babe','mate',
+          'lol','lmao','haha','smh','omg','huh','omfg','ngl','tbh','imo','ok','okay',
+          'hol','nah','fr','deadass','lowkey','highkey','rn','irl','smth','aight','ight'])
+        const STOPS_NORM = new Set(['the','a','an','is','are','was','were','do','does','did',
+          'why','how','what','who','when','where','which','my','your','i','we','they',
+          'he','she','it','and','or','but','in','of','to','for','with','on','at','from',
+          'by','this','that','these','those','can','will','would','could','should','have',
+          'has','had','not','so','if','as','than','then','be','been','being','just','very',
+          'um','uh','ah','eh','hmm','wait','like',
+          // Common discourse modifiers used as prefix filler
+          'never','always','literally','actually','basically','honestly','really',
+          'got','get','think','know','understand','figured','realize'])
+        const allFiller = prefixWords.every(w =>
+          DISCOURSE.has(w.toLowerCase()) || STOPS_NORM.has(w.toLowerCase()) || w.length <= 2
+        )
+        if (allFiller) {
+          q = q.slice(qMatch.index).trim()
+        } else {
+          // NLP fallback: if no content nouns/verbs, also strip
+          const prefixDoc = nlp(prefix) as any
+          const contentNouns = prefixDoc.nouns().not("#Pronoun").length
+          const contentVerbs = prefixDoc.match("#Verb").not("(be|have|do|get|want|need|#Modal)").length
+          if (contentNouns === 0 && contentVerbs === 0) {
+            q = q.slice(qMatch.index).trim()
+          }
+        }
+      } catch {
+        if (prefixWordCount <= 2) q = q.slice(qMatch.index).trim()
+      }
     }
   }
 
