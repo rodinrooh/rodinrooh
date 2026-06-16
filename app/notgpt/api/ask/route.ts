@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic"
 
 import { classify } from "../../../notgpt-v2/engine/classify"
 import { retrieveBestPassage } from "../../../notgpt-v2/engine/retrieve"
+import { normalizeQuery } from "../../../notgpt-v2/engine/normalize"
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { evaluate, format } = require("mathjs")
 
@@ -18,13 +19,14 @@ function sse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
-async function handleFactual(query: string): Promise<ReadableStream> {
+async function handleFactual(query: string, lastArticle?: string): Promise<ReadableStream> {
   const encoder = new TextEncoder()
   return new ReadableStream({
     async start(controller) {
       controller.enqueue(encoder.encode(sse("status", { stage: "fetch", message: "Searching Wikipedia...", source: "wikipedia" })))
 
-      const result = await retrieveBestPassage(query)
+      const normalizedQuery = normalizeQuery(query, lastArticle ? { article: lastArticle } : undefined)
+      const result = await retrieveBestPassage(normalizedQuery, lastArticle ? { article: lastArticle } : undefined)
 
       if (!result) {
         const msg = "Nothing found — I searched Wikipedia from multiple angles and couldn't find a passage that answers this."
@@ -98,12 +100,18 @@ export async function POST(req: Request) {
   const message: string = (body.message ?? "").trim()
   if (!message) return new Response("No message", { status: 400 })
 
+  // Extract last retrieved article from chat history for coreference resolution
+  // Chat.tsx sends context as [{role, content, entities: [articleTitle, ...]}]
+  const contextMessages: Array<{ role: string; entities?: string[] }> = body.context ?? []
+  const lastBotWithArticle = [...contextMessages].reverse().find(m => m.role !== "user" && m.entities?.[0])
+  const lastArticle = lastBotWithArticle?.entities?.[0]
+
   const intent = classify(message)
 
   let stream: ReadableStream
   if (intent === "math") stream = handleMath(message)
   else if (intent === "social") stream = handleSocial()
-  else stream = await handleFactual(message)
+  else stream = await handleFactual(message, lastArticle)
 
   return new Response(stream, {
     headers: {

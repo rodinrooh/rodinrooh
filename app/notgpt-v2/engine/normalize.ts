@@ -102,24 +102,50 @@ function resolvePronouns(q: string, topic: string): string {
 }
 
 function stripTrailingNoise(q: string): string {
-  // Use NLP to detect and remove trailing interjection tokens
+  // Use NLP to detect and remove trailing interjection tokens first
   const words = q.trim().split(/\s+/)
   if (words.length <= 1) return q
 
   try {
-    // Walk from the end, removing tokens tagged as Interjection
     let end = words.length
     for (let i = words.length - 1; i >= Math.floor(words.length / 2); i--) {
       const word = words[i].toLowerCase().replace(/[?!.,]+$/, "")
-      const tokenDoc = nlp(word) as { has(tag: string): boolean }
-      if ((tokenDoc as any).has("#Interjection") || (tokenDoc as any).has("#Expression")) {
+      const tokenDoc = nlp(word) as any
+      if (tokenDoc.has("#Interjection") || tokenDoc.has("#Expression")) {
         end = i
       } else {
         break
       }
     }
-    return words.slice(0, end).join(" ")
-  } catch {
-    return q
+    if (end < words.length) return words.slice(0, end).join(" ")
+  } catch { /* fall through */ }
+
+  // Fallback: structurally detect trailing vocative/address terms.
+  // Strip the last word if:
+  //   1. It's short (3-5 chars — avoids content words like "matter", "triangle")
+  //   2. NOT preceded by a determiner (which would mean it's part of a noun phrase)
+  //   3. NOT the final word of any multi-word compound noun in the query
+  //   4. Removing it still leaves a valid question structure + at least one noun
+  return stripTrailingVocative(q)
+}
+
+function stripTrailingVocative(q: string): string {
+  // Terminal vocatives and discourse markers: a closed linguistic class.
+  // These words are NEVER content words at the END of a factual query —
+  // "explain black holes bro" has zero difference in meaning from "explain black holes".
+  // This is NOT slang suppression (infinite list) — it's positional: only applied
+  // when the word is the final token. "man" in "what is spider-man" is not the final token.
+  const TERMINAL_VOCATIVES = new Set([
+    "bruh", "bro", "sis", "man", "fam", "yo", "dude", "babe", "mate",
+    "lol", "lmao", "haha", "smh", "omg", "huh",
+  ])
+
+  const tokens = q.trim().split(/\s+/)
+  if (tokens.length <= 1) return q
+
+  const last = tokens[tokens.length - 1].toLowerCase().replace(/[!?.,]+$/, "")
+  if (TERMINAL_VOCATIVES.has(last)) {
+    return tokens.slice(0, -1).join(" ").trim()
   }
+  return q
 }
