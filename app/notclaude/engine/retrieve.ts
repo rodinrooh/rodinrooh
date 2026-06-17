@@ -248,11 +248,18 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         const bestCrossScore = crossScores[0]?.score ?? 0
         const bestCrossPassage = crossScores[0]?.passage ?? ""
 
-        // Switch if cross-encoder's best is significantly better (30% threshold).
-        // This threshold was empirically validated on queries like knuckles (ratio 1.44).
-        // Lower thresholds cause regressions on placebo/internet where bi-encoder is correct.
-        // The Sam Altman case (4.2% gap) is handled separately by the bio-intro structural check.
-        if (biTopCrossScore > 0 && bestCrossScore / biTopCrossScore > 1.3 && isStructurallyValid(bestCrossPassage)) {
+        // Bio-intro exception for "who is X" queries: Wikipedia biographical intros are
+        // DEFINITIONALLY the correct answer. If the cross-encoder's top passage is a bio
+        // intro (birth year pattern), skip the ratio check — a 1% advantage is enough.
+        // Research: 60% of TriviaQA factual answers are in the lead/intro section.
+        const BIO_INTRO_RE = /\(born [A-Z][a-z]+ \d+,?\s*\d{4}\)|\(\d{1,2}\s+[A-Z][a-z]+\s+\d{4}\)/
+        const isWhoQueryCE = /^who\b/i.test(query.trim())
+        const bestIsBioIntro = isWhoQueryCE && BIO_INTRO_RE.test(bestCrossPassage)
+
+        // Standard: 30% threshold (empirically validated, no regressions on placebo/internet).
+        // Bio-intro exception: 1% threshold when cross-encoder finds a biographical intro.
+        const requiredRatio = bestIsBioIntro ? 1.01 : 1.3
+        if (biTopCrossScore > 0 && bestCrossScore / biTopCrossScore > requiredRatio && isStructurallyValid(bestCrossPassage)) {
           rerankedFinal = crossScores.map(r => {
             const c = candidates.find(x => x.text === r.passage)
             const adj = c?.fromPAA ? r.score * 1.15 : r.score

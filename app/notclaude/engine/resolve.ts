@@ -284,8 +284,18 @@ function pronounRefersToOwnSubject(ts: CompromiseTerm[], pronounIdx: number): bo
     // "wait so he's still in charge" → "wait" is Noun, Singular, but NOT Actor/ProperNoun/Plural
     // → does NOT count → "he's" refers to prior discourse → correctly replaced ✓
     // "why do humans cry when they're sad" → "humans" IS Actor → binds "they're" ✓
+    // "it" is a neuter pronoun — binds to inanimate things/concepts, NOT animate subjects.
+    // "can ADULTS get it?" → "it" = ADHD (external context), not "adults" (animate plural).
+    // "why do HUMANS cry when they're sad?" → "they" = humans (animate, local binding).
+    //
+    // Rule: for neuter "it", only ProperNoun or Actor can bind (specific named entities only).
+    // For animate pronouns (they/he/she), countable Plural also binds.
+    // This distinguishes "it" (thing/condition) from "they/he/she" (people/animate).
+    const pronounText = ts[pronounIdx]?.normal?.toLowerCase()
+    const pronounIsNeuter = pronounText === "it" || pronounText === "it's" || pronounText === "its"
+
     const isRealEntity = hasTag(t, "Actor") || hasTag(t, "ProperNoun") ||
-                         (hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
+                         (!pronounIsNeuter && hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
     if (isRealEntity) return true
   }
   return false
