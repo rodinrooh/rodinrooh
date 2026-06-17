@@ -87,13 +87,20 @@ function isLeadingFiller(t: CompromiseTerm, rest: CompromiseTerm[]): boolean {
   // is a statement, not a question with a leading discourse particle.
   const restHasQuestion = rest.some(t => hasTag(t, "QuestionWord") || t.text.trim().endsWith("?"))
   if (
-    hasTag(t, "Noun") && !hasTag(t, "ProperNoun") && !hasTag(t, "Verb") &&
+    hasTag(t, "Noun") && !hasTag(t, "ProperNoun") && !hasTag(t, "Verb") && !hasTag(t, "Pronoun") &&
     rest.length > 0 && rest[0].text.trim().length > 0 && restHasQuestion && (
       hasTag(rest[0], "QuestionWord") ||
       hasTag(rest[0], "Verb") ||
       hasTag(rest[0], "Expression") ||
       hasTag(rest[0], "Conjunction")
     )
+  ) return true
+  // Short Verb before a QuestionWord is a discourse filler in informal speech:
+  // "like what even..." — "like" (Verb, 4 chars) before "what" (QuestionWord).
+  // Restricted to short words (≤ 5 chars) to avoid stripping real verbs like "explain".
+  if (
+    hasTag(t, "Verb") && !hasTag(t, "Pronoun") && t.text.length <= 5 &&
+    rest.length > 0 && hasTag(rest[0], "QuestionWord") && restHasQuestion
   ) return true
   return false
 }
@@ -158,6 +165,8 @@ export function normalizeContractions(query: string): string {
     // "hes" in isolation → Noun; "wait so hes" → Verb. Both need normalization.
     if ((!hasTag(t, "Noun") && !hasTag(t, "Verb")) || hasTag(t, "ProperNoun") || t.text.length < 3) return t.text
     const word = t.text
+    // Already contains an apostrophe — do NOT re-process (prevents "it's" → "it''s")
+    if (word.includes("'")) return word
     const lower = word.toLowerCase()
 
     // Pattern 1: negative contractions ending in "nt" (didnt, wasnt, wont, cant, etc.)
@@ -195,18 +204,74 @@ export function normalizeContractions(query: string): string {
       }
     }
 
+    // Pattern 4: pronoun + "ve" ("ive" → "i've", "weve" → "we've", "youve" → "you've")
+    // The apostrophe goes before "ve": "i" + "'" + "ve" = "i've"
+    if (lower.endsWith("ve") && word.length >= 3) {
+      const prefix = word.slice(0, -2)  // "ive" → "i", "weve" → "we"
+      const prefixTerms = terms(prefix)
+      const prefixTerm = prefixTerms[0]
+      if (prefixTerm && hasTag(prefixTerm, "Pronoun")) {
+        return prefix + "'" + word.slice(-2)  // "ive" → "i've"
+      }
+    }
+
+    // Pattern 5: "thats" → "that's" (demonstrative contraction).
+    // "that" is tagged as Determiner in isolation, so Pattern 2 misses it.
+    // "thats" is not a valid English word — always a contraction.
+    if (lower === "thats") return "that's"
+
     return t.text
   })
   return normalized.join(" ").trim() || query.trim()
 }
 
 export function stripFiller(query: string): string {
-  // Normalize missing apostrophes before POS tagging so contractions are recognized
   const normalized = normalizeContractions(query)
   const ts = terms(normalized)
+
+  // Strip leading filler
   let i = 0
   while (i < ts.length && isLeadingFiller(ts[i], ts.slice(i + 1))) i++
-  return ts.slice(i).map(t => t.text).join(" ").trim() || normalized.trim()
+  let core = ts.slice(i)
+
+  // Strip trailing polar suffix: [Conjunction "or"] + [Expression/Interjection]
+  // Covers informal tag-question forms ("or nah", "or what") documented in NLP literature.
+  // "or" is a Conjunction; what follows is a filler-class word, not query content.
+  if (core.length >= 2) {
+    const last = core[core.length - 1]
+    const prev = core[core.length - 2]
+    if (
+      (prev.normal?.toLowerCase() === "or") && hasTag(prev, "Conjunction") &&
+      (hasTag(last, "Expression") || hasTag(last, "Interjection") ||
+       (hasTag(last, "QuestionWord") && core.length >= 3))
+    ) {
+      core = core.slice(0, -2)
+    }
+  }
+
+  // Strip trailing singular first-person epistemic hedge: ends with [I] [Verb]
+  // or [I] [Verb] [Verb] ("i keep forgetting", "i think", "i forget").
+  // Restricted to singular "I" — "we [verb]" is a genuine query ("we cooked"),
+  // not a metalinguistic annotation. Singular "I" at end of a query is always self-referential.
+  if (core.length >= 2) {
+    const last = core[core.length - 1]
+    const prev = core[core.length - 2]
+    if (hasTag(last, "Verb") && prev.normal?.toLowerCase() === "i") {
+      core = core.slice(0, -2)
+    } else if (core.length >= 3) {
+      const ante = core[core.length - 3]
+      if (
+        hasTag(last, "Verb") && hasTag(prev, "Verb") &&
+        ante.normal?.toLowerCase() === "i"
+      ) {
+        core = core.slice(0, -3)
+      }
+    }
+  }
+
+  // Return empty string when everything was filler — caller treats empty as a phatic/null query.
+  // Do NOT fall back to the original: "yo" stripping to "" should stay "", not return "yo".
+  return core.map(t => t.text).join(" ").trim()
 }
 
 // ── Pronoun analysis ─────────────────────────────────────────────────────────
@@ -232,7 +297,12 @@ const FIRST_SECOND_PERSON = new Set([
  *   "how long does that take" → "that" before Verb → pronoun, replace ✓
  */
 function isThatAsPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean {
-  if (t.normal.toLowerCase() !== "that") return false
+  const normal = t.normal.toLowerCase()
+  const text = t.text.toLowerCase()
+  // Match "that" (normal form) and contracted forms "that's" / "thats"
+  // "that's" = "that is" — always pronominal ("we absolutely cooked if that's real")
+  if (normal === "that's" || text === "thats" || text === "that's") return true
+  if (normal !== "that") return false
   if (!nextT) return true  // "that" at end of query → anaphoric
   // If next token is a Noun → "that X" = determiner
   if (hasTag(nextT, "Noun") && !hasTag(nextT, "Pronoun")) return false
@@ -242,7 +312,14 @@ function isThatAsPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean {
 function isAnaphoricPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean {
   const normal = t.normal.toLowerCase()
   if (hasTag(t, "Pronoun")) {
-    return !FIRST_SECOND_PERSON.has(normal)
+    if (FIRST_SECOND_PERSON.has(normal)) return false
+    // Contracted forms ("i've", "i'm", "we're", "you've") have normal = "i've" etc.
+    // Strip the contraction suffix to get the base pronoun and re-check.
+    // This is a grammatical rule, not a word list: any word whose base (pre-apostrophe)
+    // is a first/second person pronoun IS a first/second person form.
+    const base = normal.replace(/['’].*$/, "")
+    if (FIRST_SECOND_PERSON.has(base)) return false
+    return true
   }
   if (normal === "it") return true
   if (isThatAsPronoun(t, nextT)) return true
@@ -294,8 +371,24 @@ function pronounRefersToOwnSubject(ts: CompromiseTerm[], pronounIdx: number): bo
     const pronounText = ts[pronounIdx]?.normal?.toLowerCase()
     const pronounIsNeuter = pronounText === "it" || pronounText === "it's" || pronounText === "its"
 
-    const isRealEntity = hasTag(t, "Actor") || hasTag(t, "ProperNoun") ||
-                         (!pronounIsNeuter && hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
+    // If the token immediately before the pronoun is a main Verb (not Copula or Auxiliary),
+    // the pronoun is in direct-object position — it refers to the context entity, not the
+    // clause's own subject. "do animals get THEM" → "get" (Verb) precedes "them" → object.
+    // This doesn't apply when the preceding token is a Conjunction ("when THEY'RE sad" is
+    // a subject pronoun in a subordinate clause, correctly binding to the local subject).
+    const prevTerm = pronounIdx > 0 ? ts[pronounIdx - 1] : null
+    const pronounIsObjectPosition = prevTerm !== null &&
+      hasTag(prevTerm, "Verb") && !hasTag(prevTerm, "Copula") &&
+      !hasTag(prevTerm, "Auxiliary") && !hasTag(prevTerm, "Modal")
+
+    // Technical/scientific nouns ≥ 5 chars that compromise doesn't know (e.g. "crispr",
+    // "quasar", "enzymes") won't have ProperNoun tag but are still specific entities.
+    // Length threshold excludes short common words ("wait" = 4, "love" = 4, "mind" = 4).
+    const isSpecificUnknownNoun = !pronounIsNeuter && hasTag(t, "Noun") &&
+                                   !hasTag(t, "Pronoun") && t.text.length >= 5
+    const isRealEntity = hasTag(t, "Actor") || hasTag(t, "ProperNoun") || isSpecificUnknownNoun ||
+                         (!pronounIsNeuter && !pronounIsObjectPosition &&
+                          hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
     if (isRealEntity) return true
   }
   return false
@@ -345,8 +438,12 @@ function isEli5(ts: CompromiseTerm[]): boolean {
 // ── Pronoun replacement ───────────────────────────────────────────────────────
 
 function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): string {
-  return ts.map(t => {
-    if (!isAnaphoricPronoun(t)) return t.text
+  return ts.map((t, i) => {
+    if (!isAnaphoricPronoun(t, ts[i + 1])) return t.text
+    // Per-pronoun local binding check: if a specific noun precedes THIS pronoun
+    // in the same query, it refers to that noun, not the conversation context.
+    // E.g. "I've heard of CRISPR, what is that?" — "that" has CRISPR as local antecedent.
+    if (pronounRefersToOwnSubject(ts, i)) return t.text
     if (hasTag(t, "Possessive")) return `${entity}'s`
     // "it's", "he's", "she's", "they're" → "entity is"
     if (/^(it'?s|he'?s|she'?s|they'?re|its)$/i.test(t.text)) return `${entity} is`

@@ -68,7 +68,11 @@ function entityFromResult(
  */
 function extractSubjectFromPassage(passage: string): string {
   const cleaned = passage.replace(/[®™©]/g, "").trim()
-  const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned
+  // Split into sentences and skip short exclamatory openers ("Nothing!", "Yes,", "Sure!")
+  // that are not entity-defining sentences — try up to 3 sentences.
+  const sentences = cleaned.split(/(?<=[.!?])\s+/)
+  const candidates = sentences.filter(s => s.trim().split(/\s+/).length >= 4).slice(0, 3)
+  const firstSentence = candidates[0] || sentences[0] || cleaned
 
   const doc = nlpLib(firstSentence)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -77,18 +81,47 @@ function extractSubjectFromPassage(passage: string): string {
   // Find first copula — separates subject from predicate
   const copulaIdx = terms.findIndex(t => t.tags?.includes("Copula"))
   if (copulaIdx > 0) {
-    const subject = terms
+    const subjectTerms = terms
       .slice(0, copulaIdx)
       .filter(t => !t.tags?.includes("Determiner") && !t.tags?.includes("QuestionWord"))
-      .map(t => t.text).join(" ").trim()
-    if (subject.length >= 2 && subject.length <= 60) return subject.toLowerCase()
+
+    // Strip parenthetical expansions: "DNA (Deoxyribonucleic Acid)" → use only "DNA".
+    const parenStart = subjectTerms.findIndex(t => t.text === "(")
+    const coreTerms = parenStart > 0 ? subjectTerms.slice(0, parenStart) : subjectTerms
+
+    // Extract the compound noun phrase ending at the first Noun/ProperNoun/Abbreviation.
+    // Include preceding Adjective modifiers: "dark energy" → ["dark", "energy"] → "dark energy"
+    // Stop at the first Noun — avoids verbose coordinated phrases ("tariff or duty" → "tariff").
+    const headNounIdx = coreTerms.findIndex(t =>
+      (t.tags?.includes("Noun") || t.tags?.includes("ProperNoun") || t.tags?.includes("Abbreviation")) &&
+      !t.tags?.includes("Conjunction") && !t.tags?.includes("Determiner") && !t.tags?.includes("Pronoun")
+    )
+    const subjectTerms2 = headNounIdx >= 0
+      ? coreTerms.slice(0, headNounIdx + 1)
+      : coreTerms
+    // Reject if subject contains a main Verb — indicates a subordinate clause, not a topic name.
+    // "That means if we base our understanding...IS 299..." → subject has Verb "means","base" → reject.
+    // "Dark energy IS..." → no Verb in subject → accept.
+    const hasTg = (t: { tags: string[] }, tag: string) => Array.isArray(t.tags) && t.tags.includes(tag)
+    const hasMainVerb = subjectTerms2.some(t =>
+      hasTg(t, "Verb") && !hasTg(t, "Auxiliary") && !hasTg(t, "Modal") && !hasTg(t, "Copula")
+    )
+    if (!hasMainVerb) {
+      const subject = subjectTerms2.map(t => t.text).join(" ").trim().toLowerCase()
+      if (subject.length >= 2 && subject.length <= 60) return subject
+    }
   }
 
-  // Fallback: first term that starts with an uppercase letter (likely a named entity
-  // even if compromise doesn't recognize it)
-  if (terms[0]?.text && /^[A-Z]/.test(terms[0].text) && terms[0].text !== "I") {
-    const cleaned2 = terms[0].text.replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim()
-    if (cleaned2.length >= 2) return cleaned2
+  // Fallback: first content term starting with uppercase (named entity not in lexicon).
+  // Skip Determiners ("The", "A"), function words, and negation words ("Nothing", "Nobody")
+  // which appear in exclamatory sentences and are not entity names.
+  for (const term of terms) {
+    if (!term.text || !/^[A-Z]/.test(term.text) || term.text === "I") continue
+    if (term.tags?.includes("Determiner") || term.tags?.includes("Conjunction") ||
+        term.tags?.includes("Preposition") || term.tags?.includes("QuestionWord") ||
+        term.tags?.includes("Negative")) continue
+    const cleaned2 = term.text.replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim()
+    if (cleaned2.length >= 3) return cleaned2
   }
 
   return ""
@@ -227,25 +260,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "query too long" }, { status: 400 })
   }
 
+  // ── Filler stripping + phatic detection ────────────────────────────────────
+  const cleanedQuery = stripFiller(query)
+
+  // Pure phatic/greeting ("yo", "hey", "sup") — nothing left after stripping.
+  // Return null without searching; don't update context.
+  if (!cleanedQuery) {
+    return NextResponse.json({
+      passage: null, url: null, title: null,
+      resolvedQuery: query,
+      nextContext: context,
+      lastPassage: "",
+    }, { status: 200 })
+  }
+
   // ── Topic-change detection ──────────────────────────────────────────────────
-  // If the query contains anaphoric references (pronouns, "that" before a verb)
-  // it is almost certainly a same-topic follow-up — skip NER.
-  // Otherwise, run NER + similarity in parallel to detect topic switches.
   let resolved: string
   let isNewTopic: boolean
 
-  const cleanedQuery = stripFiller(query)
+  // Save prior context before it may be mutated by topic-change detection.
+  // Used for query enrichment (short queries with ambiguous terms).
+  const priorContext = context
+
   const hasRef = hasAnaphoricReference(cleanedQuery)
 
+  // nerEntityInQuery: did the NER model find a named entity in the query?
+  // Used as enrichment signal — if NER found something, the query is self-contained.
+  let nerEntityInQuery: string | null = null
+
   if (!hasRef && context) {
-    // No pronouns → might be a new topic. Check semantically.
     const topicResult = await detectTopicChange(cleanedQuery, context, lastPassage)
+    nerEntityInQuery = topicResult.isNewTopic ? (topicResult.newEntity ?? null) : null
     if (topicResult.isNewTopic) {
-      // User switched topics. Don't inject old context.
-      // The new entity (if detected) becomes the next context via entityFromResult below.
-      resolved = cleanedQuery
+      // When NER identified the new entity, build a clean resolved query.
+      // This strips discourse transition phrases ("new topic", "ok so") that corrupt search.
+      resolved = topicResult.newEntity ? `what is ${topicResult.newEntity}` : cleanedQuery
       isNewTopic = true
-      // Override context so stability rule uses the new entity if NER found one
       if (topicResult.newEntity) context = topicResult.newEntity
     } else {
       const r = resolveQuery(query, context)
@@ -253,33 +303,79 @@ export async function POST(req: NextRequest) {
       isNewTopic = r.isNewTopic
     }
   } else {
-    // Has pronouns → same-topic follow-up, apply pronoun resolution
     const r = resolveQuery(query, context)
     resolved = r.resolved
     isNewTopic = r.isNewTopic
   }
 
+  // ── Query enrichment ─────────────────────────────────────────────────────────
+  // Enrich short, ambiguous queries (≤ 1 rich content word by POS) with prior context.
+  // "goosebumps", "when", "we cooked" lack enough specificity to stand alone.
+  // Queries with ProperNoun/Value/Cardinal are already specific — don't add noise.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resolvedTerms: Array<{ tags: string[]; text: string }> = (nlpLib(resolved) as any).json()[0]?.terms ?? []
+  const richCount = resolvedTerms.filter((t: { tags: string[] }) =>
+    (t.tags?.includes("Noun") || t.tags?.includes("Adjective") || t.tags?.includes("ProperNoun")) &&
+    !t.tags?.includes("Pronoun") && !t.tags?.includes("Determiner")
+  ).length
+  const hasSpecificRef = resolvedTerms.some((t: { tags: string[] }) =>
+    t.tags?.includes("ProperNoun") || t.tags?.includes("Value") || t.tags?.includes("Cardinal")
+  )
+  const shouldEnrich = richCount <= 1 && !hasSpecificRef && priorContext !== ""
+
+  // Enrich: append prior context entity directly to resolved (and therefore to the search).
+  // Updating resolved (not a hidden searchQuery) means resolvedQuery in the response
+  // reflects the actual search intent — "we getting screwed tariff", "when was crispr", etc.
+  // Use priorContext only (not passage nouns) — passage nouns cause contamination when
+  // the prior passage was itself a non-standard result.
+  if (shouldEnrich && priorContext) {
+    if (!resolved.toLowerCase().includes(priorContext.toLowerCase())) {
+      resolved = resolved + " " + priorContext
+    }
+  }
+
   const result = await retrieveBestPassage(resolved)
 
   // Entity tracking: what we FOUND is always more authoritative than what we asked for.
-  // The result URL/title/passage tells us definitively what was retrieved — the query
-  // may contain leading filler ("k so", "lmaooo ok") that corrupts query-based extraction.
-  // Query-based extraction is only used as a fallback when the result is null.
   const queryBasedEntity = extractEntity(resolved)
 
   let nextContext = result
     ? (entityFromResult(result, resolved, context) || queryBasedEntity || context)
     : context
 
-  // Context stability: keep old context when either:
-  //   a) New entity doesn't appear in resolved query (it came from a noisy title)
-  //   b) BOTH old and new entities appear in resolved query — the old one was
-  //      explicitly injected via pronoun resolution, making it more authoritative
-  //      than an accidentally-included sub-phrase (e.g. "hole slower" vs "black hole")
+  // Strip leading question-word + copula from context entities.
+  // "what is love" → "love", "why does gravity" → "gravity".
+  // Context entities should be TOPICS (nouns), not query strings.
+  // Question words are a closed grammatical class — not a word list.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ncTerms: Array<{ text: string; tags: string[] }> = (nlpLib(nextContext) as any).json()[0]?.terms ?? []
+  let entityStart = 0
+  while (
+    entityStart < ncTerms.length &&
+    (ncTerms[entityStart].tags?.includes("QuestionWord") ||
+     ncTerms[entityStart].tags?.includes("Copula") ||
+     (entityStart === 0 && ncTerms[entityStart].tags?.includes("Determiner")))
+  ) { entityStart++ }
+  if (entityStart > 0 && entityStart < ncTerms.length) {
+    nextContext = ncTerms.slice(entityStart).map(t => t.text).join(" ").trim().toLowerCase()
+  }
+
+  // Confidence gate: very low score means the result is weakly matched — likely wrong topic.
+  // Fall back to query-derived entity (what the user asked about) rather than old context.
+  // This preserves the topic even when the passage content is wrong (e.g. franchise vs phenomenon).
+  const CONFIDENCE_THRESHOLD = 0.4
+  if (result && (result.score ?? 1) < CONFIDENCE_THRESHOLD && !isNewTopic) {
+    nextContext = queryBasedEntity || context
+  }
+
+  // Context stability: use word-level overlap rather than exact string matching.
+  // "tariff or duty" doesn't exactly match "a tariff" in the query, but "tariff" does.
+  // Check if any significant word (≥ 3 chars) from each entity appears in the resolved query.
   if (context && nextContext !== context && !isNewTopic) {
-    const resolvedLower   = resolved.toLowerCase()
-    const oldInResolved   = resolvedLower.includes(context.toLowerCase())
-    const newInResolved   = resolvedLower.includes(nextContext.toLowerCase())
+    const resolvedLower = resolved.toLowerCase()
+    const entityWords = (e: string) => e.toLowerCase().split(/\s+/).filter(w => w.length >= 3)
+    const oldInResolved = entityWords(context).some(w => resolvedLower.includes(w))
+    const newInResolved = entityWords(nextContext).some(w => resolvedLower.includes(w))
     if (!newInResolved || (oldInResolved && newInResolved)) {
       nextContext = context
     }
