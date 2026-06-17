@@ -80,9 +80,15 @@ function isLeadingFiller(t: CompromiseTerm, rest: CompromiseTerm[]): boolean {
   // Discourse-marker heuristic: leading Noun (non-proper, non-verb) followed by a
   // content opener. Also handles Conjunctions ("k SO what is…") because bare nouns
   // at sentence start followed by conjunctions like "so" are acknowledgment particles.
+  // Discourse-marker heuristic: leading Noun (non-proper, non-verb) before content.
+  // Also: require rest[0].text to be non-empty — contracted tokens like "he's"
+  // produce an empty Copula term at position 1 which would falsely trigger this.
+  // Also: only strip if the remaining query contains a QuestionWord — "aunt is here"
+  // is a statement, not a question with a leading discourse particle.
+  const restHasQuestion = rest.some(t => hasTag(t, "QuestionWord") || t.text.trim().endsWith("?"))
   if (
     hasTag(t, "Noun") && !hasTag(t, "ProperNoun") && !hasTag(t, "Verb") &&
-    rest.length > 0 && (
+    rest.length > 0 && rest[0].text.trim().length > 0 && restHasQuestion && (
       hasTag(rest[0], "QuestionWord") ||
       hasTag(rest[0], "Verb") ||
       hasTag(rest[0], "Expression") ||
@@ -123,11 +129,84 @@ export function hasAnaphoricReference(query: string): boolean {
   return false
 }
 
-export function stripFiller(query: string): string {
+/**
+ * Normalize missing apostrophes in informal contractions.
+ * "didnt" → "didn't", "hes" → "he's", "wasnt" → "wasn't"
+ *
+ * Strategy: for tokens tagged as Noun, check if inserting an apostrophe
+ * one character before the end creates a form that compromise recognizes
+ * as a Verb, Pronoun, or Auxiliary. If yes, the word was a contraction
+ * missing its apostrophe. This uses compromise as the validator — no word list.
+ *
+ * Works because: "didn't" is in compromise's lexicon as Verb/Auxiliary;
+ * "didn" + "'t" is recognizable. "aunt" → "au'nt" is not recognized → not changed.
+ */
+/**
+ * Normalize missing apostrophes in informal contractions.
+ * "didnt" → "didn't", "hes" → "he's", "theyre" → "they're"
+ *
+ * Uses structural BASE-WORD validation: for a word ending in "nt",
+ * check if the base (without "nt") is a recognized Verb/Auxiliary.
+ * For pronoun contractions (hes/shes/theyre), check if the prefix is a Pronoun.
+ * This avoids false positives on real words like "aunt" (base "au" ≠ Verb)
+ * and "here" (base "he" IS a Pronoun, but "re" is not a known suffix).
+ */
+export function normalizeContractions(query: string): string {
   const ts = terms(query)
+  const normalized = ts.map(t => {
+    // Attempt on Noun or Verb tokens — context changes compromise's tag:
+    // "hes" in isolation → Noun; "wait so hes" → Verb. Both need normalization.
+    if ((!hasTag(t, "Noun") && !hasTag(t, "Verb")) || hasTag(t, "ProperNoun") || t.text.length < 3) return t.text
+    const word = t.text
+    const lower = word.toLowerCase()
+
+    // Pattern 1: negative contractions ending in "nt" (didnt, wasnt, wont, cant, etc.)
+    // Validate: the base word (without "nt") must be a recognized Verb/Auxiliary
+    if (lower.endsWith("nt") && word.length >= 4) {
+      const base = word.slice(0, -2)
+      const baseTerms = terms(base)
+      const baseTerm = baseTerms[0]
+      if (baseTerm && (hasTag(baseTerm, "Verb") || hasTag(baseTerm, "Auxiliary") || hasTag(baseTerm, "Modal"))) {
+        return word.slice(0, -1) + "'" + word.slice(-1)  // "didnt" → "didn't"
+      }
+    }
+
+    // Pattern 2: pronoun + copula ("hes" → "he's", "shes" → "she's")
+    // Validate: all-but-last-char must be a Pronoun; last char "s" is copula suffix
+    if (lower.endsWith("s") && word.length >= 3) {
+      const prefix = word.slice(0, -1)
+      const prefixTerms = terms(prefix)
+      const prefixTerm = prefixTerms[0]
+      if (prefixTerm && hasTag(prefixTerm, "Pronoun") && !FIRST_SECOND_PERSON.has(prefix.toLowerCase())) {
+        return word.slice(0, -1) + "'" + word.slice(-1)  // "hes" → "he's"
+      }
+    }
+
+    // Pattern 3: pronoun + "re" ("theyre" → "they're", "youre" → "you're")
+    // Require prefix length >= 3 to avoid "here" → "he're" (prefix "he" = 2 chars → skip)
+    if (lower.endsWith("re") && word.length >= 5) {
+      const prefix = word.slice(0, -2)
+      if (prefix.length >= 3) {
+        const prefixTerms = terms(prefix)
+        const prefixTerm = prefixTerms[0]
+        if (prefixTerm && hasTag(prefixTerm, "Pronoun")) {
+          return word.slice(0, -2) + "'" + word.slice(-2)  // "theyre" → "they're"
+        }
+      }
+    }
+
+    return t.text
+  })
+  return normalized.join(" ").trim() || query.trim()
+}
+
+export function stripFiller(query: string): string {
+  // Normalize missing apostrophes before POS tagging so contractions are recognized
+  const normalized = normalizeContractions(query)
+  const ts = terms(normalized)
   let i = 0
   while (i < ts.length && isLeadingFiller(ts[i], ts.slice(i + 1))) i++
-  return ts.slice(i).map(t => t.text).join(" ").trim() || query.trim()
+  return ts.slice(i).map(t => t.text).join(" ").trim() || normalized.trim()
 }
 
 // ── Pronoun analysis ─────────────────────────────────────────────────────────
@@ -197,12 +276,17 @@ function pronounRefersToOwnSubject(ts: CompromiseTerm[], pronounIdx: number): bo
   for (let i = 0; i < pronounIdx; i++) {
     const t = ts[i]
     if (!hasTag(t, "Noun") || hasTag(t, "Pronoun") || hasTag(t, "Possessive")) continue
-    // Any countable noun is specific enough to bind a personal pronoun.
-    // Only UNCOUNTABLE nouns (anyone, something, oxygen, information) lack the
-    // definiteness needed — personal pronouns like "him/her/them" don't bind to them.
-    // This covers: Singular count nouns, Plural count nouns ("cells", "humans"),
-    // ProperNouns, Actors — essentially every noun that isn't a mass/indefinite noun.
-    if (!hasTag(t, "Uncountable")) return true
+    // Only REAL ENTITIES bind personal pronouns: proper nouns (Sam Altman),
+    // actors/animate entities (humans, scientists), and countable plurals (cells).
+    // Abstract/action nouns ("wait", "charge") and indefinites ("anyone", "something")
+    // do NOT bind personal pronouns.
+    //
+    // "wait so he's still in charge" → "wait" is Noun, Singular, but NOT Actor/ProperNoun/Plural
+    // → does NOT count → "he's" refers to prior discourse → correctly replaced ✓
+    // "why do humans cry when they're sad" → "humans" IS Actor → binds "they're" ✓
+    const isRealEntity = hasTag(t, "Actor") || hasTag(t, "ProperNoun") ||
+                         (hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
+    if (isRealEntity) return true
   }
   return false
 }

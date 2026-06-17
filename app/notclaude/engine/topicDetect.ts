@@ -104,7 +104,7 @@ async function callNER(query: string, token: string): Promise<string | null> {
     if (!Array.isArray(entities) || !entities.length) return null
     // Take highest-confidence entity
     const best = entities.reduce((a, b) => b.score > a.score ? b : a)
-    if (best.score < 0.5) return null  // Low-confidence entity — skip
+    if (best.score < 0.4) return null  // Low-confidence entity — skip (calibrated: ozempic scores ~0.47)
     return best.word.toLowerCase().trim()
   } catch {
     return null

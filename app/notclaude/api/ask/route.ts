@@ -12,52 +12,120 @@ const nlpLib = require("compromise") as (text: string) => {
 /**
  * Extract a concise entity string from the response for conversation tracking.
  *
- * "Who X" queries need special handling: the query title says "who discovered evolution?"
- * (topic = evolution) but the right entity for the NEXT turn's context is the PERSON
- * who answered that question ("Charles Darwin"). The answer is in the passage, not the title.
- * For all other query types, URL → title → passage → query priority works well.
+ * Page titles are SEO garbage ("Tariffs Definition | Tax Foundation",
+ * "Ozempic® Pen? | Official Site") — never use them as entity sources.
+ *
+ * Priority:
+ * 1. Wikipedia URL slug — canonical, always clean
+ * 2. Grammatical subject of the first sentence in the passage — this is
+ *    what the passage is actually ABOUT, structurally. "Tariffs are taxes..."
+ *    → subject before copula = "tariffs". "Ozempic is the only GLP-1..."
+ *    → "ozempic". Uses copula position, not POS tags (brand names like
+ *    "Ozempic" are misclassified as Adjective by compromise's lexicon).
+ * 3. URL path segment that appears in the passage — cross-validates the URL
+ *    against actual content without using the title string.
+ * 4. Query-based NLP as last resort.
  */
 function entityFromResult(
   result: { url: string; title: string; passage: string } | null,
   resolvedQuery: string,
   fallback: string
 ): string {
-  if (result) {
-    // ── 1. Wikipedia URL slug — most reliable, always check first ────────────
-    // The Wikipedia URL slug IS the canonical entity name, normalized and clean.
-    // e.g. /wiki/Marie_Curie → "marie curie" (correct, regardless of passage text)
-    try {
-      const u = new URL(result.url)
-      if (u.hostname.includes("wikipedia.org")) {
-        const slug = decodeURIComponent(u.pathname.replace(/^\/wiki\//, ""))
-          .replace(/_/g, " ").trim()
-        if (slug && slug.length < 80 && !slug.includes("/")) return slug.toLowerCase()
-      }
-    } catch { /* ignore */ }
+  if (!result) return extractEntity(resolvedQuery) || fallback
 
-    // ── "Who X" queries: passage person name (non-Wikipedia sources) ─────────
-    // For "who is/was/did X", the entity is the person the passage names.
-    // Only used when Wikipedia URL isn't available (non-Wikipedia sources).
-    if (/^who\b/i.test(resolvedQuery.trim())) {
-      const pm = result.passage.match(/\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/)
-      if (pm?.[1]) return pm[1].toLowerCase()
+  // ── 1. Wikipedia URL slug ────────────────────────────────────────────────
+  try {
+    const u = new URL(result.url)
+    if (u.hostname.includes("wikipedia.org")) {
+      const slug = decodeURIComponent(u.pathname.replace(/^\/wiki\//, ""))
+        .replace(/_/g, " ").trim()
+      if (slug && slug.length < 80 && !slug.includes("/")) return slug.toLowerCase()
     }
+  } catch { /* ignore */ }
 
-    // ── 2. Title → NLP entity extraction (no stop-word list) ─────────────────
-    if (result.title) {
-      const entity = entityFromTitleNLP(result.title)
-      if (entity && entity.length >= 2) return entity
-    }
+  // ── 2. Grammatical subject from first sentence of passage ─────────────────
+  // The subject of "X is Y" / "X are Y" sentences is what the passage is about.
+  // We find it by locating the first copula (is/are/was/were) and taking everything
+  // before it — position-based, not relying on POS tags which misclassify brand names.
+  const subjectEntity = extractSubjectFromPassage(result.passage)
+  if (subjectEntity && subjectEntity.length >= 2) return subjectEntity
 
-    // ── 3. First proper-noun pair in passage ──────────────────────────────────
-    const m = result.passage.match(
-      /\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,15})?)\b/
-    )
-    if (m?.[1]) return m[1].toLowerCase()
+  // ── 3. URL path segment that appears in passage ───────────────────────────
+  // The URL path often encodes the topic cleanly. We validate against the passage
+  // text so SEO-stuffed path segments are rejected.
+  const urlEntity = extractFromURLPath(result.url, result.passage)
+  if (urlEntity && urlEntity.length >= 2) return urlEntity
+
+  // ── 4. Query-based extraction ─────────────────────────────────────────────
+  return extractEntity(resolvedQuery) || fallback
+}
+
+/**
+ * Extract the grammatical subject from the first sentence of a passage.
+ * Finds the copula verb (is/are/was/were) and returns everything before it.
+ * Works for brand names, technical terms, and other words that compromise
+ * misclassifies because they're not in its lexicon.
+ */
+function extractSubjectFromPassage(passage: string): string {
+  const cleaned = passage.replace(/[®™©]/g, "").trim()
+  const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned
+
+  const doc = nlpLib(firstSentence)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const terms: Array<{ text: string; tags: string[] }> = (doc as any).json()[0]?.terms ?? []
+
+  // Find first copula — separates subject from predicate
+  const copulaIdx = terms.findIndex(t => t.tags?.includes("Copula"))
+  if (copulaIdx > 0) {
+    const subject = terms
+      .slice(0, copulaIdx)
+      .filter(t => !t.tags?.includes("Determiner") && !t.tags?.includes("QuestionWord"))
+      .map(t => t.text).join(" ").trim()
+    if (subject.length >= 2 && subject.length <= 60) return subject.toLowerCase()
   }
 
-  // ── 4. Query-based NLP extraction ─────────────────────────────────────────
-  return extractEntity(resolvedQuery) || fallback
+  // Fallback: first term that starts with an uppercase letter (likely a named entity
+  // even if compromise doesn't recognize it)
+  if (terms[0]?.text && /^[A-Z]/.test(terms[0].text) && terms[0].text !== "I") {
+    const cleaned2 = terms[0].text.replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim()
+    if (cleaned2.length >= 2) return cleaned2
+  }
+
+  return ""
+}
+
+/**
+ * Extract entity from URL path, validated against the passage.
+ * Split path into segments, find the one whose content appears in the passage.
+ */
+function extractFromURLPath(url: string, passage: string): string {
+  try {
+    const u = new URL(url)
+    const passageLower = passage.toLowerCase().replace(/[®™©]/g, "")
+    const segments = u.pathname.split("/").filter(Boolean)
+
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const seg = segments[i].replace(/\.\w+$/, "").replace(/[-_]/g, " ")
+      if (seg.length < 3) continue
+      // Use NLP to extract content words from the slug (no function words)
+      const doc = nlpLib(seg)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const slgTerms: Array<{ text: string; tags: string[] }> = (doc as any).json()[0]?.terms ?? []
+      const contentTerms = slgTerms.filter(
+        t => !t.tags?.includes("QuestionWord") && !t.tags?.includes("Auxiliary") &&
+             !t.tags?.includes("Determiner") && !t.tags?.includes("Copula") &&
+             t.text.length > 2
+      )
+      if (contentTerms.length === 0) continue
+      const candidate = contentTerms.map(t => t.text).join(" ").toLowerCase()
+      // Validate: the candidate must appear (or a significant word from it) in the passage
+      const words = candidate.split(/\s+/).filter(w => w.length > 3)
+      if (words.length > 0 && words.some(w => passageLower.includes(w))) {
+        return candidate
+      }
+    }
+  } catch { /* ignore */ }
+  return ""
 }
 
 /**
