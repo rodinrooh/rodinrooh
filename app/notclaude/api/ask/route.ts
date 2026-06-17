@@ -3,6 +3,72 @@ import { retrieveBestPassage } from "../../engine/retrieve"
 import { resolveQuery, extractEntity, stripFiller, hasAnaphoricReference } from "../../engine/resolve"
 import { detectTopicChange } from "../../engine/topicDetect"
 
+// ── Phatic (greeting) detection via local sentence embeddings ─────────────────
+// Uses @xenova/transformers (already in project) to run inference locally —
+// no API key, no network call after first model load, no cold start issues.
+//
+// Dialogue act research (ISO 24617-2, Jurafsky 1997) defines greetings as a
+// closed functional class. Embedding similarity against phatic exemplars
+// captures this without a word list: greetings cluster tightly in the
+// sentence-transformer embedding space.
+//
+// Model: Xenova/all-MiniLM-L6-v2 (~22MB, CPU-only, quantized int8)
+// Exemplars are cached after first computation; model is a singleton per process.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _extractor: any = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _exemplarEmbeds: any = null
+
+const PHATIC_EXEMPLARS = [
+  "hey", "hi", "hello", "yo", "sup",
+  "good morning", "good evening", "good night", "good afternoon",
+  "what's up", "how are you", "you there",
+  "thanks bye", "bye", "goodbye", "see you later", "take care",
+]
+
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  let dot = 0, normA = 0, normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-8)
+}
+
+async function checkPhaticSimilarity(query: string): Promise<number> {
+  try {
+    // Lazy-load the model singleton — loads once per process, stays in memory
+    if (!_extractor) {
+      const { pipeline } = await import("@xenova/transformers")
+      _extractor = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
+        quantized: true,
+      })
+    }
+
+    // Pre-compute exemplar embeddings once and cache them
+    if (!_exemplarEmbeds) {
+      const raw = await _extractor(PHATIC_EXEMPLARS, { pooling: "mean", normalize: true })
+      _exemplarEmbeds = raw.tolist() as number[][]
+    }
+
+    // Embed the query
+    const qRaw = await _extractor([query], { pooling: "mean", normalize: true })
+    const qVec = new Float32Array(qRaw.tolist()[0] as number[])
+
+    // Return max cosine similarity against phatic exemplars
+    let maxSim = -1
+    for (const exemplarVec of _exemplarEmbeds) {
+      const sim = cosineSimilarity(qVec, new Float32Array(exemplarVec))
+      if (sim > maxSim) maxSim = sim
+    }
+    return maxSim
+  } catch {
+    return 0
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nlpLib = require("compromise") as (text: string) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,11 +363,35 @@ export async function POST(req: NextRequest) {
   // Return null without searching; don't update context.
   if (!cleanedQuery) {
     return NextResponse.json({
-      passage: null, url: null, title: null,
+      passage: null, deflection: "greeting", url: null, title: null,
       resolvedQuery: query,
       nextContext: context,
       lastPassage: "",
     }, { status: 200 })
+  }
+
+  // ── Bi-encoder phatic detection (multi-word greetings) ─────────────────────
+  // Single-word greetings ("yo") are caught above by the Expression POS tag.
+  // Multi-word greetings ("good morning", "thanks bye", "you there", "what's up")
+  // survive filler stripping — they have real POS content but zero search intent.
+  //
+  // Approach: compare query against canonical phatic exemplars using the same
+  // sentence-transformer model already used in topicDetect.ts. No word list.
+  // Dialogue act research (ISO 24617-2, Jurafsky et al.) defines greetings as a
+  // closed functional class; embedding similarity against exemplars captures it.
+  //
+  // Only runs for short queries (≤ 4 tokens) to avoid latency on content queries.
+  const queryWords = cleanedQuery.trim().split(/\s+/)
+  if (queryWords.length <= 4) {
+    const phaticScore = await checkPhaticSimilarity(cleanedQuery)
+    if (phaticScore >= 0.70) {
+      return NextResponse.json({
+        passage: null, deflection: "greeting", url: null, title: null,
+        resolvedQuery: query,
+        nextContext: context,
+        lastPassage: "",
+      }, { status: 200 })
+    }
   }
 
   // ── Topic-change detection ──────────────────────────────────────────────────
@@ -392,7 +482,7 @@ export async function POST(req: NextRequest) {
   // This is model-based (bi-encoder confidence), not a word list.
   if (result && richCount <= 1 && !priorContext && (result.score ?? 1) < 0.35) {
     return NextResponse.json({
-      passage: null, url: null, title: null,
+      passage: null, deflection: "greeting", url: null, title: null,
       resolvedQuery: query, nextContext: context, lastPassage: "",
     }, { status: 200 })
   }
@@ -461,7 +551,7 @@ export async function POST(req: NextRequest) {
 
   if (!result) {
     return NextResponse.json({
-      passage: null, url: null, title: null,
+      passage: null, deflection: "miss", url: null, title: null,
       resolvedQuery: resolved,
       nextContext,
       lastPassage: "",
@@ -470,6 +560,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     passage:    result.passage,
+    deflection: "found",
     url:        result.url,
     title:      result.title,
     score:      result.score,

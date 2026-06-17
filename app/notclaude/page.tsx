@@ -4,15 +4,17 @@ import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from "react"
 
 type Turn = {
   id: string
-  raw: string            // what the user typed
-  resolved?: string      // what actually got searched
+  raw: string
+  resolved?: string
   passage: string | null
+  deflection?: "greeting" | "miss" | "found"
   url: string | null
   title: string | null
 }
 
 type ApiResponse = {
   passage: string | null
+  deflection?: "greeting" | "miss" | "found"
   url: string | null
   title: string | null
   resolvedQuery?: string
@@ -26,20 +28,32 @@ function shortHost(url: string): string {
 
 function genId() { return Math.random().toString(36).slice(2, 9) }
 
-// Shown when nothing is found — short, honest, a little wry
+// Voice lines by deflection type — dry, literal, slightly smug. never warm.
 const MISS_LINES = [
-  "nothing. drew a blank on that one.",
-  "hmm. couldn't find it. try rewording?",
+  "nothing.",
   "went looking. came back empty.",
-  "stumped. different angle?",
-  "even google's vague on this apparently.",
-  "that one's above my pay grade.",
-  "no luck. what else?",
-  "crickets. try asking differently.",
+  "not there.",
+  "even the internet doesn't know.",
+  "blank.",
+  "no result. try differently.",
+  "filed under: nobody knows.",
+  "crickets.",
+]
+
+// Greeting acknowledgment — minimal, not reciprocal
+const GREETING_LINES = [
+  "—",
+  ".",
+  "noted.",
+  "yes.",
 ]
 
 function missLine(seed: number) {
   return MISS_LINES[seed % MISS_LINES.length]
+}
+
+function greetingLine(seed: number) {
+  return GREETING_LINES[seed % GREETING_LINES.length]
 }
 
 const EXAMPLES = [
@@ -105,10 +119,11 @@ export default function NotClaudePage() {
       setTurns(prev => prev.map(t =>
         t.id === id ? {
           ...t,
-          resolved: data.resolvedQuery !== q ? data.resolvedQuery : undefined,
-          passage:  data.passage,
-          url:      data.url,
-          title:    data.title,
+          resolved:   data.resolvedQuery !== q ? data.resolvedQuery : undefined,
+          passage:    data.passage,
+          deflection: data.deflection,
+          url:        data.url,
+          title:      data.title,
         } : t
       ))
     } catch {
@@ -180,8 +195,8 @@ export default function NotClaudePage() {
 
                 {/* Resolution hint — subtle, only if query was rewritten */}
                 {turn.resolved && (
-                  <p className="text-[11px] text-neutral-300 pl-4 italic">
-                    searched: {turn.resolved}
+                  <p className="text-[11px] text-neutral-300 pl-4">
+                    looked up: {turn.resolved}
                   </p>
                 )}
 
@@ -213,7 +228,9 @@ export default function NotClaudePage() {
                   </div>
                 ) : !isPending ? (
                   <p className="pl-4 text-[13px] text-neutral-400 italic">
-                    {missLine(missCount.current++)}
+                    {turn.deflection === "greeting"
+                      ? greetingLine(missCount.current++)
+                      : missLine(missCount.current++)}
                   </p>
                 ) : null}
               </div>
