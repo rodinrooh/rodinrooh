@@ -188,16 +188,11 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
     return { ...r, score: adj }
   }).sort((a, b) => b.score - a.score)
 
-  // Lead paragraph guarantee: for "who is X" queries, always include position-0
-  // passages from fetched pages. Wikipedia bios are at position 0 but may be filtered
-  // by the bi-encoder when the query uses a name variant (e.g., "sam" ≠ "Samuel").
-  // Only applies to "who is" queries — other query types don't benefit and adding
-  // random first paragraphs causes regressions on technical/definitional queries.
-  const isWhoQuery2 = /^who\b/i.test(query.trim())
+  // Lead paragraph guarantee: always include position-0 passages from fetched pages.
+  // Introductory paragraphs define the subject and are strong candidates for any
+  // definitional query — the cross-encoder decides whether they win, not query type.
   const topNTexts = new Set(biRanked.slice(0, RERANKER_TOP_N).map(r => r.passage))
-  const leadPassages = isWhoQuery2
-    ? candidates.filter(c => c.pagePosition === 0 && !topNTexts.has(c.text)).map(c => c.text)
-    : []
+  const leadPassages = candidates.filter(c => c.pagePosition === 0 && !topNTexts.has(c.text)).map(c => c.text)
   const prefilteredWithLeads = [...biRanked.slice(0, RERANKER_TOP_N).map(r => r.passage), ...leadPassages]
 
   // ─── Stage 2: Structural quality gate ─────────────────────────────────────────
@@ -222,15 +217,16 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
   }
 
   // ─── Stage 3: Cross-encoder validation ───────────────────────────────────────
-  // The cross-encoder scores (query, passage) jointly and provides a quality signal
-  // the bi-encoder cannot — it can tell if a paragraph actually ANSWERS the question.
+  // The cross-encoder scores (query, passage) jointly — it can tell if a paragraph
+  // actually ANSWERS the question, not just shares vocabulary with it.
   //
-  // Architecture: use cross-encoder as a validator with a low threshold (1.02 = 2%
-  // better). This catches cases like Sam Altman where the cross-encoder's best
-  // passage scores 4% above the bi-encoder's top (0.9986 vs 0.9598, ratio 1.042).
-  // The original 1.3 threshold was too conservative; 1.02 is empirically calibrated.
+  // Threshold logic: 30% margin required to override bi-encoder ordering, EXCEPT when
+  // the cross-encoder prefers a position-0 passage over the bi-encoder's non-lead top:
+  // introductory paragraphs need only 2% margin since they define the subject by
+  // web convention. The positional signal applies universally — not specific to
+  // biographical or "who is" queries.
   //
-  // We also apply structural validity to prevent switching to journalistic anecdotes.
+  // Structural validity prevents switching to journalistic anecdotes.
   let rerankedFinal: Array<{ passage: string; score: number }> = biRanked
   try {
     const crossScores = await rerankPassages(query, prefilteredWithLeads)
@@ -248,17 +244,15 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
         const bestCrossScore = crossScores[0]?.score ?? 0
         const bestCrossPassage = crossScores[0]?.passage ?? ""
 
-        // Bio-intro exception for "who is X" queries: Wikipedia biographical intros are
-        // DEFINITIONALLY the correct answer. If the cross-encoder's top passage is a bio
-        // intro (birth year pattern), skip the ratio check — a 1% advantage is enough.
-        // Research: 60% of TriviaQA factual answers are in the lead/intro section.
-        const BIO_INTRO_RE = /\(born [A-Z][a-z]+ \d+,?\s*\d{4}\)|\(\d{1,2}\s+[A-Z][a-z]+\s+\d{4}\)/
-        const isWhoQueryCE = /^who\b/i.test(query.trim())
-        const bestIsBioIntro = isWhoQueryCE && BIO_INTRO_RE.test(bestCrossPassage)
+        // Lead paragraph threshold: if the cross-encoder prefers a position-0 passage
+        // over the bi-encoder's non-lead top, a 2% margin is sufficient.
+        // Position-0 passages introduce the subject by web convention and are
+        // definitionally correct for any query that's about identifying something.
+        // Standard 30% threshold applies when no positional signal exists.
+        const bestCrossIsLead = candidates.find(c => c.text === bestCrossPassage)?.pagePosition === 0
+        const biTopIsNonLead = (candidates.find(c => c.text === biTopCandidate.passage)?.pagePosition ?? 0) > 0
+        const requiredRatio = (bestCrossIsLead && biTopIsNonLead) ? 1.02 : 1.3
 
-        // Standard: 30% threshold (empirically validated, no regressions on placebo/internet).
-        // Bio-intro exception: 1% threshold when cross-encoder finds a biographical intro.
-        const requiredRatio = bestIsBioIntro ? 1.01 : 1.3
         if (biTopCrossScore > 0 && bestCrossScore / biTopCrossScore > requiredRatio && isStructurallyValid(bestCrossPassage)) {
           rerankedFinal = crossScores.map(r => {
             const c = candidates.find(x => x.text === r.passage)
@@ -269,23 +263,6 @@ export async function retrieveBestPassage(query: string): Promise<RetrievalResul
       }
     }
   } catch { /* cross-encoder unavailable */ }
-
-  // ── Biographical intro preference for "who is X" queries ────────────────────
-  // Wikipedia bios universally format biographical intros as "Name (born Month Day, YYYY) is..."
-  // The cross-encoder doesn't strongly prefer this over investment/role sections (only 4% gap
-  // for Sam Altman), so we detect it structurally and move it to front if present.
-  // This is a DATE PATTERN check (birth year in parentheses), not a word list.
-  const isWhoQuery = /^who\b/i.test(query.trim())
-  if (isWhoQuery) {
-    const bioIntroIdx = rerankedFinal.findIndex(r =>
-      isComplete(r.passage.trim()) &&
-      /\(born [A-Z][a-z]+ \d+,?\s*\d{4}\)|\(\d{1,2}\s+[A-Z][a-z]+\s+\d{4}\)|\(c\.\s*\d{4}/.test(r.passage)
-    )
-    if (bioIntroIdx > 0) {
-      const [bioIntro] = rerankedFinal.splice(bioIntroIdx, 1)
-      rerankedFinal.unshift(bioIntro)
-    }
-  }
 
   // Walk final ranked results; return first COMPLETE and structurally valid passage.
   let best: { passage: string; score: number } | null = null
