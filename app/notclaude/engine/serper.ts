@@ -56,14 +56,29 @@ export async function serperSearch(query: string): Promise<SerperResponse | null
 
     const raw = await res.json()
 
+    // Media and streaming platforms don't return usable text passages —
+    // their "content" is audio/video, and any extracted text is metadata (titles,
+    // descriptions) rather than a verbatim answer to a factual question.
+    // User explicitly approved filtering YouTube; extending to other media platforms.
+    const MEDIA_DOMAINS = new Set([
+      "youtube.com", "youtu.be", "spotify.com", "open.spotify.com",
+      "tiktok.com", "soundcloud.com", "twitch.tv",
+    ])
+    const isMediaUrl = (url: string) => {
+      try { return MEDIA_DOMAINS.has(new URL(url).hostname.replace(/^www\./, "")) }
+      catch { return false }
+    }
+
     const data: SerperResponse = {
       answerBox: raw.answerBox ?? undefined,
-      organic: (raw.organic ?? []).map((r: Record<string, unknown>) => ({
-        title: String(r.title ?? ""),
-        link: String(r.link ?? ""),
-        snippet: r.snippet ? String(r.snippet) : undefined,
-        position: Number(r.position ?? 99),
-      })),
+      organic: (raw.organic ?? [])
+        .filter((r: Record<string, unknown>) => !isMediaUrl(String(r.link ?? "")))
+        .map((r: Record<string, unknown>) => ({
+          title: String(r.title ?? ""),
+          link: String(r.link ?? ""),
+          snippet: r.snippet ? String(r.snippet) : undefined,
+          position: Number(r.position ?? 99),
+        })),
       peopleAlsoAsk: (raw.peopleAlsoAsk ?? []).map((r: Record<string, unknown>) => ({
         question: String(r.question ?? ""),
         snippet: r.snippet ? String(r.snippet) : undefined,

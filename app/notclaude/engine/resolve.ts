@@ -92,6 +92,37 @@ function isLeadingFiller(t: CompromiseTerm, rest: CompromiseTerm[]): boolean {
   return false
 }
 
+/**
+ * True if the query contains anaphoric references that should be resolved
+ * against a conversation context entity.
+ *
+ * Covers two patterns:
+ * 1. Anaphoric pronouns (it, they, he, she, that-before-verb) — "could it have survived"
+ * 2. Orphaned determiner (Determiner at end, no content noun) — "has anyone found any"
+ *
+ * Both signals mean the user is referencing the previous topic, so topic-change
+ * detection should be skipped.
+ */
+export function hasAnaphoricReference(query: string): boolean {
+  const ts = terms(stripFiller(query))
+
+  // Signal 1: explicit anaphoric pronoun
+  if (firstAnaphoricPronounIdx(ts) !== -1) return true
+
+  // Signal 2: orphaned determiner — same check used in resolveQuery to append context
+  if (ts.length >= 2) {
+    const last = ts[ts.length - 1]
+    const secondLast = ts[ts.length - 2]
+    if (
+      hasTag(last, "Determiner") && !hasTag(last, "Pronoun") &&
+      (hasTag(secondLast, "Verb") || hasTag(secondLast, "Adverb") || hasTag(secondLast, "Particle")) &&
+      !ts.some(t => hasTag(t, "Noun") && !hasTag(t, "Pronoun") && !hasTag(t, "Determiner") && !hasTag(t, "Uncountable"))
+    ) return true
+  }
+
+  return false
+}
+
 export function stripFiller(query: string): string {
   const ts = terms(query)
   let i = 0
@@ -113,26 +144,39 @@ const FIRST_SECOND_PERSON = new Set([
   "you", "your", "yours", "yourself", "yourselves",
 ])
 
-function isAnaphoricPronoun(t: CompromiseTerm): boolean {
+/**
+ * "that" as demonstrative pronoun: "how long does THAT take" / "explain THAT"
+ * Compromise tags "that" as Determiner in all contexts — it doesn't distinguish
+ * "that car" (modifier) from "how does that work" (predicate pronoun).
+ * Structural rule: "that" before a Verb (not before a Noun) is pronominal.
+ *   "that car is fast"     → "that" before Noun → modifier, skip
+ *   "how long does that take" → "that" before Verb → pronoun, replace ✓
+ */
+function isThatAsPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean {
+  if (t.normal.toLowerCase() !== "that") return false
+  if (!nextT) return true  // "that" at end of query → anaphoric
+  // If next token is a Noun → "that X" = determiner
+  if (hasTag(nextT, "Noun") && !hasTag(nextT, "Pronoun")) return false
+  return true  // next token is Verb/Adverb/end → pronoun
+}
+
+function isAnaphoricPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean {
   const normal = t.normal.toLowerCase()
-  // Primary check: tagged as Pronoun and not first/second person
   if (hasTag(t, "Pronoun")) {
     return !FIRST_SECOND_PERSON.has(normal)
   }
-  // Fallback: "it" is almost always anaphoric even when compromise tags it as
-  // Particle (e.g. "has it actually been proven" → "it" = dummy subject, not particle).
-  // The rare non-anaphoric "it" (fixed idioms: "tough it out") is an acceptable miss.
   if (normal === "it") return true
+  if (isThatAsPronoun(t, nextT)) return true
   return false
 }
 
 /**
  * Return the index of the first third-person anaphoric pronoun in the term list.
- * Anaphoric = it, they, he, she, this, that (and their inflections).
+ * Passes the next term so "that" can be context-checked.
  */
 function firstAnaphoricPronounIdx(ts: CompromiseTerm[]): number {
   for (let i = 0; i < ts.length; i++) {
-    if (isAnaphoricPronoun(ts[i])) return i
+    if (isAnaphoricPronoun(ts[i], ts[i + 1])) return i
   }
   return -1
 }
