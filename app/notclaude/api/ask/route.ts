@@ -89,24 +89,54 @@ function extractSubjectFromPassage(passage: string): string {
     const parenStart = subjectTerms.findIndex(t => t.text === "(")
     const coreTerms = parenStart > 0 ? subjectTerms.slice(0, parenStart) : subjectTerms
 
-    // Extract the compound noun phrase ending at the first Noun/ProperNoun/Abbreviation.
-    // Include preceding Adjective modifiers: "dark energy" → ["dark", "energy"] → "dark energy"
-    // Stop at the first Noun — avoids verbose coordinated phrases ("tariff or duty" → "tariff").
-    const headNounIdx = coreTerms.findIndex(t =>
-      (t.tags?.includes("Noun") || t.tags?.includes("ProperNoun") || t.tags?.includes("Abbreviation")) &&
-      !t.tags?.includes("Conjunction") && !t.tags?.includes("Determiner") && !t.tags?.includes("Pronoun")
-    )
-    const subjectTerms2 = headNounIdx >= 0
-      ? coreTerms.slice(0, headNounIdx + 1)
-      : coreTerms
-    // Reject if subject contains a main Verb — indicates a subordinate clause, not a topic name.
-    // "That means if we base our understanding...IS 299..." → subject has Verb "means","base" → reject.
-    // "Dark energy IS..." → no Verb in subject → accept.
     const hasTg = (t: { tags: string[] }, tag: string) => Array.isArray(t.tags) && t.tags.includes(tag)
+
+    // Extract compound noun phrase: collect ALL consecutive Adjective/Noun/ProperNoun/Abbreviation
+    // terms until hitting a non-content word (Conjunction, Preposition, Verb, etc.).
+    // "dark energy" → [Adj, Noun] → "dark energy"
+    // "ocean acidification" → [Noun, Noun] → "ocean acidification"
+    // "primary cause of X" → [Adj, Noun] stops before "of" (Preposition) → "primary cause"
+    // "tariff or duty" → [Noun] stops before "or" (Conjunction) → "tariff"
+    let compoundEnd = 0
+    while (compoundEnd < coreTerms.length) {
+      const t = coreTerms[compoundEnd]
+      const isContent = (t.tags?.includes("Noun") || t.tags?.includes("Adjective") ||
+                         t.tags?.includes("ProperNoun") || t.tags?.includes("Abbreviation")) &&
+                        !t.tags?.includes("Conjunction") && !t.tags?.includes("Determiner") &&
+                        !t.tags?.includes("Pronoun") && !t.tags?.includes("Preposition")
+      if (isContent) { compoundEnd++; continue }
+      break
+    }
+    const subjectTerms2 = compoundEnd > 0 ? coreTerms.slice(0, compoundEnd) : coreTerms
+
+    // Reject if subject contains a main Verb — indicates a subordinate clause, not a topic name.
     const hasMainVerb = subjectTerms2.some(t =>
       hasTg(t, "Verb") && !hasTg(t, "Auxiliary") && !hasTg(t, "Modal") && !hasTg(t, "Copula")
     )
     if (!hasMainVerb) {
+      // "X of Y is Z" pattern: if compound is followed by Preposition "of",
+      // the actual topic is Y (the object of "of"), not X.
+      // "The primary cause of ocean acidification is..." → entity = "ocean acidification"
+      // English genitive construction: relational noun + "of" + topic noun.
+      const nextAfterCompound = coreTerms[compoundEnd]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (nextAfterCompound && hasTg(nextAfterCompound, "Preposition") && (nextAfterCompound as any)?.normal?.toLowerCase() === "of") {
+        const ofPhrase = coreTerms.slice(compoundEnd + 1)
+        let ofEnd = 0
+        while (ofEnd < ofPhrase.length) {
+          const t = ofPhrase[ofEnd]
+          const isContent = (t.tags?.includes("Noun") || t.tags?.includes("Adjective") ||
+                             t.tags?.includes("ProperNoun")) &&
+                            !t.tags?.includes("Conjunction") && !t.tags?.includes("Determiner") &&
+                            !t.tags?.includes("Pronoun") && !t.tags?.includes("Preposition")
+          if (isContent) { ofEnd++; continue }
+          break
+        }
+        if (ofEnd > 0) {
+          const ofSubject = ofPhrase.slice(0, ofEnd).map(t => t.text).join(" ").trim().toLowerCase()
+          if (ofSubject.length >= 3 && ofSubject.length <= 50) return ofSubject
+        }
+      }
       const subject = subjectTerms2.map(t => t.text).join(" ").trim().toLowerCase()
       if (subject.length >= 2 && subject.length <= 60) return subject
     }
@@ -292,9 +322,23 @@ export async function POST(req: NextRequest) {
     const topicResult = await detectTopicChange(cleanedQuery, context, lastPassage)
     nerEntityInQuery = topicResult.isNewTopic ? (topicResult.newEntity ?? null) : null
     if (topicResult.isNewTopic) {
-      // When NER identified the new entity, build a clean resolved query.
+      // When NER identified the new entity, reconstruct a clean query from it.
       // This strips discourse transition phrases ("new topic", "ok so") that corrupt search.
-      resolved = topicResult.newEntity ? `what is ${topicResult.newEntity}` : cleanedQuery
+      // Preserve the original question word: "when [entity]", "why [entity]", "what is [entity]".
+      if (topicResult.newEntity) {
+        const qWords = cleanedQuery.trim().split(/\s+/)
+        const firstQW = qWords[0]?.toLowerCase()
+        // Question words are a closed grammatical class in English (finite set)
+        const QUESTION_EXPANSIONS: Record<string, string> = {
+          when: "when was", where: "where is", why: "why did",
+          who: "who is", how: "how does",
+        }
+        resolved = firstQW && QUESTION_EXPANSIONS[firstQW]
+          ? `${QUESTION_EXPANSIONS[firstQW]} ${topicResult.newEntity}`
+          : `what is ${topicResult.newEntity}`
+      } else {
+        resolved = cleanedQuery
+      }
       isNewTopic = true
       if (topicResult.newEntity) context = topicResult.newEntity
     } else {
@@ -321,20 +365,37 @@ export async function POST(req: NextRequest) {
   const hasSpecificRef = resolvedTerms.some((t: { tags: string[] }) =>
     t.tags?.includes("ProperNoun") || t.tags?.includes("Value") || t.tags?.includes("Cardinal")
   )
-  const shouldEnrich = richCount <= 1 && !hasSpecificRef && priorContext !== ""
+  // Only enrich same-topic follow-ups. New-topic queries (topic switch detected by NER/similarity)
+  // should search directly — adding old-context terms to a new topic corrupts the search.
+  // For same-topic short/generic queries ("when", "what is the difference", "we cooked"),
+  // prior context makes them meaningful.
+  const shouldEnrich = richCount <= 1 && !hasSpecificRef && priorContext !== "" && !isNewTopic
 
   // Enrich: append prior context entity directly to resolved (and therefore to the search).
   // Updating resolved (not a hidden searchQuery) means resolvedQuery in the response
   // reflects the actual search intent — "we getting screwed tariff", "when was crispr", etc.
   // Use priorContext only (not passage nouns) — passage nouns cause contamination when
   // the prior passage was itself a non-standard result.
+  let didEnrich = false
   if (shouldEnrich && priorContext) {
     if (!resolved.toLowerCase().includes(priorContext.toLowerCase())) {
       resolved = resolved + " " + priorContext
+      didEnrich = true
     }
   }
 
   const result = await retrieveBestPassage(resolved)
+
+  // Post-search phatic detection: if a single-content-word query returns a very low-confidence
+  // result, it was likely a greeting or noise misinterpreted as a search term.
+  // "sup" → paddle board article (weak lexical match, low score) → return null.
+  // This is model-based (bi-encoder confidence), not a word list.
+  if (result && richCount <= 1 && !priorContext && (result.score ?? 1) < 0.35) {
+    return NextResponse.json({
+      passage: null, url: null, title: null,
+      resolvedQuery: query, nextContext: context, lastPassage: "",
+    }, { status: 200 })
+  }
 
   // Entity tracking: what we FOUND is always more authoritative than what we asked for.
   const queryBasedEntity = extractEntity(resolved)
@@ -368,16 +429,33 @@ export async function POST(req: NextRequest) {
     nextContext = queryBasedEntity || context
   }
 
-  // Context stability: use word-level overlap rather than exact string matching.
-  // "tariff or duty" doesn't exactly match "a tariff" in the query, but "tariff" does.
-  // Check if any significant word (≥ 3 chars) from each entity appears in the resolved query.
-  if (context && nextContext !== context && !isNewTopic) {
+  // Context stability: runs for BOTH same-topic and new-topic queries.
+  // Without this, new-topic results with bad relevance contaminate context because
+  // the new-topic path previously skipped stability entirely.
+  //
+  // Matching: ALL significant words (≥ 4 chars) in the new entity must appear in the resolved
+  // query. "many steps per day" → ["many","steps"] — "steps" not in "how many do we need calorie"
+  // → fails → keep old context.
+  //
+  // Short entities (< 4 char words, e.g. "rem", "dna", "sup") have no significant words.
+  // When the new entity has no significant words, skip the stability check — allow the update.
+  // Vacuously blocking (old AND new both vacuously in query) was freezing context at bad values.
+  if (context && nextContext !== context) {
     const resolvedLower = resolved.toLowerCase()
-    const entityWords = (e: string) => e.toLowerCase().split(/\s+/).filter(w => w.length >= 3)
-    const oldInResolved = entityWords(context).some(w => resolvedLower.includes(w))
-    const newInResolved = entityWords(nextContext).some(w => resolvedLower.includes(w))
-    if (!newInResolved || (oldInResolved && newInResolved)) {
-      nextContext = context
+    const sigWords = (e: string) => e.toLowerCase().split(/\s+/).filter(w => w.length >= 4)
+    const newWords = sigWords(nextContext)
+    // Only apply stability when new entity has significant words to test
+    if (newWords.length > 0) {
+      const oldWords = sigWords(context)
+      const newInResolved = newWords.every(w => resolvedLower.includes(w))
+      // Old entity is "in" the query only when it has significant words that actually appear.
+      // Short entities (< 4 chars like "rem") produce oldWords=[] — treat as NOT in query.
+      // Also: if enrichment added the old entity to the query artificially, don't count it —
+      // enrichment-injected terms aren't evidence the user explicitly mentioned the old context.
+      const oldInResolved = !didEnrich && oldWords.length > 0 && oldWords.some(w => resolvedLower.includes(w))
+      if (!newInResolved || (oldInResolved && newInResolved)) {
+        nextContext = context
+      }
     }
   }
 

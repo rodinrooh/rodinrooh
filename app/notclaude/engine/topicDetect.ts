@@ -26,14 +26,16 @@ const SIM_URL = "https://router.huggingface.co/hf-inference/models/sentence-tran
 
 /** Minimum cosine similarity to treat a query as a same-topic follow-up.
  *
- * Calibrated on empirical data (query vs full last passage):
- *   Same-topic floor:  0.058 ("can they die" vs black hole passage)
- *   New-topic ceiling: 0.033 ("lmaooo what is gaussian splatting" vs vine passage)
+ * Empirically calibrated (query vs full last passage, multi-qa-MiniLM-L6-cos-v1):
+ *   Same-topic floor:  0.172 ("what is the difference" vs dark energy passage)
+ *   Same-topic floor:  0.058 ("can they die" vs black hole passage) — but hasRef=true, never reaches this
+ *   New-topic ceiling: 0.077 ("what is caffeine exactly" vs rem sleep passage)
+ *   New-topic ceiling: 0.058 ("what is gaussian splatting" vs vine passage) — rescued by NER
  *
- * Queries with orphaned determiners ("has anyone found any") and explicit pronouns
- * never reach this check — they're caught earlier by hasAnaphoricReference().
+ * Threshold of 0.10 sits in the gap: caffeine (0.077) < 0.10 < difference (0.172).
+ * Queries with pronouns never reach this — they're caught by hasAnaphoricReference().
  */
-const SAME_TOPIC_SIM_THRESHOLD = 0.05
+const SAME_TOPIC_SIM_THRESHOLD = 0.10
 
 export type TopicResult =
   | { isNewTopic: false }
