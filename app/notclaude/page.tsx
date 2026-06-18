@@ -155,7 +155,7 @@ export default function NotClaudePage() {
         </span>
         {context && (
           <span className="ml-auto text-[11px] text-neutral-300 truncate max-w-[200px]">
-            about: {context}
+            about: {context.split("|")[0]}
           </span>
         )}
       </header>

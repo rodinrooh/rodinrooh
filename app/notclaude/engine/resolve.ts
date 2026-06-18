@@ -313,16 +313,18 @@ function isAnaphoricPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean 
   const normal = t.normal.toLowerCase()
   if (hasTag(t, "Pronoun")) {
     if (FIRST_SECOND_PERSON.has(normal)) return false
-    // Contracted forms ("i've", "i'm", "we're", "you've") have normal = "i've" etc.
-    // Strip the contraction suffix to get the base pronoun and re-check.
-    // This is a grammatical rule, not a word list: any word whose base (pre-apostrophe)
-    // is a first/second person pronoun IS a first/second person form.
-    const base = normal.replace(/['’].*$/, "")
+    // Contracted forms ("i’ve", "i’m", "we’re", "you’ve") — strip pre-apostrophe base
+    const base = normal.replace(/[‘’].*$/, "")
     if (FIRST_SECOND_PERSON.has(base)) return false
     return true
   }
   if (normal === "it") return true
   if (isThatAsPronoun(t, nextT)) return true
+  // Indefinite existential pronouns via Uncountable tag: "anything", "something", "everything"
+  // These quantify over the prior context entity ("has anything fallen into [black hole]").
+  // POS-based: Noun + Uncountable — no word list. Works for misspellings too since
+  // compromise re-tags morphologically.
+  if (hasTag(t, "Noun") && hasTag(t, "Uncountable") && !FIRST_SECOND_PERSON.has(normal)) return true
   return false
 }
 
@@ -424,8 +426,15 @@ export function detectTopicChange(query: string): { isNewTopic: boolean; newQuer
 
 function isBareQuestionWord(ts: CompromiseTerm[]): string | null {
   const real = ts.filter(t => t.normal.replace(/[?!.,]/g, "").length > 0)
-  if (real.length !== 1) return null
-  if (hasTag(real[0], "QuestionWord")) return real[0].normal.replace(/[?!]/g, "")
+  // Single question word: "when", "where", "why", "how", "who", "what"
+  if (real.length === 1 && hasTag(real[0], "QuestionWord")) {
+    return real[0].normal.replace(/[?!]/g, "")
+  }
+  // QuestionWord + single Adverb intensifier: "when exactly", "where precisely", "how exactly"
+  // Structural POS pattern — works for any QuestionWord + Adverb combination without word lists.
+  if (real.length === 2 && hasTag(real[0], "QuestionWord") && hasTag(real[1], "Adverb")) {
+    return real[0].normal.replace(/[?!]/g, "")
+  }
   return null
 }
 
@@ -438,14 +447,23 @@ function isEli5(ts: CompromiseTerm[]): boolean {
 // ── Pronoun replacement ───────────────────────────────────────────────────────
 
 function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): string {
+  // Animacy gate: if the context entity is a verb/process (e.g., "yawn"),
+  // don't substitute animate pronouns (they/he/she) in subject position.
+  // Binding theory: animate pronouns expect animate noun antecedents.
+  // Research: JAIR 2007, COLING 2018 — animacy as a coreference gate.
+  const entityTokens = terms(entity)
+  const entityIsProcess = entityTokens.length === 1 &&
+    hasTag(entityTokens[0], "Verb") && !hasTag(entityTokens[0], "Noun")
+
+  const ANIMATE_PRONOUNS = new Set(["they", "he", "she", "them", "him", "her", "their", "his", "hers", "themselves"])
+
   return ts.map((t, i) => {
     if (!isAnaphoricPronoun(t, ts[i + 1])) return t.text
-    // Per-pronoun local binding check: if a specific noun precedes THIS pronoun
-    // in the same query, it refers to that noun, not the conversation context.
-    // E.g. "I've heard of CRISPR, what is that?" — "that" has CRISPR as local antecedent.
+    // Per-pronoun local binding check
     if (pronounRefersToOwnSubject(ts, i)) return t.text
+    // Animacy gate: entity is a verb/process — skip for animate pronouns
+    if (entityIsProcess && ANIMATE_PRONOUNS.has(t.normal?.toLowerCase() ?? "")) return t.text
     if (hasTag(t, "Possessive")) return `${entity}'s`
-    // "it's", "he's", "she's", "they're" → "entity is"
     if (/^(it'?s|he'?s|she'?s|they'?re|its)$/i.test(t.text)) return `${entity} is`
     return entity
   }).join(" ").replace(/\s{2,}/g, " ").trim()
@@ -456,7 +474,7 @@ function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): strin
 export function resolveQuery(
   rawQuery: string,
   context: string
-): { resolved: string; isNewTopic: boolean } {
+): { resolved: string; isNewTopic: boolean; newSubject?: string } {
   // 2. Topic change is checked on the RAW string — before filler stripping.
   //    Reason: stripFiller() reconstructs text from compromise term objects.
   //    Em dashes (—) are stored in compromise's pre/post punctuation metadata,
@@ -473,6 +491,19 @@ export function resolveQuery(
 
   const ts = terms(q)
   const ctx = context.trim()
+
+  // 2.5. "what about X" / "how about X" — subject shift within topic.
+  // The grammatical subject shifts to X while the topic stays the same.
+  // "what about algae" in a photosynthesis conversation → algae is the new subject.
+  // Return newSubject so the caller can track it separately from the topic entity.
+  // Research: Hobbs (1978) notes subject-position NPs are the highest-salience referents;
+  // "what about X" structurally positions X as the new subject (pobj of "about").
+  const whatAboutM = q.match(/^(?:what|how)\s+about\s+(.+?)(?:\?+)?$/i)
+  if (whatAboutM) {
+    const newSubject = whatAboutM[1].trim().toLowerCase()
+    // Return query resolved to "[newSubject] [ctx]" for enriched search, tracking newSubject
+    return { resolved: `${newSubject} ${ctx}`, isNewTopic: false, newSubject }
+  }
 
   // 3. Single bare question word → expand with context
   const bareWord = isBareQuestionWord(ts)

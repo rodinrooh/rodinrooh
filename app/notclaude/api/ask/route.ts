@@ -215,7 +215,8 @@ function extractSubjectFromPassage(passage: string): string {
     if (!term.text || !/^[A-Z]/.test(term.text) || term.text === "I") continue
     if (term.tags?.includes("Determiner") || term.tags?.includes("Conjunction") ||
         term.tags?.includes("Preposition") || term.tags?.includes("QuestionWord") ||
-        term.tags?.includes("Negative")) continue
+        term.tags?.includes("Negative") || term.tags?.includes("Expression") ||
+        term.tags?.includes("Interjection")) continue
     const cleaned2 = term.text.replace(/[^a-zA-Z0-9 ]/g, "").toLowerCase().trim()
     if (cleaned2.length >= 3) return cleaned2
   }
@@ -394,31 +395,55 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Three-field context state ─────────────────────────────────────────────────
+  // Context is encoded as "entity|aspect|subject" (pipe-separated, optional fields).
+  //   entity  — the current topic (e.g., "stock market")
+  //   aspect  — temporal or sub-topic qualifier (e.g., "2008") — survives follow-ups
+  //   subject — current grammatical subject from "what about X" (e.g., "algae")
+  //
+  // Research basis: TREC CAsT 2021 uses two parallel tracks (entity + last-passage snippet).
+  // Aspect tracking handles temporal references (Q5 "how bad was 2008" → aspect="2008").
+  // Subject tracking handles "what about X" shifts (Hobbs 1978: subject NPs are highest-salience).
+  const ctxParts = context.split("|")
+  const ctxEntity  = ctxParts[0] || ""
+  const ctxAspect  = ctxParts[1] || ""
+  const ctxSubject = ctxParts[2] || ""
+
+  // Pronoun resolution uses subject when set (most recent grammatical referent),
+  // falls back to entity (topic). E.g., after "what about algae", "they" = algae,
+  // not "photosynthesis" (the topic).
+  const resolveCtx = ctxSubject || (ctxAspect ? `${ctxAspect} ${ctxEntity}` : ctxEntity)
+
   // ── Topic-change detection ──────────────────────────────────────────────────
   let resolved: string
   let isNewTopic: boolean
+  let newSubjectFromQuery = ""
 
-  // Save prior context before it may be mutated by topic-change detection.
-  // Used for query enrichment (short queries with ambiguous terms).
-  const priorContext = context
+  // Save prior context (entity only) before it may be mutated by topic-change detection.
+  const priorContext = ctxEntity
 
   const hasRef = hasAnaphoricReference(cleanedQuery)
 
-  // nerEntityInQuery: did the NER model find a named entity in the query?
-  // Used as enrichment signal — if NER found something, the query is self-contained.
+  // Bare question word (+ optional Adverb) queries structurally cannot introduce
+  // new topics — "when exactly", "where precisely", "why" are always follow-ups.
+  // Skip detectTopicChange entirely: isBareQuestionWord handles them in resolveQuery.
+  // POS-based: QuestionWord tag + all other tokens Adverb tag. No word list.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cleanedTerms: Array<{tags?: string[]; text?: string}> = (nlpLib(cleanedQuery) as any).json()[0]?.terms ?? []
+  const isBareFollowUp = cleanedTerms.length >= 1 && cleanedTerms.length <= 2 &&
+    cleanedTerms.some(t => t.tags?.includes("QuestionWord")) &&
+    cleanedTerms.every(t => t.tags?.includes("QuestionWord") || t.tags?.includes("Adverb") ||
+                            (t.text ?? "").match(/^[?!.,]+$/) !== null)
+
   let nerEntityInQuery: string | null = null
 
-  if (!hasRef && context) {
-    const topicResult = await detectTopicChange(cleanedQuery, context, lastPassage)
+  if (!hasRef && ctxEntity && !isBareFollowUp) {
+    const topicResult = await detectTopicChange(cleanedQuery, ctxEntity, lastPassage)
     nerEntityInQuery = topicResult.isNewTopic ? (topicResult.newEntity ?? null) : null
     if (topicResult.isNewTopic) {
-      // When NER identified the new entity, reconstruct a clean query from it.
-      // This strips discourse transition phrases ("new topic", "ok so") that corrupt search.
-      // Preserve the original question word: "when [entity]", "why [entity]", "what is [entity]".
       if (topicResult.newEntity) {
         const qWords = cleanedQuery.trim().split(/\s+/)
         const firstQW = qWords[0]?.toLowerCase()
-        // Question words are a closed grammatical class in English (finite set)
         const QUESTION_EXPANSIONS: Record<string, string> = {
           when: "when was", where: "where is", why: "why did",
           who: "who is", how: "how does",
@@ -432,14 +457,16 @@ export async function POST(req: NextRequest) {
       isNewTopic = true
       if (topicResult.newEntity) context = topicResult.newEntity
     } else {
-      const r = resolveQuery(query, context)
+      const r = resolveQuery(query, resolveCtx)
       resolved = r.resolved
       isNewTopic = r.isNewTopic
+      newSubjectFromQuery = r.newSubject || ""
     }
   } else {
-    const r = resolveQuery(query, context)
+    const r = resolveQuery(query, resolveCtx)
     resolved = r.resolved
     isNewTopic = r.isNewTopic
+    newSubjectFromQuery = r.newSubject || ""
   }
 
   // ── Query enrichment ─────────────────────────────────────────────────────────
@@ -480,26 +507,44 @@ export async function POST(req: NextRequest) {
   // result, it was likely a greeting or noise misinterpreted as a search term.
   // "sup" → paddle board article (weak lexical match, low score) → return null.
   // This is model-based (bi-encoder confidence), not a word list.
-  if (result && richCount <= 1 && !priorContext && (result.score ?? 1) < 0.35) {
+  // Post-search phatic detection: very low bi-encoder score on a short query
+  // means the result is weakly matched — likely a greeting or social closing.
+  // Applies regardless of whether prior context exists: "ok thanks" mid-conversation
+  // should also return null. Score threshold 0.35 is calibrated to catch phatic queries
+  // that survive filler stripping (structural POS missed them) without false-positives
+  // on content queries (which score 0.6+).
+  if (result && richCount <= 1 && (result.score ?? 1) < 0.35) {
     return NextResponse.json({
       passage: null, deflection: "greeting", url: null, title: null,
       resolvedQuery: query, nextContext: context, lastPassage: "",
     }, { status: 200 })
   }
 
-  // Entity tracking: what we FOUND is always more authoritative than what we asked for.
+  // Entity tracking: what we FOUND is usually more authoritative than what we asked for.
+  // Exception: if the passage-derived entity is much shorter than the query-derived entity,
+  // the passage fallback extracted a fragment ("france" from a french-revolution article)
+  // while the query correctly names the full concept ("french revolution").
+  // Structural heuristic: if entityFromResult is ≥ 8 chars shorter than queryBasedEntity,
+  // the query-derived entity is more specific — prefer it.
   const queryBasedEntity = extractEntity(resolved)
+  const resultEntity = result
+    ? (entityFromResult(result, resolved, ctxEntity) || "")
+    : ""
+  let nextEntity: string
+  if (!resultEntity) {
+    nextEntity = queryBasedEntity || ctxEntity
+  } else if (queryBasedEntity &&
+    queryBasedEntity.split(" ").length > resultEntity.split(" ").length) {
+    // Query-derived entity has more words → more specific (e.g. "sleep apnea" > "apnea",
+    // "french revolution" > "france"). Structural word-count comparison, no word list.
+    nextEntity = queryBasedEntity
+  } else {
+    nextEntity = resultEntity || queryBasedEntity || ctxEntity
+  }
 
-  let nextContext = result
-    ? (entityFromResult(result, resolved, context) || queryBasedEntity || context)
-    : context
-
-  // Strip leading question-word + copula from context entities.
-  // "what is love" → "love", "why does gravity" → "gravity".
-  // Context entities should be TOPICS (nouns), not query strings.
-  // Question words are a closed grammatical class — not a word list.
+  // Strip leading question-word + copula from entity names.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ncTerms: Array<{ text: string; tags: string[] }> = (nlpLib(nextContext) as any).json()[0]?.terms ?? []
+  const ncTerms: Array<{ text: string; tags: string[] }> = (nlpLib(nextEntity) as any).json()[0]?.terms ?? []
   let entityStart = 0
   while (
     entityStart < ncTerms.length &&
@@ -508,46 +553,56 @@ export async function POST(req: NextRequest) {
      (entityStart === 0 && ncTerms[entityStart].tags?.includes("Determiner")))
   ) { entityStart++ }
   if (entityStart > 0 && entityStart < ncTerms.length) {
-    nextContext = ncTerms.slice(entityStart).map(t => t.text).join(" ").trim().toLowerCase()
+    nextEntity = ncTerms.slice(entityStart).map(t => t.text).join(" ").trim().toLowerCase()
   }
 
-  // Confidence gate: very low score means the result is weakly matched — likely wrong topic.
-  // Fall back to query-derived entity (what the user asked about) rather than old context.
-  // This preserves the topic even when the passage content is wrong (e.g. franchise vs phenomenon).
+  // Confidence gate
   const CONFIDENCE_THRESHOLD = 0.4
   if (result && (result.score ?? 1) < CONFIDENCE_THRESHOLD && !isNewTopic) {
-    nextContext = queryBasedEntity || context
+    nextEntity = queryBasedEntity || ctxEntity
   }
 
-  // Context stability: runs for BOTH same-topic and new-topic queries.
-  // Without this, new-topic results with bad relevance contaminate context because
-  // the new-topic path previously skipped stability entirely.
-  //
-  // Matching: ALL significant words (≥ 4 chars) in the new entity must appear in the resolved
-  // query. "many steps per day" → ["many","steps"] — "steps" not in "how many do we need calorie"
-  // → fails → keep old context.
-  //
-  // Short entities (< 4 char words, e.g. "rem", "dna", "sup") have no significant words.
-  // When the new entity has no significant words, skip the stability check — allow the update.
-  // Vacuously blocking (old AND new both vacuously in query) was freezing context at bad values.
-  if (context && nextContext !== context) {
+  // Context stability — uses entity part only (not pipe-encoded full string)
+  if (ctxEntity && nextEntity !== ctxEntity) {
     const resolvedLower = resolved.toLowerCase()
     const sigWords = (e: string) => e.toLowerCase().split(/\s+/).filter(w => w.length >= 4)
-    const newWords = sigWords(nextContext)
-    // Only apply stability when new entity has significant words to test
+    const newWords = sigWords(nextEntity)
     if (newWords.length > 0) {
-      const oldWords = sigWords(context)
-      const newInResolved = newWords.every(w => resolvedLower.includes(w))
-      // Old entity is "in" the query only when it has significant words that actually appear.
-      // Short entities (< 4 chars like "rem") produce oldWords=[] — treat as NOT in query.
-      // Also: if enrichment added the old entity to the query artificially, don't count it —
-      // enrichment-injected terms aren't evidence the user explicitly mentioned the old context.
+      const oldWords = sigWords(ctxEntity)
+      // Use prefix/root matching to handle morphological variants:
+      // "yawning" should match "yawn" in the resolved query (same root).
+      const resolvedWords = resolvedLower.split(/\s+/).filter(rw => rw.length >= 4)
+      const newInResolved = newWords.every(w =>
+        resolvedLower.includes(w) ||
+        resolvedWords.some(rw => w.startsWith(rw) || rw.startsWith(w))
+      )
       const oldInResolved = !didEnrich && oldWords.length > 0 && oldWords.some(w => resolvedLower.includes(w))
       if (!newInResolved || (oldInResolved && newInResolved)) {
-        nextContext = context
+        nextEntity = ctxEntity
       }
     }
   }
+
+  // ── Aspect extraction (temporal qualifier) ──────────────────────────────────
+  // Extract year references from the resolved query as the temporal aspect.
+  // "how bad was 2008 stock market crash" → aspect = "2008"
+  // This lets "who caused it" in the next turn resolve to "2008 stock market"
+  // instead of just "stock market", preserving the temporal framing.
+  const yearMatch = resolved.match(/\b(1[5-9][0-9]{2}|20[0-2][0-9])\b/)
+  const nextAspect = yearMatch ? yearMatch[1] : (isNewTopic ? "" : ctxAspect)
+
+  // ── Subject field ───────────────────────────────────────────────────────────
+  // "what about X" sets subject to X for the next turn's pronoun resolution.
+  // Subject resets on topic change; otherwise persists one turn (ephemeral).
+  const nextSubject = isNewTopic ? "" : (newSubjectFromQuery || "")
+
+  // Serialize three-field context: "entity|aspect|subject" (drop empty trailing)
+  const nextContextParts = [nextEntity, nextAspect, nextSubject]
+  // Remove trailing empty strings
+  while (nextContextParts.length > 1 && !nextContextParts[nextContextParts.length - 1]) {
+    nextContextParts.pop()
+  }
+  const nextContext = nextContextParts.join("|")
 
   if (!result) {
     return NextResponse.json({
@@ -566,6 +621,6 @@ export async function POST(req: NextRequest) {
     score:      result.score,
     resolvedQuery: resolved,
     nextContext,
-    lastPassage: result.passage,   // client stores this and sends on next turn
+    lastPassage: result.passage,
   })
 }

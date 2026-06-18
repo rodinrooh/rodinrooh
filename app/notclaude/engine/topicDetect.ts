@@ -1,23 +1,27 @@
 /**
  * Semantic topic-change detection — no word lists.
  *
- * Two-stage pipeline:
+ * Three-stage pipeline:
  *
  * Stage 1 — Named Entity Recognition (HF roberta-large-ner-english):
  *   If the query contains a named entity (person, org, tech, misc) that is
  *   lexically distinct from the current context entity, the user switched topics.
- *   Example: "ok who is jensen huang" while discussing "vine" → PER:jensen_huang ≠ vine.
+ *   Coverage: PERSON, ORG, LOC, MISC in CoNLL-2003 training data.
+ *
+ * Stage 1.5 — compromise.js topics() fallback:
+ *   roberta-ner is trained on CoNLL-2003 which covers people/orgs/places but
+ *   misses scientific/food/chemical concepts ("caffeine", "photosynthesis",
+ *   "spacex rocket engine"). compromise.js topics() catches these via its own
+ *   NLP pipeline. If topics() finds a concept not in current context → new topic.
+ *   Research basis: TREC CAsT survey notes NER-based signals should take priority
+ *   over similarity when a novel named concept is present (arXiv 2201.08808).
  *
  * Stage 2 — Semantic similarity against last passage (fallback):
- *   When NER finds no entity, compare the stripped query against the last response
- *   passage. A full passage has rich semantic content; comparing against it gives
- *   a reliable signal (same-topic follow-ups score ~0.08-0.15, new topics score
- *   negative or near zero).
- *   Example: "what are black holes again" vs vine passage → similarity ≈ -0.05 → new topic.
- *
- * Neither stage uses a word list of topic-change phrases. Stage 1 uses a
- * statistical NER model trained on 40k+ documents. Stage 2 uses cosine similarity.
+ *   When neither NER stage finds a new entity, cosine similarity decides.
  */
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nlpLib = require("compromise") as (text: string) => { topics(): { out(f: "array"): string[]; found: boolean } }
 
 const HF_TOKEN_ENV = () => process.env.HF_TOKEN ?? ""
 
@@ -59,10 +63,12 @@ export async function detectTopicChange(
   const token = HF_TOKEN_ENV()
   if (!token || !contextEntity) return { isNewTopic: false }
 
-  // Ultra-short queries (≤ 3 tokens) are almost always bare follow-ups:
-  // "eli5", "when?", "how?", "can they die?" — the user isn't naming a new topic.
+  // Single-token queries ("when", "eli5") are bare follow-ups — never new topics.
+  // Multi-token queries with pronouns are caught by hasAnaphoricReference() before
+  // this function is called. Removing the ≤ 3 guard: "what is caffeine" (3 words)
+  // must reach the noun-novelty check to be detected as a new topic.
   const wordCount = strippedQuery.trim().split(/\s+/).length
-  if (wordCount <= 3) return { isNewTopic: false }
+  if (wordCount <= 1) return { isNewTopic: false }
 
   // Stage 1 + Stage 2 in parallel — both start immediately, we use whichever
   // gives a clear signal first. Both calls together add ~200-400ms.
@@ -71,7 +77,7 @@ export async function detectTopicChange(
     callSimilarity(strippedQuery, lastPassage, token),
   ])
 
-  // Stage 1: NER — if a named entity is found that differs from current context
+  // Stage 1: HF NER — covers PERSON, ORG, LOC, MISC
   if (nerResult.status === "fulfilled" && nerResult.value) {
     const entity = nerResult.value
     if (!isRelated(entity, contextEntity)) {
@@ -79,7 +85,45 @@ export async function detectTopicChange(
     }
   }
 
-  // Stage 2: Similarity fallback — for queries where NER finds nothing
+  // Stage 1.5: Content noun novelty — catches scientific/food/product concepts
+  // that roberta-ner misses ("caffeine", "photosynthesis", "tesla").
+  // compromise.topics() only works for capitalized proper nouns; nouns() is broader.
+  //
+  // Guard: "what about X" is a subject shift within topic (e.g., "what about algae"
+  // in photosynthesis conversation), NOT a topic change. Let it fall through to
+  // resolveQuery's "what about X" handler to extract X as the new subject.
+  //
+  // Noun ≥ 5 chars: filters short function words ("them", "this") while catching
+  // specific concepts ("algae", "tesla", "caffeine"). Noun must not appear in
+  // the current context entity or last passage (novel concept = new topic).
+  // Research: TREC CAsT 2021 — novel named concepts are stronger topic signals
+  // than cosine similarity (CAsT 2021 overview, arXiv 2201.08808).
+  const isWhatAbout = /^(?:what|how)\s+about\s+/i.test(strippedQuery)
+  if (!isWhatAbout) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nlpAny = nlpLib as any
+      const doc = nlpAny(strippedQuery)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawNouns: string[] = doc.nouns().not("#Pronoun").out("array") as string[]
+      for (const noun of rawNouns) {
+        const n = noun.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim()
+        if (n.length < 5) continue
+        if (contextEntity.toLowerCase().includes(n)) continue
+        if (lastPassage.toLowerCase().includes(n)) continue
+        // Exclude indefinite/mass nouns via tag: "anything", "something", "nothing",
+        // "everything" get Uncountable tag in compromise — they are structural pronouns,
+        // not named concepts. Using POS tag avoids a word list (works for misspellings
+        // too, since compromise re-tags morphologically similar forms).
+        const nounTerms = nlpAny(noun).json()[0]?.terms ?? []
+        const isIndefinite = nounTerms.some((t: { tags?: string[] }) => t.tags?.includes("Uncountable"))
+        if (isIndefinite) continue
+        return { isNewTopic: true, newEntity: n }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Stage 2: Similarity fallback — for queries where neither NER stage finds a new entity
   // (e.g. "what are black holes again" — "black holes" isn't in NER training data)
   if (simResult.status === "fulfilled" && simResult.value !== null) {
     if (simResult.value < SAME_TOPIC_SIM_THRESHOLD) {
