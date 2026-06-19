@@ -18,13 +18,17 @@ import { detectTopicChange } from "../../engine/topicDetect"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _extractor: any = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _exemplarEmbeds: any = null
+let _exemplarEmbeds: number[][] | null = null
 
 const PHATIC_EXEMPLARS = [
   "hey", "hi", "hello", "yo", "sup",
   "good morning", "good evening", "good night", "good afternoon",
   "what's up", "how are you", "you there",
   "thanks bye", "bye", "goodbye", "see you later", "take care",
+  // Social closings — not a word list, but semantic seeds for the bi-encoder.
+  // The model generalizes to "thnaks im gud" via embedding proximity, not exact match.
+  "ok thanks", "im good", "alright thanks", "all good", "im all good",
+  "ok im done", "that's all", "nothing else", "i'm good now",
 ]
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
@@ -395,24 +399,31 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Three-field context state ─────────────────────────────────────────────────
-  // Context is encoded as "entity|aspect|subject" (pipe-separated, optional fields).
-  //   entity  — the current topic (e.g., "stock market")
-  //   aspect  — temporal or sub-topic qualifier (e.g., "2008") — survives follow-ups
-  //   subject — current grammatical subject from "what about X" (e.g., "algae")
+  // ── Four-field context state ───────────────────────────────────────────────────
+  // Context is encoded as "entity|aspect|subject|confidence" (pipe-separated).
+  //   entity     — the current topic (e.g., "stock market")
+  //   aspect     — temporal/sub-topic qualifier (e.g., "2008")
+  //   subject    — grammatical subject from "what about X" (e.g., "algae")
+  //   confidence — float 0–1: how confident we are the entity is correct
   //
-  // Research basis: TREC CAsT 2021 uses two parallel tracks (entity + last-passage snippet).
-  // Aspect tracking handles temporal references (Q5 "how bad was 2008" → aspect="2008").
-  // Subject tracking handles "what about X" shifts (Hobbs 1978: subject NPs are highest-salience).
+  // Research basis: TREC CAsT (2019–2021) and QuAC literature shows that confidently
+  // propagating a wrong context entity ("wild blue light") is worse than failing
+  // gracefully. Systems that gate on confidence produce fewer cascading failures.
+  // When confidence < 0.3, pronouns are left unresolved rather than resolved to stale
+  // context — a vague response beats 6 poisoned turns.
   const ctxParts = context.split("|")
-  const ctxEntity  = ctxParts[0] || ""
-  const ctxAspect  = ctxParts[1] || ""
-  const ctxSubject = ctxParts[2] || ""
+  const ctxEntity     = ctxParts[0] || ""
+  const ctxAspect     = ctxParts[1] || ""
+  const ctxSubject    = ctxParts[2] || ""
+  const ctxConfidence = parseFloat(ctxParts[3] || "1")
 
-  // Pronoun resolution uses subject when set (most recent grammatical referent),
-  // falls back to entity (topic). E.g., after "what about algae", "they" = algae,
-  // not "photosynthesis" (the topic).
-  const resolveCtx = ctxSubject || (ctxAspect ? `${ctxAspect} ${ctxEntity}` : ctxEntity)
+  // Pronoun resolution is gated on confidence:
+  // - High confidence (≥ 0.3): inject context as normal
+  // - Low confidence (< 0.3): don't inject — leave pronouns unresolved
+  //   A null response beats propagating corrupted context.
+  const resolveCtx = ctxConfidence >= 0.3
+    ? (ctxSubject || (ctxAspect ? `${ctxAspect} ${ctxEntity}` : ctxEntity))
+    : ""
 
   // ── Topic-change detection ──────────────────────────────────────────────────
   let resolved: string
@@ -423,6 +434,20 @@ export async function POST(req: NextRequest) {
   const priorContext = ctxEntity
 
   const hasRef = hasAnaphoricReference(cleanedQuery)
+
+  // Confidence-gated pronoun resolution: if context confidence is too low (<0.3),
+  // don't attempt to resolve pronouns — we don't know what they refer to.
+  // Return null (deflection "miss") rather than propagating stale context.
+  // Research: TREC CAsT literature calls this "error propagation prevention" —
+  // a confident wrong answer is worse than an honest null.
+  if (hasRef && resolveCtx === "" && ctxConfidence < 0.3) {
+    return NextResponse.json({
+      passage: null, deflection: "miss", url: null, title: null,
+      resolvedQuery: query,
+      nextContext: context, // preserve whatever confidence state exists
+      lastPassage: "",
+    }, { status: 200 })
+  }
 
   // Bare question word (+ optional Adverb) queries structurally cannot introduce
   // new topics — "when exactly", "where precisely", "why" are always follow-ups.
@@ -520,26 +545,58 @@ export async function POST(req: NextRequest) {
     }, { status: 200 })
   }
 
-  // Entity tracking: what we FOUND is usually more authoritative than what we asked for.
-  // Exception: if the passage-derived entity is much shorter than the query-derived entity,
-  // the passage fallback extracted a fragment ("france" from a french-revolution article)
-  // while the query correctly names the full concept ("french revolution").
-  // Structural heuristic: if entityFromResult is ≥ 8 chars shorter than queryBasedEntity,
-  // the query-derived entity is more specific — prefer it.
+  // ── Fix 2: Query-biased entity tracking (factoid vs definition) ───────────────
+  // Research: Chatterjee & Dietz (ICTIR 2019) — oracle entity selection from passages
+  // covers only 19.7% of relevant documents. Passage entity extraction is unreliable
+  // for factoid answers ("how many albums has she made" → passage entity = "albums").
+  //
+  // Solution: distinguish query types by POS structure.
+  // DEFINITION query (what is X, who is X): passage introduces the new entity → passage wins.
+  // FACTOID query (how many, when did, does X, etc.): passage ANSWERS about the current
+  //   entity → query entity or existing context wins.
+  //
+  // POS check: QuestionWord + Copula at start = definition. Everything else = factoid.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resolvedTermsForType: Array<{tags?: string[]}> = (nlpLib(resolved) as any).json()[0]?.terms ?? []
+  const isDefinitionQuery = resolvedTermsForType.length >= 2 &&
+    resolvedTermsForType[0]?.tags?.includes("QuestionWord") &&
+    (resolvedTermsForType[1]?.tags?.includes("Copula") ||
+     resolvedTermsForType[1]?.tags?.includes("Auxiliary"))
+
   const queryBasedEntity = extractEntity(resolved)
   const resultEntity = result
     ? (entityFromResult(result, resolved, ctxEntity) || "")
     : ""
+
   let nextEntity: string
-  if (!resultEntity) {
-    nextEntity = queryBasedEntity || ctxEntity
-  } else if (queryBasedEntity &&
-    queryBasedEntity.split(" ").length > resultEntity.split(" ").length) {
-    // Query-derived entity has more words → more specific (e.g. "sleep apnea" > "apnea",
-    // "french revolution" > "france"). Structural word-count comparison, no word list.
-    nextEntity = queryBasedEntity
+  if (isDefinitionQuery) {
+    // "what is bitcoin" → the passage defines the new topic → passage entity wins
+    if (!resultEntity) {
+      nextEntity = queryBasedEntity || ctxEntity
+    } else if (queryBasedEntity && queryBasedEntity.split(" ").length > resultEntity.split(" ").length) {
+      nextEntity = queryBasedEntity
+    } else {
+      nextEntity = resultEntity || queryBasedEntity || ctxEntity
+    }
   } else {
-    nextEntity = resultEntity || queryBasedEntity || ctxEntity
+    // Factoid query: "how many albums has she made", "when did X happen", etc.
+    // The passage ANSWERS about the entity — don't let answer content replace topic.
+    //
+    // Two cases:
+    // (a) Pronoun resolved to the SAME entity as context: "how many albums has
+    //     TAYLOR SWIFT made" (she → taylor swift, ctxEntity = taylor swift)
+    //     → entity stays, we're asking about the same thing.
+    // (b) Pronoun resolved to a DIFFERENT entity via subject shift: after "what about
+    //     stocks" (subject=stocks), "did THEY do well" (they=stocks, ctxEntity=compound
+    //     interest) → entity should update to stocks.
+    //
+    // Signal: if resolveCtx ≠ ctxEntity, we resolved to a different entity.
+    const resolvedToDifferentEntity = resolveCtx && ctxEntity &&
+      !resolveCtx.toLowerCase().includes(ctxEntity.toLowerCase()) &&
+      !ctxEntity.toLowerCase().includes(resolveCtx.toLowerCase())
+    nextEntity = resolvedToDifferentEntity
+      ? (queryBasedEntity || resolveCtx || ctxEntity)
+      : (ctxEntity || queryBasedEntity)
   }
 
   // Strip leading question-word + copula from entity names.
@@ -584,21 +641,38 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Aspect extraction (temporal qualifier) ──────────────────────────────────
-  // Extract year references from the resolved query as the temporal aspect.
-  // "how bad was 2008 stock market crash" → aspect = "2008"
-  // This lets "who caused it" in the next turn resolve to "2008 stock market"
-  // instead of just "stock market", preserving the temporal framing.
   const yearMatch = resolved.match(/\b(1[5-9][0-9]{2}|20[0-2][0-9])\b/)
   const nextAspect = yearMatch ? yearMatch[1] : (isNewTopic ? "" : ctxAspect)
 
-  // ── Subject field ───────────────────────────────────────────────────────────
-  // "what about X" sets subject to X for the next turn's pronoun resolution.
-  // Subject resets on topic change; otherwise persists one turn (ephemeral).
+  // ── Subject field ────────────────────────────────────────────────────────────
   const nextSubject = isNewTopic ? "" : (newSubjectFromQuery || "")
 
-  // Serialize three-field context: "entity|aspect|subject" (drop empty trailing)
-  const nextContextParts = [nextEntity, nextAspect, nextSubject]
-  // Remove trailing empty strings
+  // ── Context confidence ───────────────────────────────────────────────────────
+  // Confidence tracks how reliable the current entity is.
+  // Decays on low-quality results; resets to 1.0 on high-quality retrieval.
+  // Research: TREC CAsT top systems use retrieval confidence to gate context updates.
+  // When confidence < 0.3, pronouns in subsequent turns are left unresolved rather
+  // than resolved to stale context (see gate above). This prevents cascade poisoning.
+  const resultScore = result?.score ?? 0
+  let nextConfidence: number
+  if (isNewTopic && nerEntityInQuery) {
+    nextConfidence = 1.0   // fresh topic confirmed by NER entity
+  } else if (isNewTopic) {
+    nextConfidence = 0.7   // topic switched but no NER entity — moderate confidence
+  } else if (resultScore >= 0.55) {
+    nextConfidence = 1.0   // high quality retrieval — full confidence
+  } else if (resultScore >= 0.4) {
+    nextConfidence = Math.min(1.0, ctxConfidence + 0.1)  // slight improvement
+  } else if (result) {
+    nextConfidence = Math.max(0, ctxConfidence - 0.45)   // poor retrieval — significant decay
+  } else {
+    nextConfidence = Math.max(0, ctxConfidence - 0.3)    // no result — moderate decay
+  }
+  // Round to 2 decimal places to keep the serialized string clean
+  const nextConfRounded = Math.round(nextConfidence * 100) / 100
+
+  // Serialize four-field context: "entity|aspect|subject|confidence"
+  const nextContextParts = [nextEntity, nextAspect, nextSubject, nextConfRounded === 1 ? "" : String(nextConfRounded)]
   while (nextContextParts.length > 1 && !nextContextParts[nextContextParts.length - 1]) {
     nextContextParts.pop()
   }

@@ -60,7 +60,14 @@ function hasTag(t: CompromiseTerm, tag: string): boolean {
 }
 
 function terms(query: string): CompromiseTerm[] {
-  try { return nlpLib(query).json()[0]?.terms ?? [] } catch { return [] }
+  // Flatten ALL sentences — compromise splits on periods (e.g. "hm ok. what is bitcoin"),
+  // so json()[0] only returns the first sentence's tokens and silently drops the rest.
+  // Using all sentences means "hm ok. what is compound interest" returns all 6 tokens,
+  // not just [hm, ok].
+  try {
+    const sentences = nlpLib(query).json() as Array<{ terms?: CompromiseTerm[] }>
+    return sentences.flatMap(s => s.terms ?? [])
+  } catch { return [] }
 }
 
 // ── Filler detection ─────────────────────────────────────────────────────────
@@ -383,11 +390,13 @@ function pronounRefersToOwnSubject(ts: CompromiseTerm[], pronounIdx: number): bo
       hasTag(prevTerm, "Verb") && !hasTag(prevTerm, "Copula") &&
       !hasTag(prevTerm, "Auxiliary") && !hasTag(prevTerm, "Modal")
 
-    // Technical/scientific nouns ≥ 5 chars that compromise doesn't know (e.g. "crispr",
-    // "quasar", "enzymes") won't have ProperNoun tag but are still specific entities.
-    // Length threshold excludes short common words ("wait" = 4, "love" = 4, "mind" = 4).
+    // Technical/scientific nouns ≥ 6 chars that compromise doesn't know (e.g. "crispr",
+    // "quasar", "photon") won't have ProperNoun tag but are still specific entities.
+    // ≥ 6 chars excludes common 5-char sport/general nouns ("slams", "books", "album")
+    // that should not prevent pronoun resolution from accessing the conversation context.
+    // "slams" in "how many grand slams does she have" must not bind "she" locally.
     const isSpecificUnknownNoun = !pronounIsNeuter && hasTag(t, "Noun") &&
-                                   !hasTag(t, "Pronoun") && t.text.length >= 5
+                                   !hasTag(t, "Pronoun") && t.text.length >= 6
     const isRealEntity = hasTag(t, "Actor") || hasTag(t, "ProperNoun") || isSpecificUnknownNoun ||
                          (!pronounIsNeuter && !pronounIsObjectPosition &&
                           hasTag(t, "Plural") && !hasTag(t, "Uncountable"))
