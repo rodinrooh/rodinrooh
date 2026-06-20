@@ -288,8 +288,16 @@ function entityFromTitleNLP(rawTitle: string): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const titleTerms: Array<{ text: string; tags: string[] }> = (doc as any).json()[0]?.terms ?? []
 
-    // Named entities / topics first (most precise)
-    const topics = doc.topics().out("array") as string[]
+    // Named entities / topics first (most precise).
+    // Filter out Honorific-tagged results: "Rev" = Reverend, "Dr" = Doctor, etc.
+    // compromise tags these as Abbreviation+Honorific+ProperNoun, so a verb like
+    // "rev" in "cars rev higher" gets misidentified as a person-title.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allTopics = doc.topics().out("array") as string[]
+    const topics = allTopics.filter(t => {
+      const tTerms = (nlpLib(t) as any).json()[0]?.terms ?? []
+      return !tTerms.some((term: { tags?: string[] }) => term.tags?.includes("Honorific"))
+    })
     if (topics.length > 0) return topics[0].toLowerCase().slice(0, 80)
 
     // Structural: detect "DESCRIPTOR [preposition] ENTITY" titles (e.g. "Introduction to X").
@@ -314,12 +322,15 @@ function entityFromTitleNLP(rawTitle: string): string {
 
     // Content nouns BEFORE ProperNoun — compound phrases ("Dark Matter") are more
     // accurate than ProperNoun which only returns the head noun ("Matter").
-    // Skip noun phrases containing embedded Verbs ("radiation works" → "works" is Verb).
+    // Skip noun phrases containing embedded Verbs OR Honorific abbreviations.
+    // "cars rev higher" contains "rev" (Honorific=Reverend) — skip it.
     const nouns = doc.nouns().not("#Pronoun").out("array") as string[]
     for (const noun of nouns) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const nTerms: Array<{ tags: string[] }> = (nlpLib(noun) as any).json()[0]?.terms ?? []
-      if (!nTerms.some(t => t.tags?.includes("Verb") && !t.tags?.includes("Noun"))) {
+      const hasPureVerb = nTerms.some(t => t.tags?.includes("Verb") && !t.tags?.includes("Noun"))
+      const hasHonorific = nTerms.some(t => t.tags?.includes("Honorific"))
+      if (!hasPureVerb && !hasHonorific) {
         const clean = noun.replace(/^(a|an|the)\s+/i, "").trim().toLowerCase()
         if (clean.length >= 2 && clean.split(" ").length <= 4) return clean.slice(0, 80)
       }

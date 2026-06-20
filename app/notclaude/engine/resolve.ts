@@ -461,8 +461,15 @@ function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): strin
   // Binding theory: animate pronouns expect animate noun antecedents.
   // Research: JAIR 2007, COLING 2018 — animacy as a coreference gate.
   const entityTokens = terms(entity)
-  const entityIsProcess = entityTokens.length === 1 &&
-    hasTag(entityTokens[0], "Verb") && !hasTag(entityTokens[0], "Noun")
+  // Block animate pronoun substitution when entity is a Verb/process ("yawn")
+  // OR an Honorific title abbreviation ("Rev", "Dr", "Mr").
+  // "Rev" for "Reverend" can't be a referent for plural "they" — and if it
+  // leaked through entity extraction, this gate catches the substitution.
+  // Honorific check: POS-based, covers all title abbreviations compromise knows.
+  const entityIsProcess = entityTokens.length === 1 && (
+    (hasTag(entityTokens[0], "Verb") && !hasTag(entityTokens[0], "Noun")) ||
+    hasTag(entityTokens[0], "Honorific")
+  )
 
   const ANIMATE_PRONOUNS = new Set(["they", "he", "she", "them", "him", "her", "their", "his", "hers", "themselves"])
 
@@ -581,8 +588,17 @@ export function extractEntity(query: string): string {
     const doc = nlpLib(q)
     const ts = terms(q)
 
-    // 1. Named entities — most specific
-    const topics = doc.topics().out("array") as string[]
+    // 1. Named entities — most specific.
+    // Filter out Honorific-tagged topics: "Rev", "Dr", "Mr", "Prof" etc.
+    // compromise tags these as Abbreviation+Honorific+ProperNoun, meaning
+    // "rev" in "cars rev higher" gets misidentified as "Reverend" (a title).
+    // Honorific entries are titles, never valid conversational topic entities.
+    // POS-based filter — works for any abbreviation/title, no word list needed.
+    const allTopics = doc.topics().out("array") as string[]
+    const topics = allTopics.filter(t => {
+      const tTerms = (nlpLib(t) as any).json()[0]?.terms ?? []
+      return !tTerms.some((term: { tags?: string[] }) => term.tags?.includes("Honorific"))
+    })
     if (topics.length > 0) return topics[0].toLowerCase().slice(0, 80)
 
     // 2. Structural extraction for "why/how/when/what did X [verb]" queries.
@@ -614,13 +630,19 @@ export function extractEntity(query: string): string {
       void boundary  // suppress unused variable warning
     }
 
-    // 3. For "what is/are X" and other topic queries: use the first noun phrase,
-    //    cleaned of leading determiners.
+    // 3. For "what is/are X" and other topic queries: use the first noun phrase
+    //    that doesn't contain an Honorific abbreviation.
+    // "cars rev higher" contains "rev" (Honorific=Reverend) — skip it.
+    // "twin turbo cars" has no Honorific → use it.
+    // This prevents verb-nouns like "rev" from contaminating compound noun phrases.
     const nouns = doc.nouns().not("#Pronoun").out("array") as string[]
-    if (nouns.length > 0) {
-      const cleaned = nouns[0]
-        .replace(/^(the|a|an|some)\s+/i, "")  // strip leading article (structural, not word list)
-        .replace(/\s+(?:of|for|in|on)\s+.+$/i, "")  // strip trailing PP
+    for (const noun of nouns) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nTerms = (nlpLib(noun) as any).json()[0]?.terms ?? []
+      if (nTerms.some((t: { tags?: string[] }) => t.tags?.includes("Honorific"))) continue
+      const cleaned = noun
+        .replace(/^(the|a|an|some)\s+/i, "")
+        .replace(/\s+(?:of|for|in|on)\s+.+$/i, "")
         .trim()
         .toLowerCase()
       if (cleaned.length >= 2) return cleaned.slice(0, 80)
