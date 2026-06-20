@@ -605,7 +605,14 @@ export async function POST(req: NextRequest) {
     const resolvedToDifferentEntity = resolveCtx && ctxEntity &&
       !resolveCtx.toLowerCase().includes(ctxEntity.toLowerCase()) &&
       !ctxEntity.toLowerCase().includes(resolveCtx.toLowerCase())
-    nextEntity = resolvedToDifferentEntity
+    // Also switch entity when the query directly names a NEW entity without any pronoun
+    // binding forcing the old one. "how much does Samsung Galaxy S24 cost" after iPhone
+    // context: no pronoun ties us to iPhone, queryBasedEntity = "samsung galaxy s24",
+    // which clearly differs from ctxEntity "iphone 15" → update to Samsung.
+    const queryNamesNewEntity = !hasRef && queryBasedEntity && ctxEntity &&
+      !queryBasedEntity.toLowerCase().includes(ctxEntity.toLowerCase()) &&
+      !ctxEntity.toLowerCase().includes(queryBasedEntity.toLowerCase())
+    nextEntity = (resolvedToDifferentEntity || queryNamesNewEntity)
       ? (queryBasedEntity || resolveCtx || ctxEntity)
       : (ctxEntity || queryBasedEntity)
   }

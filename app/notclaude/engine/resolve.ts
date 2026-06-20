@@ -323,15 +323,27 @@ function isAnaphoricPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean 
     // Contracted forms ("i’ve", "i’m", "we’re", "you’ve") — strip pre-apostrophe base
     const base = normal.replace(/[‘’].*$/, "")
     if (FIRST_SECOND_PERSON.has(base)) return false
+    // "there" — compromise tags locative "there" as Pronoun, but it should NEVER
+    // be replaced with a context entity. "when did they move there" is asking about
+    // a location, not the topic entity. Only existential "there is/are" is a
+    // pronoun, and even then it doesn’t refer to a prior entity.
+    if (normal === "there" || normal === "here") return false
     return true
   }
   if (normal === "it") return true
   if (isThatAsPronoun(t, nextT)) return true
   // Indefinite existential pronouns via Uncountable tag: "anything", "something", "everything"
   // These quantify over the prior context entity ("has anything fallen into [black hole]").
-  // POS-based: Noun + Uncountable — no word list. Works for misspellings too since
-  // compromise re-tags morphologically.
-  if (hasTag(t, "Noun") && hasTag(t, "Uncountable") && !FIRST_SECOND_PERSON.has(normal)) return true
+  // Exclude locative adverbs "there" and "here" — they are spatial referents, not entity
+  // pronouns. "when did they move there" → "there" = Austin, not the context entity.
+  // POS-based: Noun + Uncountable — no word list.
+  if (hasTag(t, "Noun") && hasTag(t, "Uncountable") && !FIRST_SECOND_PERSON.has(normal)) {
+    if (normal === "there" || normal === "here") return false  // locative adverbs, not anaphoric
+    return true
+  }
+  // Possessive "its" — tagged as Noun+Possessive+Actor by compromise, not as Pronoun.
+  // Still anaphoric: "what is its population" → resolve "its" to context entity.
+  if (hasTag(t, "Possessive") && !FIRST_SECOND_PERSON.has(normal)) return true
   return false
 }
 
@@ -480,7 +492,24 @@ function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): strin
     // Animacy gate: entity is a verb/process — skip for animate pronouns
     if (entityIsProcess && ANIMATE_PRONOUNS.has(t.normal?.toLowerCase() ?? "")) return t.text
     if (hasTag(t, "Possessive")) return `${entity}'s`
-    if (/^(it'?s|he'?s|she'?s|they'?re|its)$/i.test(t.text)) return `${entity} is`
+    // "it's"/"its"/"he's"/"she's"/"they're" — disambiguate copula vs possessive.
+    // Structural rule: if the NEXT token is a Noun/Adjective (property slot),
+    // this is possessive ("what is it's capital" → "france's capital").
+    // If next token is Verb/Adverb or absent (predicate slot), it's copula
+    // ("it's raining" → "france is raining").
+    // This is purely structural — no word list — mirrors English grammar.
+    if (/^(it'?s|he'?s|she'?s|they'?re|its)$/i.test(t.text)) {
+      // compromise splits "it's" into "it's" (Pronoun) + "" (empty Copula token).
+      // Skip empty tokens to find the REAL next content word.
+      let nextContentIdx = i + 1
+      while (nextContentIdx < ts.length && ts[nextContentIdx].text.trim() === "") nextContentIdx++
+      const nextContent = ts[nextContentIdx]
+      // If next real token is a Noun/Adjective, it's possessive ("it's capital" → "france's capital").
+      // If next real token is Verb/Adverb or absent, it's copula ("it's raining" → "france is raining").
+      const isPossessivePosition = nextContent &&
+        (hasTag(nextContent, "Noun") || hasTag(nextContent, "Adjective") || hasTag(nextContent, "ProperNoun"))
+      return isPossessivePosition ? `${entity}'s` : `${entity} is`
+    }
     return entity
   }).join(" ").replace(/\s{2,}/g, " ").trim()
 }
@@ -597,7 +626,17 @@ export function extractEntity(query: string): string {
     const allTopics = doc.topics().out("array") as string[]
     const topics = allTopics.filter(t => {
       const tTerms = (nlpLib(t) as any).json()[0]?.terms ?? []
-      return !tTerms.some((term: { tags?: string[] }) => term.tags?.includes("Honorific"))
+      // Exclude Honorific abbreviations (Rev, Dr, Mr — see earlier fix)
+      if (tTerms.some((term: { tags?: string[] }) => term.tags?.includes("Honorific"))) return false
+      // Exclude highly generic English meta-words: compromise can promote "context",
+      // "meaning", "definition" etc. from explanatory passages. These are abstract
+      // discourse-meta nouns — never valid conversational topic entities.
+      // Detected by: single-word, Uncountable tag (abstract mass noun), no ProperNoun tag.
+      if (tTerms.length === 1) {
+        const onlyTerm = tTerms[0]
+        if (onlyTerm?.tags?.includes("Uncountable") && !onlyTerm?.tags?.includes("ProperNoun")) return false
+      }
+      return true
     })
     if (topics.length > 0) return topics[0].toLowerCase().slice(0, 80)
 
