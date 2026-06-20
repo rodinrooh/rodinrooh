@@ -109,7 +109,35 @@ function entityFromResult(
     if (u.hostname.includes("wikipedia.org")) {
       const slug = decodeURIComponent(u.pathname.replace(/^\/wiki\//, ""))
         .replace(/_/g, " ").trim()
-      if (slug && slug.length < 80 && !slug.includes("/")) return slug.toLowerCase()
+      if (slug && slug.length < 80 && !slug.includes("/")) {
+        // Step 1: Strip corporate suffix abbreviations before NER analysis.
+        // "Tesla, Inc." → "Tesla". Structural: detect ", [Abbreviation]" suffix.
+        // Uses Abbreviation tag (POS-based), not a word list of "Inc/Corp/Ltd".
+        let cleanedSlug = slug
+        const commaParts = slug.split(",")
+        if (commaParts.length === 2) {
+          const suffix = commaParts[1].trim()
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const suffixTerms = (nlpLib(suffix) as any).json()[0]?.terms ?? []
+          const isAbbrevSuffix = suffixTerms.length === 1 &&
+            (suffixTerms[0]?.tags?.includes("Abbreviation") || suffix.length <= 5)
+          if (isAbbrevSuffix) cleanedSlug = commaParts[0].trim()
+        }
+        // Step 2: Use topics() to normalize article-type prefixes.
+        // "History of Microsoft" → ["Microsoft"] → use "microsoft"
+        // "University of Michigan" → ["University of Michigan"] → keep full name
+        // Abbreviation-only topics (e.g. just "Inc.") are skipped as corporate suffixes.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const slugTopics = (nlpLib(cleanedSlug) as any).topics().out("array") as string[]
+        if (slugTopics.length === 1 && slugTopics[0].length >= 3 &&
+            slugTopics[0].length <= cleanedSlug.length) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const topicTerms = (nlpLib(slugTopics[0]) as any).json()[0]?.terms ?? []
+          const isAbbrev = topicTerms.some((t: {tags?: string[]}) => t.tags?.includes("Abbreviation"))
+          if (!isAbbrev) return slugTopics[0].toLowerCase()
+        }
+        return cleanedSlug.toLowerCase()
+      }
     }
   } catch { /* ignore */ }
 
@@ -410,18 +438,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Four-field context state ───────────────────────────────────────────────────
-  // Context is encoded as "entity|aspect|subject|confidence" (pipe-separated).
-  //   entity     — the current topic (e.g., "stock market")
-  //   aspect     — temporal/sub-topic qualifier (e.g., "2008")
-  //   subject    — grammatical subject from "what about X" (e.g., "algae")
-  //   confidence — float 0–1: how confident we are the entity is correct
-  //
-  // Research basis: TREC CAsT (2019–2021) and QuAC literature shows that confidently
-  // propagating a wrong context entity ("wild blue light") is worse than failing
-  // gracefully. Systems that gate on confidence produce fewer cascading failures.
-  // When confidence < 0.3, pronouns are left unresolved rather than resolved to stale
-  // context — a vague response beats 6 poisoned turns.
+  // ── Five-field context state ───────────────────────────────────────────────────
+  // Context is encoded as "entity|aspect|subject|confidence|answerEntity".
+  //   entity      — the current topic (e.g., "apple")
+  //   aspect      — temporal/sub-topic qualifier (e.g., "2008")
+  //   subject     — grammatical subject from "what about X" (e.g., "algae")
+  //   confidence  — float 0–1: entity tracking reliability
+  //   answerEntity — entity extracted from the last answer (e.g., "tim cook" after
+  //                  "who is the CEO of Apple?"). Used to route animate singular
+  //                  pronouns (he/she/him/her) — QuAC (2018) + Centering Theory.
   const ctxParts = context.split("|")
   const ctxEntity     = ctxParts[0] || ""
   const ctxAspect     = ctxParts[1] || ""
@@ -432,6 +457,8 @@ export async function POST(req: NextRequest) {
   // - High confidence (≥ 0.3): inject context as normal
   // - Low confidence (< 0.3): don't inject — leave pronouns unresolved
   //   A null response beats propagating corrupted context.
+  const ctxAnswerEntity = ctxParts[4] || ""
+
   const resolveCtx = ctxConfidence >= 0.3
     ? (ctxSubject || (ctxAspect ? `${ctxAspect} ${ctxEntity}` : ctxEntity))
     : ""
@@ -478,28 +505,45 @@ export async function POST(req: NextRequest) {
     nerEntityInQuery = topicResult.isNewTopic ? (topicResult.newEntity ?? null) : null
     if (topicResult.isNewTopic) {
       if (topicResult.newEntity) {
-        const qWords = cleanedQuery.trim().split(/\s+/)
-        const firstQW = qWords[0]?.toLowerCase()
-        const QUESTION_EXPANSIONS: Record<string, string> = {
-          when: "when was", where: "where is", why: "why did",
-          who: "who is", how: "how does",
+        // Preserve the full query intent when the cleaned query has enough content.
+        // Problem: "what is the capital of france" → NER finds "france" → old code
+        // reconstructed "what is france", silently discarding "capital of" intent.
+        //
+        // Rule: if cleanedQuery has > 4 total words, the user expressed full intent.
+        // Use it directly. If ≤ 4 words, expand to help with bare references like
+        // "bitcoin" or "where did tesla" → "where is tesla".
+        //
+        // Why 4 words: "what is X" = 3 words (needs no expansion), "where is X" = 3,
+        // but "what is the capital of france" = 6 → keep. Edge case: "what is france"
+        // = 3 → expansion would give same result anyway.
+        const totalWordCount = cleanedQuery.trim().split(/\s+/).length
+        if (totalWordCount <= 4) {
+          const qWords = cleanedQuery.trim().split(/\s+/)
+          const firstQW = qWords[0]?.toLowerCase()
+          const QUESTION_EXPANSIONS: Record<string, string> = {
+            when: "when was", where: "where is", why: "why did",
+            who: "who is", how: "how does",
+          }
+          resolved = firstQW && QUESTION_EXPANSIONS[firstQW]
+            ? `${QUESTION_EXPANSIONS[firstQW]} ${topicResult.newEntity}`
+            : `what is ${topicResult.newEntity}`
+        } else {
+          // Long query: user expressed full intent — trust it, just update the entity
+          resolved = cleanedQuery
         }
-        resolved = firstQW && QUESTION_EXPANSIONS[firstQW]
-          ? `${QUESTION_EXPANSIONS[firstQW]} ${topicResult.newEntity}`
-          : `what is ${topicResult.newEntity}`
       } else {
         resolved = cleanedQuery
       }
       isNewTopic = true
       if (topicResult.newEntity) context = topicResult.newEntity
     } else {
-      const r = resolveQuery(query, resolveCtx)
+      const r = resolveQuery(query, resolveCtx, ctxAnswerEntity || undefined)
       resolved = r.resolved
       isNewTopic = r.isNewTopic
       newSubjectFromQuery = r.newSubject || ""
     }
   } else {
-    const r = resolveQuery(query, resolveCtx)
+    const r = resolveQuery(query, resolveCtx, ctxAnswerEntity || undefined)
     resolved = r.resolved
     isNewTopic = r.isNewTopic
     newSubjectFromQuery = r.newSubject || ""
@@ -631,6 +675,11 @@ export async function POST(req: NextRequest) {
     nextEntity = ncTerms.slice(entityStart).map(t => t.text).join(" ").trim().toLowerCase()
   }
 
+  // Strip possessive property phrases from entity names.
+  // "paris's population" → "paris". Entity names should never contain "'s noun" —
+  // that's a property/relationship, not an identity. Structural regex, not a word list.
+  nextEntity = nextEntity.replace(/'s\s+\S.*$/, "").trim()
+
   // Confidence gate
   const CONFIDENCE_THRESHOLD = 0.4
   if (result && (result.score ?? 1) < CONFIDENCE_THRESHOLD && !isNewTopic) {
@@ -655,6 +704,22 @@ export async function POST(req: NextRequest) {
       if (!newInResolved || (oldInResolved && newInResolved)) {
         nextEntity = ctxEntity
       }
+    }
+  }
+
+  // ── New-topic entity from query text ─────────────────────────────────────────
+  // When a new topic is detected (isNewTopic=true), the stability check above may
+  // still block the entity update if the new entity (from passage) doesn't appear
+  // in the resolved query. But the QUERY ITSELF names the new topic explicitly.
+  // "what is the capital of france" → queryBasedEntity="france" → "france" IS in query.
+  // For new topics confirmed by query text, trust queryBasedEntity over stability.
+  if (isNewTopic && queryBasedEntity) {
+    const qbeWords = (queryBasedEntity.toLowerCase()).split(/\s+/).filter(w => w.length >= 4)
+    const resolvedLower2 = resolved.toLowerCase()
+    const qbeInResolved = qbeWords.length === 0 ||
+      qbeWords.every(w => resolvedLower2.includes(w))
+    if (qbeInResolved) {
+      nextEntity = queryBasedEntity  // user typed this — trust it
     }
   }
 
@@ -689,8 +754,33 @@ export async function POST(req: NextRequest) {
   // Round to 2 decimal places to keep the serialized string clean
   const nextConfRounded = Math.round(nextConfidence * 100) / 100
 
-  // Serialize four-field context: "entity|aspect|subject|confidence"
-  const nextContextParts = [nextEntity, nextAspect, nextSubject, nextConfRounded === 1 ? "" : String(nextConfRounded)]
+  // ── answerEntity extraction ───────────────────────────────────────────────
+  // Extract the entity that IS the answer (not just the topic being discussed).
+  // Used to route animate singular pronouns (he/she/him/her) to the answer person
+  // rather than the question subject. Research: QuAC (EMNLP 2018) — 44% of
+  // conversational follow-ups reference the answer entity.
+  //
+  // We use extractSubjectFromPassage (passage's copula subject) as a proxy for
+  // the answer entity. If it's a Person (Person/Actor tag) and differs from
+  // nextEntity → it's a human answer (like "Tim Cook" to "who is the CEO of Apple?").
+  // Non-person answers (dates, numbers, org descriptions) are ignored.
+  let nextAnswerEntity = isNewTopic ? "" : ctxAnswerEntity  // reset on topic switch
+  if (result && result.passage) {
+    const passageSubject = extractSubjectFromPassage(result.passage)
+    if (passageSubject && passageSubject !== nextEntity &&
+        !passageSubject.includes(nextEntity) && !nextEntity.includes(passageSubject)) {
+      // Only use as answerEntity if it's a Person — avoids storing "2003" or generic
+      // nouns as the entity for animate pronoun routing.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const subjTerms = (nlpLib(passageSubject) as any).json()[0]?.terms ?? []
+      const isPerson = subjTerms.some((t: { tags?: string[] }) =>
+        t.tags?.includes("Person") || t.tags?.includes("Actor") || t.tags?.includes("FirstName"))
+      if (isPerson) nextAnswerEntity = passageSubject
+    }
+  }
+
+  // Serialize five-field context: "entity|aspect|subject|confidence|answerEntity"
+  const nextContextParts = [nextEntity, nextAspect, nextSubject, nextConfRounded === 1 ? "" : String(nextConfRounded), nextAnswerEntity]
   while (nextContextParts.length > 1 && !nextContextParts[nextContextParts.length - 1]) {
     nextContextParts.pop()
   }

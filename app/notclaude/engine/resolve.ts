@@ -341,9 +341,17 @@ function isAnaphoricPronoun(t: CompromiseTerm, nextT?: CompromiseTerm): boolean 
     if (normal === "there" || normal === "here") return false  // locative adverbs, not anaphoric
     return true
   }
-  // Possessive "its" — tagged as Noun+Possessive+Actor by compromise, not as Pronoun.
-  // Still anaphoric: "what is its population" → resolve "its" to context entity.
-  if (hasTag(t, "Possessive") && !FIRST_SECOND_PERSON.has(normal)) return true
+  // Possessive pronouns ("its", "their", "his", "her") — anaphoric even without Pronoun tag.
+  // CRITICAL DISCRIMINATION: "its" has [Noun,Possessive] only.
+  // "city's", "france's" have [Noun,Singular,Possessive] or [Noun,ProperNoun,Possessive].
+  // Concrete nouns ALWAYS have Singular/ProperNoun/Organization/Place alongside Possessive.
+  // Pronouns have ONLY Noun+Possessive (no specificity markers).
+  // This is purely structural (POS tag set), not a word list — works for any language variant.
+  if (hasTag(t, "Possessive") && !FIRST_SECOND_PERSON.has(normal)) {
+    const isConcrete = hasTag(t, "Singular") || hasTag(t, "ProperNoun") ||
+                       hasTag(t, "Organization") || hasTag(t, "Place")
+    if (!isConcrete) return true
+  }
   return false
 }
 
@@ -467,7 +475,7 @@ function isEli5(ts: CompromiseTerm[]): boolean {
 
 // ── Pronoun replacement ───────────────────────────────────────────────────────
 
-function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): string {
+function replacePronounsWithContext(ts: CompromiseTerm[], entity: string, answerEntity?: string): string {
   // Animacy gate: if the context entity is a verb/process (e.g., "yawn"),
   // don't substitute animate pronouns (they/he/she) in subject position.
   // Binding theory: animate pronouns expect animate noun antecedents.
@@ -493,23 +501,26 @@ function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): strin
     if (entityIsProcess && ANIMATE_PRONOUNS.has(t.normal?.toLowerCase() ?? "")) return t.text
     if (hasTag(t, "Possessive")) return `${entity}'s`
     // "it's"/"its"/"he's"/"she's"/"they're" — disambiguate copula vs possessive.
-    // Structural rule: if the NEXT token is a Noun/Adjective (property slot),
-    // this is possessive ("what is it's capital" → "france's capital").
-    // If next token is Verb/Adverb or absent (predicate slot), it's copula
-    // ("it's raining" → "france is raining").
-    // This is purely structural — no word list — mirrors English grammar.
+    // Structural: if the NEXT real token is Noun/Adjective → possessive ("it's capital").
+    // If Verb/Adverb or absent → copula ("it's raining").
     if (/^(it'?s|he'?s|she'?s|they'?re|its)$/i.test(t.text)) {
-      // compromise splits "it's" into "it's" (Pronoun) + "" (empty Copula token).
-      // Skip empty tokens to find the REAL next content word.
       let nextContentIdx = i + 1
       while (nextContentIdx < ts.length && ts[nextContentIdx].text.trim() === "") nextContentIdx++
       const nextContent = ts[nextContentIdx]
-      // If next real token is a Noun/Adjective, it's possessive ("it's capital" → "france's capital").
-      // If next real token is Verb/Adverb or absent, it's copula ("it's raining" → "france is raining").
       const isPossessivePosition = nextContent &&
         (hasTag(nextContent, "Noun") || hasTag(nextContent, "Adjective") || hasTag(nextContent, "ProperNoun"))
       return isPossessivePosition ? `${entity}'s` : `${entity} is`
     }
+    // Dual-entity routing based on QuAC (2018) + Centering Theory (Grosz et al. 1995):
+    // Animate singular pronouns (he/she/him/her) tend to refer to the ANSWER entity
+    // when the answer was a person — e.g., "who is the CEO of Apple?" → "Tim Cook" →
+    // "how long has he been there?" → "he" = Tim Cook, not Apple.
+    // This is a grammatically CLOSED CLASS (English singular gender pronouns),
+    // not an arbitrary word list. Only animate singular, NOT they/their (too ambiguous).
+    const pronounNormal = t.normal?.toLowerCase() ?? ""
+    const isAnimateSingular = pronounNormal === "he" || pronounNormal === "him" ||
+                              pronounNormal === "she" || pronounNormal === "her"
+    if (isAnimateSingular && answerEntity) return answerEntity
     return entity
   }).join(" ").replace(/\s{2,}/g, " ").trim()
 }
@@ -518,7 +529,8 @@ function replacePronounsWithContext(ts: CompromiseTerm[], entity: string): strin
 
 export function resolveQuery(
   rawQuery: string,
-  context: string
+  context: string,
+  answerEntity?: string
 ): { resolved: string; isNewTopic: boolean; newSubject?: string } {
   // 2. Topic change is checked on the RAW string — before filler stripping.
   //    Reason: stripFiller() reconstructs text from compromise term objects.
@@ -597,7 +609,7 @@ export function resolveQuery(
   if (pronounRefersToOwnSubject(ts, pronIdx)) return { resolved: q, isNewTopic: false }
 
   // 9. Replace anaphoric pronouns with context entity
-  let resolved = replacePronounsWithContext(ts, ctx)
+  let resolved = replacePronounsWithContext(ts, ctx, answerEntity)
 
   // 9. "which one" → "which [context]" (indefinite pronoun pattern)
   resolved = resolved.replace(/\bwhich\s+one\b/gi, `which ${ctx}`)
