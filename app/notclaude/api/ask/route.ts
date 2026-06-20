@@ -438,35 +438,32 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Five-field context state ───────────────────────────────────────────────────
-  // Context is encoded as "entity|aspect|subject|confidence|answerEntity".
-  //   entity      — the current topic (e.g., "apple")
-  //   aspect      — temporal/sub-topic qualifier (e.g., "2008")
-  //   subject     — grammatical subject from "what about X" (e.g., "algae")
+  // ── Three-field context state ─────────────────────────────────────────────────
+  // Simplified from 5 fields. Codebase audit showed aspect + subject were unused
+  // in practice — the 3-case entity rule handles both cases directly:
+  // "what about dogs" → no pronoun, queryBasedEntity="dogs" → entity updates naturally.
+  // Year aspects ("2008 stock market") are a nice-to-have that doesn't justify complexity.
+  //
+  // Context: "entity|confidence|answerEntity"
+  //   entity      — the current topic (e.g., "tesla")
   //   confidence  — float 0–1: entity tracking reliability
-  //   answerEntity — entity extracted from the last answer (e.g., "tim cook" after
-  //                  "who is the CEO of Apple?"). Used to route animate singular
-  //                  pronouns (he/she/him/her) — QuAC (2018) + Centering Theory.
+  //   answerEntity — Person-typed entity from last answer for animate pronoun routing
   const ctxParts = context.split("|")
   const ctxEntity     = ctxParts[0] || ""
-  const ctxAspect     = ctxParts[1] || ""
-  const ctxSubject    = ctxParts[2] || ""
-  const ctxConfidence = parseFloat(ctxParts[3] || "1")
+  const ctxConfidence = parseFloat(ctxParts[1] || "1")
 
   // Pronoun resolution is gated on confidence:
   // - High confidence (≥ 0.3): inject context as normal
   // - Low confidence (< 0.3): don't inject — leave pronouns unresolved
   //   A null response beats propagating corrupted context.
-  const ctxAnswerEntity = ctxParts[4] || ""
+  const ctxAnswerEntity = ctxParts[2] || ""
 
-  const resolveCtx = ctxConfidence >= 0.3
-    ? (ctxSubject || (ctxAspect ? `${ctxAspect} ${ctxEntity}` : ctxEntity))
-    : ""
+  // resolveCtx: what to inject into pronouns. Empty when confidence too low.
+  const resolveCtx = ctxConfidence >= 0.3 ? ctxEntity : ""
 
   // ── Topic-change detection ──────────────────────────────────────────────────
   let resolved: string
   let isNewTopic: boolean
-  let newSubjectFromQuery = ""
 
   // Save prior context (entity only) before it may be mutated by topic-change detection.
   const priorContext = ctxEntity
@@ -540,13 +537,13 @@ export async function POST(req: NextRequest) {
       const r = resolveQuery(query, resolveCtx, ctxAnswerEntity || undefined)
       resolved = r.resolved
       isNewTopic = r.isNewTopic
-      newSubjectFromQuery = r.newSubject || ""
+      // newSubject dropped (3-case rule handles this)
     }
   } else {
     const r = resolveQuery(query, resolveCtx, ctxAnswerEntity || undefined)
     resolved = r.resolved
     isNewTopic = r.isNewTopic
-    newSubjectFromQuery = r.newSubject || ""
+    // newSubject dropped (3-case rule handles this)
   }
 
   // ── Query enrichment ─────────────────────────────────────────────────────────
@@ -600,65 +597,43 @@ export async function POST(req: NextRequest) {
     }, { status: 200 })
   }
 
-  // ── Fix 2: Query-biased entity tracking (factoid vs definition) ───────────────
-  // Research: Chatterjee & Dietz (ICTIR 2019) — oracle entity selection from passages
-  // covers only 19.7% of relevant documents. Passage entity extraction is unreliable
-  // for factoid answers ("how many albums has she made" → passage entity = "albums").
+  // ── Entity update: 3-case rule ─────────────────────────────────────────────────
+  // Based on analysis of failure patterns: ~90% of failures are wrong entity stored,
+  // 0% are search quality failures. The entity should track USER INTENT (what the user
+  // asked about), not passage content (what the result mentioned).
   //
-  // Solution: distinguish query types by POS structure.
-  // DEFINITION query (what is X, who is X): passage introduces the new entity → passage wins.
-  // FACTOID query (how many, when did, does X, etc.): passage ANSWERS about the current
-  //   entity → query entity or existing context wins.
+  // Three cases, in order:
+  // 1. User typed a pronoun (hasRef=true): they're referring to prior context → keep ctxEntity.
+  //    "what is its population?" → keeps "france", not whatever the passage mentioned.
   //
-  // POS check: QuestionWord + Copula at start = definition. Everything else = factoid.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const resolvedTermsForType: Array<{tags?: string[]}> = (nlpLib(resolved) as any).json()[0]?.terms ?? []
-  const isDefinitionQuery = resolvedTermsForType.length >= 2 &&
-    resolvedTermsForType[0]?.tags?.includes("QuestionWord") &&
-    (resolvedTermsForType[1]?.tags?.includes("Copula") ||
-     resolvedTermsForType[1]?.tags?.includes("Auxiliary"))
-
+  // 2. User named something explicitly (no pronoun, queryBasedEntity ≠ ctxEntity):
+  //    query names the new topic → queryBasedEntity wins.
+  //    "what is the capital of france?" with ctx="microsoft" → entity="france".
+  //    "actually how much does Samsung cost?" with ctx="iphone" → entity="samsung".
+  //
+  // 3. First turn (no prior context): use result entity or query entity.
+  //    "what is AI?" → entity from Wikipedia page or query.
+  //
+  // This replaces the factoid/definition distinction which had too many edge cases.
+  // Devil's advocate: passage entity is STILL used as fallback when queryBasedEntity
+  // is empty (e.g., "what is 2+2?"). The key change is query comes first.
   const queryBasedEntity = extractEntity(resolved)
   const resultEntity = result
     ? (entityFromResult(result, resolved, ctxEntity) || "")
     : ""
 
   let nextEntity: string
-  if (isDefinitionQuery) {
-    // "what is bitcoin" → the passage defines the new topic → passage entity wins
-    if (!resultEntity) {
-      nextEntity = queryBasedEntity || ctxEntity
-    } else if (queryBasedEntity && queryBasedEntity.split(" ").length > resultEntity.split(" ").length) {
-      nextEntity = queryBasedEntity
-    } else {
-      nextEntity = resultEntity || queryBasedEntity || ctxEntity
-    }
+  if (!hasRef && queryBasedEntity && queryBasedEntity !== ctxEntity &&
+      !queryBasedEntity.toLowerCase().includes((ctxEntity || "").toLowerCase()) &&
+      !(ctxEntity || "").toLowerCase().includes(queryBasedEntity.toLowerCase())) {
+    // Case 2: user explicitly named something new in their query
+    nextEntity = queryBasedEntity
+  } else if (!ctxEntity) {
+    // Case 3: first turn or no prior context — use passage entity or query entity
+    nextEntity = resultEntity || queryBasedEntity || ""
   } else {
-    // Factoid query: "how many albums has she made", "when did X happen", etc.
-    // The passage ANSWERS about the entity — don't let answer content replace topic.
-    //
-    // Two cases:
-    // (a) Pronoun resolved to the SAME entity as context: "how many albums has
-    //     TAYLOR SWIFT made" (she → taylor swift, ctxEntity = taylor swift)
-    //     → entity stays, we're asking about the same thing.
-    // (b) Pronoun resolved to a DIFFERENT entity via subject shift: after "what about
-    //     stocks" (subject=stocks), "did THEY do well" (they=stocks, ctxEntity=compound
-    //     interest) → entity should update to stocks.
-    //
-    // Signal: if resolveCtx ≠ ctxEntity, we resolved to a different entity.
-    const resolvedToDifferentEntity = resolveCtx && ctxEntity &&
-      !resolveCtx.toLowerCase().includes(ctxEntity.toLowerCase()) &&
-      !ctxEntity.toLowerCase().includes(resolveCtx.toLowerCase())
-    // Also switch entity when the query directly names a NEW entity without any pronoun
-    // binding forcing the old one. "how much does Samsung Galaxy S24 cost" after iPhone
-    // context: no pronoun ties us to iPhone, queryBasedEntity = "samsung galaxy s24",
-    // which clearly differs from ctxEntity "iphone 15" → update to Samsung.
-    const queryNamesNewEntity = !hasRef && queryBasedEntity && ctxEntity &&
-      !queryBasedEntity.toLowerCase().includes(ctxEntity.toLowerCase()) &&
-      !ctxEntity.toLowerCase().includes(queryBasedEntity.toLowerCase())
-    nextEntity = (resolvedToDifferentEntity || queryNamesNewEntity)
-      ? (queryBasedEntity || resolveCtx || ctxEntity)
-      : (ctxEntity || queryBasedEntity)
+    // Case 1: user used pronouns or query reuses same topic — keep prior entity
+    nextEntity = ctxEntity
   }
 
   // Strip leading question-word + copula from entity names.
@@ -686,23 +661,23 @@ export async function POST(req: NextRequest) {
     nextEntity = queryBasedEntity || ctxEntity
   }
 
-  // Context stability — uses entity part only (not pipe-encoded full string)
+  // Context stability: if the new entity doesn't appear in the resolved query,
+  // it came from the passage (not the user's intent) → revert to prior entity.
+  // Removed the old "both entities present → keep old" branch — it was blocking
+  // legitimate transitions in comparison queries ("how does bitcoin compare to ethereum").
+  // With the 3-case rule, those are handled by Case 2 before reaching here.
   if (ctxEntity && nextEntity !== ctxEntity) {
     const resolvedLower = resolved.toLowerCase()
     const sigWords = (e: string) => e.toLowerCase().split(/\s+/).filter(w => w.length >= 4)
     const newWords = sigWords(nextEntity)
     if (newWords.length > 0) {
-      const oldWords = sigWords(ctxEntity)
-      // Use prefix/root matching to handle morphological variants:
-      // "yawning" should match "yawn" in the resolved query (same root).
       const resolvedWords = resolvedLower.split(/\s+/).filter(rw => rw.length >= 4)
       const newInResolved = newWords.every(w =>
         resolvedLower.includes(w) ||
         resolvedWords.some(rw => w.startsWith(rw) || rw.startsWith(w))
       )
-      const oldInResolved = !didEnrich && oldWords.length > 0 && oldWords.some(w => resolvedLower.includes(w))
-      if (!newInResolved || (oldInResolved && newInResolved)) {
-        nextEntity = ctxEntity
+      if (!newInResolved) {
+        nextEntity = ctxEntity  // entity not in query → passage entity, revert
       }
     }
   }
@@ -723,54 +698,30 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Aspect extraction (temporal qualifier) ──────────────────────────────────
-  const yearMatch = resolved.match(/\b(1[5-9][0-9]{2}|20[0-2][0-9])\b/)
-  const nextAspect = yearMatch ? yearMatch[1] : (isNewTopic ? "" : ctxAspect)
-
-  // ── Subject field ────────────────────────────────────────────────────────────
-  const nextSubject = isNewTopic ? "" : (newSubjectFromQuery || "")
-
-  // ── Context confidence ───────────────────────────────────────────────────────
-  // Confidence tracks how reliable the current entity is.
-  // Decays on low-quality results; resets to 1.0 on high-quality retrieval.
-  // Research: TREC CAsT top systems use retrieval confidence to gate context updates.
-  // When confidence < 0.3, pronouns in subsequent turns are left unresolved rather
-  // than resolved to stale context (see gate above). This prevents cascade poisoning.
+  // ── Context confidence ────────────────────────────────────────────────────────
   const resultScore = result?.score ?? 0
   let nextConfidence: number
   if (isNewTopic && nerEntityInQuery) {
-    nextConfidence = 1.0   // fresh topic confirmed by NER entity
+    nextConfidence = 1.0
   } else if (isNewTopic) {
-    nextConfidence = 0.7   // topic switched but no NER entity — moderate confidence
+    nextConfidence = 0.7
   } else if (resultScore >= 0.55) {
-    nextConfidence = 1.0   // high quality retrieval — full confidence
+    nextConfidence = 1.0
   } else if (resultScore >= 0.4) {
-    nextConfidence = Math.min(1.0, ctxConfidence + 0.1)  // slight improvement
+    nextConfidence = Math.min(1.0, ctxConfidence + 0.1)
   } else if (result) {
-    nextConfidence = Math.max(0, ctxConfidence - 0.45)   // poor retrieval — significant decay
+    nextConfidence = Math.max(0, ctxConfidence - 0.45)
   } else {
-    nextConfidence = Math.max(0, ctxConfidence - 0.3)    // no result — moderate decay
+    nextConfidence = Math.max(0, ctxConfidence - 0.3)
   }
-  // Round to 2 decimal places to keep the serialized string clean
   const nextConfRounded = Math.round(nextConfidence * 100) / 100
 
-  // ── answerEntity extraction ───────────────────────────────────────────────
-  // Extract the entity that IS the answer (not just the topic being discussed).
-  // Used to route animate singular pronouns (he/she/him/her) to the answer person
-  // rather than the question subject. Research: QuAC (EMNLP 2018) — 44% of
-  // conversational follow-ups reference the answer entity.
-  //
-  // We use extractSubjectFromPassage (passage's copula subject) as a proxy for
-  // the answer entity. If it's a Person (Person/Actor tag) and differs from
-  // nextEntity → it's a human answer (like "Tim Cook" to "who is the CEO of Apple?").
-  // Non-person answers (dates, numbers, org descriptions) are ignored.
-  let nextAnswerEntity = isNewTopic ? "" : ctxAnswerEntity  // reset on topic switch
+  // ── answerEntity: Person-typed entity from passage for animate pronoun routing ─
+  let nextAnswerEntity = isNewTopic ? "" : ctxAnswerEntity
   if (result && result.passage) {
     const passageSubject = extractSubjectFromPassage(result.passage)
     if (passageSubject && passageSubject !== nextEntity &&
         !passageSubject.includes(nextEntity) && !nextEntity.includes(passageSubject)) {
-      // Only use as answerEntity if it's a Person — avoids storing "2003" or generic
-      // nouns as the entity for animate pronoun routing.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const subjTerms = (nlpLib(passageSubject) as any).json()[0]?.terms ?? []
       const isPerson = subjTerms.some((t: { tags?: string[] }) =>
@@ -779,8 +730,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Serialize five-field context: "entity|aspect|subject|confidence|answerEntity"
-  const nextContextParts = [nextEntity, nextAspect, nextSubject, nextConfRounded === 1 ? "" : String(nextConfRounded), nextAnswerEntity]
+  // Serialize 3-field context: "entity|confidence|answerEntity"
+  const nextContextParts = [nextEntity, nextConfRounded === 1 ? "" : String(nextConfRounded), nextAnswerEntity]
   while (nextContextParts.length > 1 && !nextContextParts[nextContextParts.length - 1]) {
     nextContextParts.pop()
   }
