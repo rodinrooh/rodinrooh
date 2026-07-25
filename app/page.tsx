@@ -37,12 +37,6 @@ export default function Home() {
         {/* Projects */}
         <div style={{ paddingTop: 32 }}>
           <ProjectRow
-            href="/notgpt"
-            date="June 2026"
-            title={<>Chat<s>GPT</s></>}
-            desc="An AI chatbot with no AI inside"
-          />
-          <ProjectRow
             href="/sf-muni"
             date="May 2026"
             title="SF Muni Latency"
