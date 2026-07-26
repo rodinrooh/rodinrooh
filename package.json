@@ -27,6 +27,7 @@
     "dictionary-en": "^4.0.0",
     "franc-min": "^6.2.0",
     "gtfs-realtime-bindings": "^2.0.0",
+    "hls.js": "^1.6.16",
     "jsonwebtoken": "^9.0.3",
     "maplibre-gl": "^5.24.0",
     "mathjs": "^15.2.0",
