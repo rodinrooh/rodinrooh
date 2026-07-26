@@ -42,7 +42,7 @@ interface RawCctv {
   }
 }
 
-function shapeCamera(raw: RawCctv): Camera | null {
+function shapeCamera(raw: RawCctv, city: "sf" | "la"): Camera | null {
   if (raw.inService !== "true") return null
 
   const videoUrl = urlOrNull(raw.imageData?.streamingVideoURL)
@@ -57,7 +57,13 @@ function shapeCamera(raw: RawCctv): Camera | null {
   const epoch = Number(raw.recordTimestamp?.recordEpoch)
 
   return {
-    id: String(raw.index ?? `${lat},${lng}`),
+    // Caltrans's own `index` is only unique *within* a district — D4 and D7
+    // both restart from 1, so ~280 ids collide between them. Prefixing with
+    // city keeps camera keys globally unique, which matters a lot on the
+    // client: without it, switching cities reuses stale React component
+    // instances (and their fallen-back/live state) for a completely
+    // different camera instead of mounting fresh ones.
+    id: `${city}-${raw.index ?? `${lat},${lng}`}`,
     name: raw.location?.locationName ?? "Unknown location",
     route: raw.location?.route ?? "",
     direction: raw.location?.direction ?? "",
@@ -72,6 +78,49 @@ function shapeCamera(raw: RawCctv): Camera | null {
   }
 }
 
+// Module-scoped, so it survives across requests on the same warm serverless
+// instance (and for the entire process in `next dev`, where there's no CDN in
+// front of the route at all — without this, every single local request pays
+// the full ~5-15s Caltrans fetch+parse cost). Vercel's edge Cache-Control below
+// is what shields *other* instances/visitors; this is what shields this one.
+const cache = new Map<string, { body: CamerasResponse; expires: number }>()
+const pending = new Map<string, Promise<CamerasResponse>>()
+
+async function getCameras(city: "sf" | "la"): Promise<CamerasResponse> {
+  const cached = cache.get(city)
+  if (cached && cached.expires > Date.now()) return cached.body
+
+  // Coalesce concurrent cold-cache requests for the same city into one
+  // Caltrans fetch instead of one per request.
+  const inflight = pending.get(city)
+  if (inflight) return inflight
+
+  const promise = (async () => {
+    const res = await fetch(DISTRICT_URLS[city], { cache: "no-store" })
+    if (!res.ok) throw new Error(`CWWP2 ${DISTRICT_URLS[city]} responded ${res.status}`)
+    const buf = await res.arrayBuffer()
+
+    const json = JSON.parse(new TextDecoder().decode(buf)) as { data?: { cctv?: RawCctv }[] }
+    const cameras: Camera[] = []
+    for (const entry of json.data ?? []) {
+      if (!entry.cctv) continue
+      const cam = shapeCamera(entry.cctv, city)
+      if (cam) cameras.push(cam)
+    }
+
+    const body: CamerasResponse = { city, cameras, updatedAt: Date.now() }
+    cache.set(city, { body, expires: Date.now() + REVALIDATE * 1000 })
+    return body
+  })()
+
+  pending.set(city, promise)
+  try {
+    return await promise
+  } finally {
+    pending.delete(city)
+  }
+}
+
 export async function GET(req: Request) {
   const cityParam = new URL(req.url).searchParams.get("city")
   const city = cityParam === "la" ? "la" : cityParam === "sf" || !cityParam ? "sf" : null
@@ -79,28 +128,12 @@ export async function GET(req: Request) {
     return Response.json({ error: `invalid city "${cityParam}"` }, { status: 400 })
   }
 
-  let buf: ArrayBuffer
+  let body: CamerasResponse
   try {
-    // No `next: { revalidate }` here: the D4 feed alone is ~3.2MB, over Next's
-    // 2MB fetch data-cache limit, so that cache would silently fail to store it
-    // on every request. The Cache-Control header below is what actually shields
-    // both Caltrans and this function from repeat traffic, at the CDN layer.
-    const res = await fetch(DISTRICT_URLS[city], { cache: "no-store" })
-    if (!res.ok) throw new Error(`CWWP2 ${DISTRICT_URLS[city]} responded ${res.status}`)
-    buf = await res.arrayBuffer()
+    body = await getCameras(city)
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 502 })
   }
-
-  const json = JSON.parse(new TextDecoder().decode(buf)) as { data?: { cctv?: RawCctv }[] }
-  const cameras: Camera[] = []
-  for (const entry of json.data ?? []) {
-    if (!entry.cctv) continue
-    const cam = shapeCamera(entry.cctv)
-    if (cam) cameras.push(cam)
-  }
-
-  const body: CamerasResponse = { city, cameras, updatedAt: Date.now() }
 
   return Response.json(body, {
     headers: {

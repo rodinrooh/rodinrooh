@@ -3,80 +3,114 @@
 import { memo, useEffect, useRef, useState } from "react"
 import type { Camera } from "@/lib/types-traffic-cams"
 import { useOnScreen } from "./useOnScreen"
+import { acquireHlsSlot } from "./hlsSemaphore"
+import { isCaltransPlaceholder } from "./detectPlaceholder"
 
-// Caltrans streams often hang instead of cleanly erroring — if playback hasn't
-// started by this point, treat the stream as dead and fall back to the photo.
-const WATCHDOG_MS = 8_000
+// Real successes resolve in ~1s; real measurement showed every failure hangs
+// for the *entire* watchdog duration rather than erroring early (Caltrans
+// streams don't cleanly 404, they just stall) — so a shorter watchdog loses
+// nothing genuine while cutting the worst-case stall by more than half.
+const WATCHDOG_MS = 3_000
 
 type Mode = "loading" | "video" | "image"
 
-function CameraTileInner({ camera }: { camera: Camera }) {
+function CameraTileInner({
+  camera,
+  liveOnly,
+  onModeChange,
+}: {
+  camera: Camera
+  liveOnly: boolean
+  onModeChange?: (id: string, mode: Mode) => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const isVisible = useOnScreen(containerRef)
 
-  const [mode, setMode] = useState<Mode>(camera.videoUrl ? "video" : "image")
+  const [mode, setMode] = useState<Mode>(camera.videoUrl ? "loading" : "image")
   const [cacheBust, setCacheBust] = useState(0)
+  const [isPlaceholder, setIsPlaceholder] = useState(false)
 
-  // mode never transitions back to "video" once it falls back, so this also
-  // doubles as "don't retry a stream we already know is bad this session."
+  // mode never transitions back to "loading"/"video" once it falls back, so
+  // this also doubles as "don't retry a stream we already know is bad this
+  // session."
   const fallback = () => {
     setMode(camera.imageUrl ? "image" : "loading")
   }
+
+  useEffect(() => {
+    onModeChange?.(camera.id, mode)
+  }, [camera.id, mode, onModeChange])
 
   // Video path: attach hls.js (or native HLS on Safari) only while on-screen,
   // tear it down the moment the tile scrolls off — this is what bounds how
   // many concurrent connections we open to Caltrans regardless of grid size.
   useEffect(() => {
-    if (!isVisible || mode !== "video" || !camera.videoUrl) return
+    if (!isVisible || mode !== "loading" || !camera.videoUrl) return
     const video = videoRef.current
     if (!video) return
 
     let cancelled = false
     let hlsInstance: import("hls.js").default | null = null
-    const watchdog = setTimeout(() => {
-      if (!cancelled) fallback()
-    }, WATCHDOG_MS)
+    let releaseSlot: (() => void) | null = null
+    let watchdog: ReturnType<typeof setTimeout> | null = null
 
     function onReady() {
-      clearTimeout(watchdog)
+      if (watchdog) clearTimeout(watchdog)
+      if (!cancelled) setMode("video")
       video?.play().catch(() => {})
     }
     function onError() {
-      clearTimeout(watchdog)
+      if (watchdog) clearTimeout(watchdog)
       if (!cancelled) fallback()
     }
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari: native HLS, no library needed.
-      video.src = camera.videoUrl
-      video.addEventListener("loadedmetadata", onReady)
-      video.addEventListener("error", onError)
-    } else {
+    const ticket = acquireHlsSlot()
+    ticket.promise.then((release) => {
+      if (cancelled) {
+        release()
+        return
+      }
+      releaseSlot = release
+      watchdog = setTimeout(onError, WATCHDOG_MS)
+
       import("hls.js").then(({ default: Hls }) => {
         if (cancelled) return
-        if (!Hls.isSupported()) {
-          fallback()
-          return
+        // Prefer hls.js (MediaSource-based) wherever supported — this must be
+        // checked *before* falling back to canPlayType(): Chrome's <video>
+        // returns the truthy string "maybe" for the HLS MIME type even though
+        // it has no native HLS demuxer, so checking canPlayType first (as
+        // most examples show, aimed at only distinguishing Safari) silently
+        // sends Chrome down a dead-end path that never fires any event at all.
+        if (Hls.isSupported()) {
+          hlsInstance = new Hls()
+          hlsInstance.on(Hls.Events.MANIFEST_PARSED, onReady)
+          hlsInstance.on(Hls.Events.ERROR, (_evt, data) => {
+            if (data.fatal) onError()
+          })
+          hlsInstance.loadSource(camera.videoUrl!)
+          hlsInstance.attachMedia(video)
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = camera.videoUrl!
+          video.addEventListener("loadedmetadata", onReady)
+          video.addEventListener("error", onError)
+        } else {
+          onError()
         }
-        hlsInstance = new Hls()
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, onReady)
-        hlsInstance.on(Hls.Events.ERROR, (_evt, data) => {
-          if (data.fatal) onError()
-        })
-        hlsInstance.loadSource(camera.videoUrl!)
-        hlsInstance.attachMedia(video)
       })
-    }
+    })
 
     return () => {
       cancelled = true
-      clearTimeout(watchdog)
+      ticket.cancel()
+      if (watchdog) clearTimeout(watchdog)
       video.removeEventListener("loadedmetadata", onReady)
       video.removeEventListener("error", onError)
       hlsInstance?.destroy()
       video.removeAttribute("src")
       video.load()
+      releaseSlot?.()
     }
   }, [isVisible, mode, camera.videoUrl])
 
@@ -87,10 +121,25 @@ function CameraTileInner({ camera }: { camera: Camera }) {
     return () => clearInterval(id)
   }, [isVisible, mode, camera.imageRefreshMs])
 
+  // Caltrans serves its "Temporarily Unavailable" graphic from the same URL
+  // as a real photo (200 OK, valid JPEG) with no flag for it anywhere in the
+  // feed — checked after each load, on the actual pixels.
+  const handleImageLoad = () => {
+    const img = imgRef.current
+    setIsPlaceholder(!!img && isCaltransPlaceholder(img))
+  }
+
+  // Only hide tiles that have actually settled on "not live" — a tile still
+  // connecting might yet become live, so it stays visible (with its loading
+  // skeleton) rather than disappearing and possibly popping back in.
+  const hiddenByFilter = liveOnly && mode === "image"
+  const showAsUnavailable = mode === "image" && isPlaceholder
+
   return (
     <div
       ref={containerRef}
       style={{
+        display: hiddenByFilter ? "none" : undefined,
         position: "relative",
         width: "100%",
         aspectRatio: "16 / 9",
@@ -100,7 +149,7 @@ function CameraTileInner({ camera }: { camera: Camera }) {
         border: "1px solid rgba(255,255,255,0.08)",
       }}
     >
-      {mode === "video" && (
+      {(mode === "loading" || mode === "video") && camera.videoUrl && (
         <video
           ref={videoRef}
           muted
@@ -114,14 +163,50 @@ function CameraTileInner({ camera }: { camera: Camera }) {
       {mode === "image" && camera.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imgRef}
           src={`${camera.imageUrl}?_=${cacheBust}`}
           alt={camera.name}
+          crossOrigin="anonymous"
+          onLoad={handleImageLoad}
           loading="lazy"
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+            visibility: showAsUnavailable ? "hidden" : "visible",
+          }}
         />
       )}
 
-      {mode === "loading" && <div style={{ width: "100%", height: "100%" }} />}
+      {showAsUnavailable && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 11,
+            color: "#8e8e93",
+            background: "#161618",
+          }}
+        >
+          Camera unavailable
+        </div>
+      )}
+
+      {mode === "loading" && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "linear-gradient(90deg, #111 25%, #1a1a1c 37%, #111 63%)",
+            backgroundSize: "400% 100%",
+            animation: "camPulse 1.6s ease-in-out infinite",
+          }}
+        />
+      )}
 
       <div
         style={{
@@ -151,7 +236,7 @@ function CameraTileInner({ camera }: { camera: Camera }) {
             boxShadow: mode === "video" ? "0 0 6px #3ddc63" : "none",
           }}
         />
-        {mode === "video" ? "LIVE" : "PHOTO"}
+        {mode === "video" ? "LIVE" : mode === "loading" ? "CONNECTING" : showAsUnavailable ? "OFFLINE" : "PHOTO"}
       </div>
 
       <div
@@ -194,8 +279,11 @@ const CameraTile = memo(CameraTileInner, (prev, next) => {
     a.id === b.id &&
     a.videoUrl === b.videoUrl &&
     a.imageUrl === b.imageUrl &&
-    a.imageRefreshMs === b.imageRefreshMs
+    a.imageRefreshMs === b.imageRefreshMs &&
+    prev.liveOnly === next.liveOnly &&
+    prev.onModeChange === next.onModeChange
   )
 })
 
 export default CameraTile
+export type { Mode }

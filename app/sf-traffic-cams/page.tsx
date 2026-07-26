@@ -2,11 +2,12 @@
 
 export const dynamic = "force-dynamic"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import type { Camera, CamerasResponse } from "@/lib/types-traffic-cams"
 import CameraGrid from "./components/CameraGrid"
 import CityToggle from "./components/CityToggle"
+import type { Mode } from "./components/CameraTile"
 
 type City = "sf" | "la"
 
@@ -31,6 +32,26 @@ function TrafficCamsPageInner() {
   const [cameras, setCameras] = useState<Camera[]>([])
   const [loading, setLoading] = useState(true)
   const [lastFetch, setLastFetch] = useState<number | null>(null)
+
+  const [liveOnly, setLiveOnly] = useState(false)
+  const [liveCount, setLiveCount] = useState(0)
+  const modesRef = useRef(new Map<string, Mode>())
+
+  const handleModeChange = useCallback((id: string, mode: Mode) => {
+    const prev = modesRef.current.get(id)
+    if (prev === mode) return
+    modesRef.current.set(id, mode)
+    if (mode === "video" && prev !== "video") setLiveCount((n) => n + 1)
+    else if (prev === "video" && mode !== "video") setLiveCount((n) => n - 1)
+  }, [])
+
+  // Camera ids are unique per city (server prefixes them), so a city switch
+  // mounts a fresh set of tiles — reset the tally rather than let it carry
+  // over stale counts from the previous city's cameras.
+  useEffect(() => {
+    modesRef.current = new Map()
+    setLiveCount(0)
+  }, [city])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -90,11 +111,35 @@ function TrafficCamsPageInner() {
         onChange={(next) => router.push(`/sf-traffic-cams?city=${next}`, { scroll: false })}
       />
 
+      <button
+        onClick={() => setLiveOnly((v) => !v)}
+        style={{
+          position: "absolute",
+          top: "max(16px, env(safe-area-inset-top))",
+          right: 16,
+          padding: "7px 12px",
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: liveOnly ? "rgba(61,220,99,0.16)" : "rgba(18,18,20,0.72)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          color: liveOnly ? "#3ddc63" : "#fff",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          cursor: "pointer",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
+          zIndex: 1,
+        }}
+      >
+        {liveOnly ? `LIVE ONLY (${liveCount})` : "LIVE ONLY"}
+      </button>
+
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "76px 16px 48px" }}>
         {loading && cameras.length === 0 ? (
           <div style={{ fontSize: 14, color: "#8e8e93" }}>Loading cameras…</div>
         ) : (
-          <CameraGrid cameras={cameras} />
+          <CameraGrid cameras={cameras} liveOnly={liveOnly} onModeChange={handleModeChange} />
         )}
       </div>
 
