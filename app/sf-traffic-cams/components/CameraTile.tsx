@@ -24,6 +24,14 @@ const WATCHDOG_BUFFER_MS = 9_000
 // destroyed) after scrolling off-screen, so scrolling back is instant.
 const PAUSE_GRACE_MS = 60_000
 
+// hls.js has its own internal stall detection, but it's slow — real
+// measurement (12-minute production observation) caught 5 separate stalls
+// (readyState stuck at 2, currentTime frozen, still badged LIVE) that each
+// took 5-10s between the freeze starting and hls.js finally reporting a
+// fatal error. Watching currentTime ourselves catches it much sooner.
+const STALL_CHECK_MS = 2_000
+const STALL_MAX_MISSES = 2 // ~4s of zero progress before treating it as dead
+
 const RECENT_LIVE_KEY = "sf-traffic-cams:recentLive"
 const RECENT_LIVE_WINDOW_MS = 30 * 60 * 1000
 const RECENT_LIVE_MAX_ENTRIES = 300
@@ -90,6 +98,7 @@ function CameraTileInner({
   const hlsInstanceRef = useRef<import("hls.js").default | null>(null)
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stallWatcherRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const detachListenersRef = useRef<(() => void) | null>(null)
   // Cancels only the *current in-flight negotiation attempt* — set fresh by
   // startNegotiation() each time it's called (which can happen more than
@@ -106,9 +115,43 @@ function CameraTileInner({
     onModeChange?.(camera.id, mode)
   }, [camera.id, mode, onModeChange])
 
+  function stopStallWatcher() {
+    if (stallWatcherRef.current) {
+      clearInterval(stallWatcherRef.current)
+      stallWatcherRef.current = null
+    }
+  }
+
+  // Starts fresh each time playback actually begins — both the initial
+  // success and a resume-from-pause (video.play() after scrolling back
+  // within the grace window also fires the native 'playing' event, which
+  // calls this again) — so there's never stale state from a previous run.
+  function startStallWatcher() {
+    stopStallWatcher()
+    let lastTime = -1
+    let misses = 0
+    stallWatcherRef.current = setInterval(() => {
+      const video = videoRef.current
+      // Deliberately paused (scroll-off grace window) — not a stall.
+      if (!video || video.paused) return
+      if (Math.abs(video.currentTime - lastTime) < 0.05) {
+        misses++
+        if (misses >= STALL_MAX_MISSES) {
+          stopStallWatcher()
+          die()
+          return
+        }
+      } else {
+        misses = 0
+      }
+      lastTime = video.currentTime
+    }, STALL_CHECK_MS)
+  }
+
   function fullTeardown() {
     cancelAttemptRef.current?.()
     cancelAttemptRef.current = null
+    stopStallWatcher()
     if (watchdogRef.current) {
       clearTimeout(watchdogRef.current)
       watchdogRef.current = null
@@ -160,6 +203,7 @@ function CameraTileInner({
       }
       setMode("video")
       markRecentlyLive(camera.id)
+      startStallWatcher()
     }
 
     detachListenersRef.current = () => {
@@ -256,6 +300,7 @@ function CameraTileInner({
     } else {
       if (modeRef.current === "video") {
         video.pause()
+        stopStallWatcher()
         registerPaused(camera.id, fullTeardown)
         pauseTimerRef.current = setTimeout(() => {
           unregisterPaused(camera.id)
