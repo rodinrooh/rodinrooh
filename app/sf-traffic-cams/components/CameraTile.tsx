@@ -301,10 +301,23 @@ function CameraTileInner({
       if (modeRef.current === "video") {
         video.pause()
         stopStallWatcher()
-        registerPaused(camera.id, fullTeardown)
+        // Tear down for real *and* drop back to "loading" — found via a real
+        // 12-minute production observation: leaving `mode` at "video" here
+        // left the badge permanently stuck on LIVE over a genuinely dead,
+        // sourceless connection once the grace period (or an early eviction,
+        // via pausedRegistry's cap) actually tore it down. Without resetting
+        // mode, scrolling back later would just call video.play() on nothing
+        // (the resume branch above assumes "video" means "just resume") —
+        // it would never reconnect. Resetting to "loading" means the next
+        // scroll-into-view correctly starts a fresh negotiation instead.
+        const expireOffScreen = () => {
+          fullTeardown()
+          setMode("loading")
+        }
+        registerPaused(camera.id, expireOffScreen)
         pauseTimerRef.current = setTimeout(() => {
           unregisterPaused(camera.id)
-          fullTeardown()
+          expireOffScreen()
         }, PAUSE_GRACE_MS)
       } else {
         fullTeardown()
