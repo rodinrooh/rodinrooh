@@ -1,33 +1,43 @@
-// Caps how many tiles can be mid-HLS-negotiation at once. Measured with a real
-// headless-browser run: of ~23 tiles that load simultaneously on a 1400x900
-// viewport, only ~2 succeed (in ~1s) and the rest hang until the watchdog cuts
-// them off — concurrency didn't appear to be *causing* those failures (the
-// successes were just as fast whether tested alone or amid the burst), so this
-// cap isn't a speed fix. It exists to bound how many simultaneous connections
-// we open to Caltrans's infrastructure on wide/tall viewports (a 4K window can
-// fit 50+ tiles) — set loose enough that it rarely queues on a normal screen.
-const MAX_CONCURRENT = 10
+// Caps how many tiles can be mid-HLS-negotiation at once. Slots now release
+// as soon as a stream's manifest parses (see CameraTile.tsx) rather than
+// being held for the stream's entire playing lifetime, so this cap only binds
+// during the initial burst when a lot of tiles become visible at once — not
+// an ongoing bottleneck. 40 is generous headroom for a normal viewport while
+// still bounding a pathological case (a maximized 4K window with 80+ tiles
+// pre-loaded via IntersectionObserver's rootMargin).
+//
+// There's no real evidence Caltrans needs protecting from this traffic — they
+// serve these streams with wide-open CORS and no API key specifically for
+// public consumption. The actual constraint this cap guards against is the
+// *visitor's own device* decoding too many simultaneous videos at once.
+const MAX_CONCURRENT = 40
 
 let active = 0
-const queue: (() => void)[] = []
+// Two FIFO buckets: a released slot is offered to the priority queue first
+// (cameras with a recent localStorage record of having been live — see
+// CameraTile.tsx), falling back to normal FIFO order otherwise.
+const priorityQueue: (() => void)[] = []
+const normalQueue: (() => void)[] = []
 
 export interface HlsSlotTicket {
   // Resolves with the release function once a slot is actually acquired.
   promise: Promise<() => void>
   // Call if the tile scrolls off-screen/unmounts before its turn comes up —
-  // removes it from the queue so it doesn't hold a phantom place in line.
+  // removes it from whichever queue it's sitting in so it doesn't hold a
+  // phantom place in line.
   cancel: () => void
 }
 
-export function acquireHlsSlot(): HlsSlotTicket {
+export function acquireHlsSlot(priority = false): HlsSlotTicket {
   let queuedFn: (() => void) | null = null
+  let queuedIn: (() => void)[] | null = null
 
   const promise = new Promise<() => void>((resolve) => {
     const tryAcquire = () => {
       active++
       resolve(() => {
         active--
-        const next = queue.shift()
+        const next = priorityQueue.shift() ?? normalQueue.shift()
         if (next) next()
       })
     }
@@ -35,16 +45,17 @@ export function acquireHlsSlot(): HlsSlotTicket {
       tryAcquire()
     } else {
       queuedFn = tryAcquire
-      queue.push(tryAcquire)
+      queuedIn = priority ? priorityQueue : normalQueue
+      queuedIn.push(tryAcquire)
     }
   })
 
   return {
     promise,
     cancel: () => {
-      if (queuedFn) {
-        const idx = queue.indexOf(queuedFn)
-        if (idx !== -1) queue.splice(idx, 1)
+      if (queuedFn && queuedIn) {
+        const idx = queuedIn.indexOf(queuedFn)
+        if (idx !== -1) queuedIn.splice(idx, 1)
       }
     },
   }

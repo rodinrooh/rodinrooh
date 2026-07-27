@@ -13,6 +13,10 @@ export const metadata: Metadata = {
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className={inter.className} style={{ fontFamily: inter.style.fontFamily, letterSpacing: "-0.02em" }}>
+      {/* Every camera's HLS stream is on this same host, for both districts —
+          warm the DNS+TLS handshake before any tile even starts trying. */}
+      <link rel="preconnect" href="https://wzmedia.dot.ca.gov" crossOrigin="anonymous" />
+      <link rel="dns-prefetch" href="https://wzmedia.dot.ca.gov" />
       {children}
     </div>
   )

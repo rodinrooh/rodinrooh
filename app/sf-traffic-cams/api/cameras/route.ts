@@ -32,10 +32,6 @@ interface RawCctv {
   }
   imageData?: {
     streamingVideoURL?: string
-    static?: {
-      currentImageURL?: string
-      currentImageUpdateFrequency?: string
-    }
   }
   recordTimestamp?: {
     recordEpoch?: string
@@ -45,15 +41,15 @@ interface RawCctv {
 function shapeCamera(raw: RawCctv, city: "sf" | "la"): Camera | null {
   if (raw.inService !== "true") return null
 
+  // No photo fallback — cameras with no video stream are never sent to the
+  // client at all.
   const videoUrl = urlOrNull(raw.imageData?.streamingVideoURL)
-  const imageUrl = urlOrNull(raw.imageData?.static?.currentImageURL)
-  if (!videoUrl && !imageUrl) return null
+  if (!videoUrl) return null
 
   const lat = Number(raw.location?.latitude)
   const lng = Number(raw.location?.longitude)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
 
-  const refreshSecs = Number(raw.imageData?.static?.currentImageUpdateFrequency)
   const epoch = Number(raw.recordTimestamp?.recordEpoch)
 
   return {
@@ -72,8 +68,6 @@ function shapeCamera(raw: RawCctv, city: "sf" | "la"): Camera | null {
     lat,
     lng,
     videoUrl,
-    imageUrl,
-    imageRefreshMs: (Number.isFinite(refreshSecs) && refreshSecs > 0 ? refreshSecs : 5) * 1000,
     updatedAt: (Number.isFinite(epoch) ? epoch : Date.now() / 1000) * 1000,
   }
 }

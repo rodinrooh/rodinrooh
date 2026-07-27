@@ -4,15 +4,61 @@ import { memo, useEffect, useRef, useState } from "react"
 import type { Camera } from "@/lib/types-traffic-cams"
 import { useOnScreen } from "./useOnScreen"
 import { acquireHlsSlot } from "./hlsSemaphore"
-import { isCaltransPlaceholder } from "./detectPlaceholder"
+import { registerPaused, unregisterPaused } from "./pausedRegistry"
 
-// Real successes resolve in ~1s; real measurement showed every failure hangs
-// for the *entire* watchdog duration rather than erroring early (Caltrans
-// streams don't cleanly 404, they just stall) — so a shorter watchdog loses
-// nothing genuine while cutting the worst-case stall by more than half.
-const WATCHDOG_MS = 3_000
+// Two sequential budgets instead of one: negotiating (slot acquired up to
+// the manifest parsing) either resolves fast or hangs, per real measurement;
+// buffering (manifest parsed up to an actual frame rendering) is a separate,
+// shorter budget for a stream that looked fine but never really started.
+const WATCHDOG_NEGOTIATE_MS = 3_000
+// Real measurement (see comment history / memory): Caltrans segments are
+// ~10-11s each, so hls.js often needs several seconds after the manifest
+// parses before it has buffered enough of one segment to actually start
+// playing — real successes observed firing `playing` 5-9s after
+// MANIFEST_PARSED, not the ~1s a naive read of "manifest parsed" would
+// suggest. 9s gives real streams room to finish that first segment while
+// still cutting off ones that are genuinely stalled.
+const WATCHDOG_BUFFER_MS = 9_000
 
-type Mode = "loading" | "video" | "image"
+// How long a confirmed-live tile keeps its connection alive (paused, not
+// destroyed) after scrolling off-screen, so scrolling back is instant.
+const PAUSE_GRACE_MS = 60_000
+
+const RECENT_LIVE_KEY = "sf-traffic-cams:recentLive"
+const RECENT_LIVE_WINDOW_MS = 30 * 60 * 1000
+const RECENT_LIVE_MAX_ENTRIES = 300
+
+function readRecentLive(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(RECENT_LIVE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function wasRecentlyLive(id: string): boolean {
+  const ts = readRecentLive()[id]
+  return typeof ts === "number" && Date.now() - ts < RECENT_LIVE_WINDOW_MS
+}
+
+function markRecentlyLive(id: string): void {
+  try {
+    const record = readRecentLive()
+    record[id] = Date.now()
+    const pruned = Object.fromEntries(
+      Object.entries(record)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, RECENT_LIVE_MAX_ENTRIES)
+    )
+    localStorage.setItem(RECENT_LIVE_KEY, JSON.stringify(pruned))
+  } catch {
+    // localStorage unavailable (private mode, quota) — priority is a nice-to-
+    // have, not required, so just skip recording it.
+  }
+}
+
+type Mode = "loading" | "buffering" | "video" | "dead"
 
 function CameraTileInner({
   camera,
@@ -25,141 +71,214 @@ function CameraTileInner({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
   const isVisible = useOnScreen(containerRef)
 
-  const [mode, setMode] = useState<Mode>(camera.videoUrl ? "loading" : "image")
-  const [cacheBust, setCacheBust] = useState(0)
-  const [isPlaceholder, setIsPlaceholder] = useState(false)
+  const [mode, setMode] = useState<Mode>("loading")
+  const [isDead, setIsDead] = useState(false)
 
-  // Read inside the attach effect without being a dependency of it — see the
-  // comment on that effect for why it must NOT re-run when mode flips to
-  // "video" on success.
+  // Read inside effects without being a dependency of them — several of
+  // these transitions must not retrigger the effect that caused them (a past
+  // bug: `mode` in the attach effect's deps meant a successful attach tore
+  // itself down the instant it flipped to "video").
   const modeRef = useRef(mode)
   modeRef.current = mode
+  const isDeadRef = useRef(isDead)
+  isDeadRef.current = isDead
 
-  // mode never transitions back to "loading"/"video" once it falls back, so
-  // this also doubles as "don't retry a stream we already know is bad this
-  // session."
-  const fallback = () => {
-    setMode(camera.imageUrl ? "image" : "loading")
-  }
+  // Persist across isVisible toggles — these represent the *current attempt*
+  // (or live connection), not something scoped to a single effect run.
+  const hlsInstanceRef = useRef<import("hls.js").default | null>(null)
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const detachListenersRef = useRef<(() => void) | null>(null)
+  // Cancels only the *current in-flight negotiation attempt* — set fresh by
+  // startNegotiation() each time it's called (which can happen more than
+  // once per tile: scroll off before succeeding, scroll back, retry). NOT a
+  // long-lived "has this tile ever been superseded" flag — it must not block
+  // the hls.js ERROR handler from ever firing again after the first scroll,
+  // which is what a single shared ref reused across every visibility toggle
+  // would do (found while writing this, before it ever shipped: a stream
+  // that failed post-success would look permanently "live" and never
+  // tear down or self-remove).
+  const cancelAttemptRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     onModeChange?.(camera.id, mode)
   }, [camera.id, mode, onModeChange])
 
-  // Video path: attach hls.js (or native HLS on Safari) only while on-screen,
-  // tear it down the moment the tile scrolls off — this is what bounds how
-  // many concurrent connections we open to Caltrans regardless of grid size.
-  //
-  // Deliberately NOT keyed on `mode`: onReady() flips mode to "video" on
-  // success, and if `mode` were a dependency here, that state change would
-  // re-run *this same effect* — tearing down the hls.js instance and clearing
-  // the video's src moments after it started playing (confirmed live via a
-  // real browser: badge said LIVE, but video.readyState/networkState were 0 —
-  // the src had been wiped right after attach succeeded). `modeRef` lets the
-  // effect read the current mode without re-running when it changes.
-  useEffect(() => {
-    if (!isVisible || modeRef.current === "image" || !camera.videoUrl) return
+  function fullTeardown() {
+    cancelAttemptRef.current?.()
+    cancelAttemptRef.current = null
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current)
+      watchdogRef.current = null
+    }
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current)
+      pauseTimerRef.current = null
+    }
+    unregisterPaused(camera.id)
+    detachListenersRef.current?.()
+    detachListenersRef.current = null
+    hlsInstanceRef.current?.destroy()
+    hlsInstanceRef.current = null
+    const video = videoRef.current
+    if (video) {
+      video.removeAttribute("src")
+      video.load()
+    }
+  }
+
+  function die() {
+    fullTeardown()
+    setMode("dead")
+    isDeadRef.current = true
+    setIsDead(true)
+  }
+
+  function startNegotiation() {
     const video = videoRef.current
     if (!video) return
 
+    // Scoped to exactly this attempt — only guards the two async `.then()`
+    // chains below, which run regardless of instance/listener state. Once an
+    // hls.js instance exists, its own destroy() unsubscribes its listeners,
+    // and detachListenersRef removes the native <video> ones — so nothing
+    // else needs this flag, and it never needs to gate the ERROR handler.
     let cancelled = false
-    let hlsInstance: import("hls.js").default | null = null
-    let releaseSlot: (() => void) | null = null
-    let watchdog: ReturnType<typeof setTimeout> | null = null
 
-    function teardown() {
-      if (watchdog) {
-        clearTimeout(watchdog)
-        watchdog = null
+    function onManifestParsed() {
+      if (watchdogRef.current) clearTimeout(watchdogRef.current)
+      setMode("buffering")
+      video!.play().catch(() => {})
+      watchdogRef.current = setTimeout(die, WATCHDOG_BUFFER_MS)
+    }
+    function onPlaying() {
+      if (watchdogRef.current) {
+        clearTimeout(watchdogRef.current)
+        watchdogRef.current = null
       }
-      hlsInstance?.destroy()
-      hlsInstance = null
-      video!.removeEventListener("loadedmetadata", onReady)
-      video!.removeEventListener("error", onError)
-      video!.removeAttribute("src")
-      video!.load()
-      releaseSlot?.()
-      releaseSlot = null
+      setMode("video")
+      markRecentlyLive(camera.id)
     }
 
-    function onReady() {
-      if (watchdog) {
-        clearTimeout(watchdog)
-        watchdog = null
-      }
-      if (!cancelled) setMode("video")
-      video?.play().catch(() => {})
-    }
-    function onError() {
-      teardown()
-      if (!cancelled) fallback()
+    detachListenersRef.current = () => {
+      video.removeEventListener("playing", onPlaying)
+      video.removeEventListener("loadedmetadata", onManifestParsed)
     }
 
-    const ticket = acquireHlsSlot()
+    const priority = wasRecentlyLive(camera.id)
+    const ticket = acquireHlsSlot(priority)
+    cancelAttemptRef.current = () => {
+      cancelled = true
+      ticket.cancel()
+    }
+
     ticket.promise.then((release) => {
       if (cancelled) {
         release()
         return
       }
-      releaseSlot = release
-      watchdog = setTimeout(onError, WATCHDOG_MS)
+      let releaseSlot: (() => void) | null = release
+      watchdogRef.current = setTimeout(() => {
+        releaseSlot?.()
+        releaseSlot = null
+        die()
+      }, WATCHDOG_NEGOTIATE_MS)
+
+      const releaseOnceManifestParsed = () => {
+        releaseSlot?.()
+        releaseSlot = null
+        onManifestParsed()
+      }
 
       import("hls.js").then(({ default: Hls }) => {
-        if (cancelled) return
+        if (cancelled) {
+          releaseSlot?.()
+          return
+        }
         // Prefer hls.js (MediaSource-based) wherever supported — this must be
         // checked *before* falling back to canPlayType(): Chrome's <video>
-        // returns the truthy string "maybe" for the HLS MIME type even though
-        // it has no native HLS demuxer, so checking canPlayType first (as
-        // most examples show, aimed at only distinguishing Safari) silently
-        // sends Chrome down a dead-end path that never fires any event at all.
+        // returns the truthy string "maybe" for the HLS MIME type despite
+        // having no native HLS demuxer, so checking canPlayType first sends
+        // Chrome down a dead-end path that never fires any event at all.
         if (Hls.isSupported()) {
-          hlsInstance = new Hls()
-          hlsInstance.on(Hls.Events.MANIFEST_PARSED, onReady)
-          hlsInstance.on(Hls.Events.ERROR, (_evt, data) => {
-            if (data.fatal) onError()
+          const hls = new Hls()
+          hlsInstanceRef.current = hls
+          hls.on(Hls.Events.MANIFEST_PARSED, releaseOnceManifestParsed)
+          hls.on(Hls.Events.ERROR, (_evt, data) => {
+            if (!data.fatal) return
+            releaseSlot?.()
+            releaseSlot = null
+            die()
           })
-          hlsInstance.loadSource(camera.videoUrl!)
-          hlsInstance.attachMedia(video)
+          hls.loadSource(camera.videoUrl)
+          hls.attachMedia(video)
+          video.addEventListener("playing", onPlaying)
         } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-          video.src = camera.videoUrl!
-          video.addEventListener("loadedmetadata", onReady)
-          video.addEventListener("error", onError)
+          video.src = camera.videoUrl
+          video.addEventListener("loadedmetadata", releaseOnceManifestParsed)
+          video.addEventListener("playing", onPlaying)
+          video.addEventListener("error", () => {
+            releaseSlot?.()
+            releaseSlot = null
+            die()
+          })
         } else {
-          onError()
+          releaseSlot?.()
+          releaseSlot = null
+          die()
         }
       })
     })
-
-    return () => {
-      cancelled = true
-      ticket.cancel()
-      teardown()
-    }
-  }, [isVisible, camera.videoUrl])
-
-  // Image path: only poll for a fresh frame while on-screen.
-  useEffect(() => {
-    if (!isVisible || mode !== "image") return
-    const id = setInterval(() => setCacheBust((n) => n + 1), camera.imageRefreshMs)
-    return () => clearInterval(id)
-  }, [isVisible, mode, camera.imageRefreshMs])
-
-  // Caltrans serves its "Temporarily Unavailable" graphic from the same URL
-  // as a real photo (200 OK, valid JPEG) with no flag for it anywhere in the
-  // feed — checked after each load, on the actual pixels.
-  const handleImageLoad = () => {
-    const img = imgRef.current
-    setIsPlaceholder(!!img && isCaltransPlaceholder(img))
   }
 
-  // Only hide tiles that have actually settled on "not live" — a tile still
-  // connecting might yet become live, so it stays visible (with its loading
-  // skeleton) rather than disappearing and possibly popping back in.
-  const hiddenByFilter = liveOnly && mode === "image"
-  const showAsUnavailable = mode === "image" && isPlaceholder
+  // Drives every transition: fresh negotiation, resume-from-pause, pause-on-
+  // scroll-off, or immediate teardown — branching on the *current* mode via
+  // a ref rather than depending on `mode`, so a transition this effect
+  // triggers (e.g. negotiation succeeding) never re-fires the same effect.
+  useEffect(() => {
+    if (isDeadRef.current) return
+    const video = videoRef.current
+    if (!video) return
+
+    if (isVisible) {
+      if (modeRef.current === "video") {
+        unregisterPaused(camera.id)
+        if (pauseTimerRef.current) {
+          clearTimeout(pauseTimerRef.current)
+          pauseTimerRef.current = null
+        }
+        video.play().catch(() => {})
+      } else {
+        startNegotiation()
+      }
+    } else {
+      if (modeRef.current === "video") {
+        video.pause()
+        registerPaused(camera.id, fullTeardown)
+        pauseTimerRef.current = setTimeout(() => {
+          unregisterPaused(camera.id)
+          fullTeardown()
+        }, PAUSE_GRACE_MS)
+      } else {
+        fullTeardown()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, camera.videoUrl])
+
+  // Guarantees cleanup on true unmount (not just an isVisible toggle, which
+  // the effect above already handles explicitly).
+  useEffect(() => {
+    return () => fullTeardown()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (isDead) return null
+
+  const hiddenByFilter = liveOnly && mode !== "video"
+  const label = mode === "video" ? "LIVE" : mode === "buffering" ? "BUFFERING" : "CONNECTING"
 
   return (
     <div
@@ -175,55 +294,15 @@ function CameraTileInner({
         border: "1px solid rgba(255,255,255,0.08)",
       }}
     >
-      {(mode === "loading" || mode === "video") && camera.videoUrl && (
-        // No onError prop here — see the comment above the attach effect;
-        // a bare fallback() call would skip its teardown and leak resources.
-        <video
-          ref={videoRef}
-          muted
-          autoPlay
-          playsInline
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-        />
-      )}
+      <video
+        ref={videoRef}
+        muted
+        autoPlay
+        playsInline
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+      />
 
-      {mode === "image" && camera.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imgRef}
-          src={`${camera.imageUrl}?_=${cacheBust}`}
-          alt={camera.name}
-          crossOrigin="anonymous"
-          onLoad={handleImageLoad}
-          loading="lazy"
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-            visibility: showAsUnavailable ? "hidden" : "visible",
-          }}
-        />
-      )}
-
-      {showAsUnavailable && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 11,
-            color: "#8e8e93",
-            background: "#161618",
-          }}
-        >
-          Camera unavailable
-        </div>
-      )}
-
-      {mode === "loading" && (
+      {mode !== "video" && (
         <div
           style={{
             position: "absolute",
@@ -263,7 +342,7 @@ function CameraTileInner({
             boxShadow: mode === "video" ? "0 0 6px #3ddc63" : "none",
           }}
         />
-        {mode === "video" ? "LIVE" : mode === "loading" ? "CONNECTING" : showAsUnavailable ? "OFFLINE" : "PHOTO"}
+        {label}
       </div>
 
       <div
@@ -305,8 +384,6 @@ const CameraTile = memo(CameraTileInner, (prev, next) => {
   return (
     a.id === b.id &&
     a.videoUrl === b.videoUrl &&
-    a.imageUrl === b.imageUrl &&
-    a.imageRefreshMs === b.imageRefreshMs &&
     prev.liveOnly === next.liveOnly &&
     prev.onModeChange === next.onModeChange
   )
