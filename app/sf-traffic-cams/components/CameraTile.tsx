@@ -32,6 +32,12 @@ function CameraTileInner({
   const [cacheBust, setCacheBust] = useState(0)
   const [isPlaceholder, setIsPlaceholder] = useState(false)
 
+  // Read inside the attach effect without being a dependency of it — see the
+  // comment on that effect for why it must NOT re-run when mode flips to
+  // "video" on success.
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+
   // mode never transitions back to "loading"/"video" once it falls back, so
   // this also doubles as "don't retry a stream we already know is bad this
   // session."
@@ -46,8 +52,16 @@ function CameraTileInner({
   // Video path: attach hls.js (or native HLS on Safari) only while on-screen,
   // tear it down the moment the tile scrolls off — this is what bounds how
   // many concurrent connections we open to Caltrans regardless of grid size.
+  //
+  // Deliberately NOT keyed on `mode`: onReady() flips mode to "video" on
+  // success, and if `mode` were a dependency here, that state change would
+  // re-run *this same effect* — tearing down the hls.js instance and clearing
+  // the video's src moments after it started playing (confirmed live via a
+  // real browser: badge said LIVE, but video.readyState/networkState were 0 —
+  // the src had been wiped right after attach succeeded). `modeRef` lets the
+  // effect read the current mode without re-running when it changes.
   useEffect(() => {
-    if (!isVisible || mode !== "loading" || !camera.videoUrl) return
+    if (!isVisible || modeRef.current === "image" || !camera.videoUrl) return
     const video = videoRef.current
     if (!video) return
 
@@ -56,13 +70,31 @@ function CameraTileInner({
     let releaseSlot: (() => void) | null = null
     let watchdog: ReturnType<typeof setTimeout> | null = null
 
+    function teardown() {
+      if (watchdog) {
+        clearTimeout(watchdog)
+        watchdog = null
+      }
+      hlsInstance?.destroy()
+      hlsInstance = null
+      video!.removeEventListener("loadedmetadata", onReady)
+      video!.removeEventListener("error", onError)
+      video!.removeAttribute("src")
+      video!.load()
+      releaseSlot?.()
+      releaseSlot = null
+    }
+
     function onReady() {
-      if (watchdog) clearTimeout(watchdog)
+      if (watchdog) {
+        clearTimeout(watchdog)
+        watchdog = null
+      }
       if (!cancelled) setMode("video")
       video?.play().catch(() => {})
     }
     function onError() {
-      if (watchdog) clearTimeout(watchdog)
+      teardown()
       if (!cancelled) fallback()
     }
 
@@ -104,15 +136,9 @@ function CameraTileInner({
     return () => {
       cancelled = true
       ticket.cancel()
-      if (watchdog) clearTimeout(watchdog)
-      video.removeEventListener("loadedmetadata", onReady)
-      video.removeEventListener("error", onError)
-      hlsInstance?.destroy()
-      video.removeAttribute("src")
-      video.load()
-      releaseSlot?.()
+      teardown()
     }
-  }, [isVisible, mode, camera.videoUrl])
+  }, [isVisible, camera.videoUrl])
 
   // Image path: only poll for a fresh frame while on-screen.
   useEffect(() => {
@@ -150,12 +176,13 @@ function CameraTileInner({
       }}
     >
       {(mode === "loading" || mode === "video") && camera.videoUrl && (
+        // No onError prop here — see the comment above the attach effect;
+        // a bare fallback() call would skip its teardown and leak resources.
         <video
           ref={videoRef}
           muted
           autoPlay
           playsInline
-          onError={fallback}
           style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
         />
       )}
