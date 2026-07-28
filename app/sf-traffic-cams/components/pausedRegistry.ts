@@ -6,7 +6,7 @@
 // aggressive. This registry bounds that: past MAX_PAUSED simultaneously
 // paused tiles, the oldest-paused one is torn down immediately instead of
 // waiting out its remaining grace period.
-const MAX_PAUSED = 20
+const MAX_PAUSED = 24
 
 // Map preserves insertion order, so keys() gives oldest-paused-first.
 const paused = new Map<string, () => void>()

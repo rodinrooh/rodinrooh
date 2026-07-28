@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic"
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import type { Camera, CamerasResponse } from "@/lib/types-traffic-cams"
 import CameraGrid from "./components/CameraGrid"
@@ -16,6 +16,12 @@ type City = "sf" | "la"
 const POLL_VISIBLE = 600_000
 const POLL_HIDDEN = 1_800_000
 
+// Fixed "CCTV wall" page size — 3x3 grid. Only the current page's tiles
+// actually play; the immediate previous/next page are kept mounted as a
+// paused prefetch (see CameraTile's `role` prop) so paging feels instant
+// without ever running more than ~3 pages worth of connections at once.
+const PAGE_SIZE = 9
+
 export default function SFTrafficCamsPage() {
   return (
     <Suspense fallback={null}>
@@ -28,10 +34,34 @@ function TrafficCamsPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const city: City = searchParams.get("city") === "la" ? "la" : "sf"
+  const rawPage = parseInt(searchParams.get("page") ?? "1", 10)
 
   const [cameras, setCameras] = useState<Camera[]>([])
   const [loading, setLoading] = useState(true)
   const [lastFetch, setLastFetch] = useState<number | null>(null)
+
+  // Stable order so page boundaries never reshuffle between the periodic
+  // refetches below — Caltrans's own JSON has no meaningful order.
+  const sortedCameras = useMemo(
+    () => [...cameras].sort((a, b) => a.id.localeCompare(b.id)),
+    [cameras]
+  )
+  const totalPages = Math.max(1, Math.ceil(sortedCameras.length / PAGE_SIZE))
+  const page = Math.min(Math.max(1, Number.isFinite(rawPage) ? rawPage : 1), totalPages)
+
+  function goToPage(target: number) {
+    const clamped = Math.min(Math.max(1, target), totalPages)
+    router.push(`/sf-traffic-cams?city=${city}&page=${clamped}`, { scroll: false })
+  }
+
+  const currentSlice = sortedCameras.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const prevSlice = page > 1 ? sortedCameras.slice((page - 2) * PAGE_SIZE, (page - 1) * PAGE_SIZE) : []
+  const nextSlice = page < totalPages ? sortedCameras.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : []
+  const windowedTiles = [
+    ...prevSlice.map((camera) => ({ camera, role: "standby" as const })),
+    ...currentSlice.map((camera) => ({ camera, role: "active" as const })),
+    ...nextSlice.map((camera) => ({ camera, role: "standby" as const })),
+  ]
 
   const [liveOnly, setLiveOnly] = useState(false)
   const [liveCount, setLiveCount] = useState(0)
@@ -139,11 +169,60 @@ function TrafficCamsPageInner() {
         {loading && cameras.length === 0 ? (
           <div style={{ fontSize: 14, color: "#8e8e93" }}>Loading cameras…</div>
         ) : (
-          <CameraGrid cameras={cameras} liveOnly={liveOnly} onModeChange={handleModeChange} />
+          <>
+            <PageNav page={page} totalPages={totalPages} onGoToPage={goToPage} />
+            <CameraGrid tiles={windowedTiles} liveOnly={liveOnly} onModeChange={handleModeChange} />
+          </>
         )}
       </div>
 
       <LastUpdated at={lastFetch} />
+    </div>
+  )
+}
+
+function PageNav({
+  page,
+  totalPages,
+  onGoToPage,
+}: {
+  page: number
+  totalPages: number
+  onGoToPage: (page: number) => void
+}) {
+  const navButtonStyle = {
+    padding: "7px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(18,18,20,0.72)",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  }
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+      <button
+        onClick={() => onGoToPage(page - 1)}
+        disabled={page <= 1}
+        style={{ ...navButtonStyle, opacity: page <= 1 ? 0.35 : 1, cursor: page <= 1 ? "default" : "pointer" }}
+      >
+        ← Prev
+      </button>
+      <div style={{ fontSize: 12, color: "#8e8e93", fontVariantNumeric: "tabular-nums" }}>
+        Page {page} of {totalPages}
+      </div>
+      <button
+        onClick={() => onGoToPage(page + 1)}
+        disabled={page >= totalPages}
+        style={{
+          ...navButtonStyle,
+          opacity: page >= totalPages ? 0.35 : 1,
+          cursor: page >= totalPages ? "default" : "pointer",
+        }}
+      >
+        Next →
+      </button>
     </div>
   )
 }

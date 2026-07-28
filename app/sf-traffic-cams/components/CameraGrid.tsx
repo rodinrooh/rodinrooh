@@ -1,18 +1,18 @@
 "use client"
 
 import type { Camera } from "@/lib/types-traffic-cams"
-import CameraTile, { type Mode } from "./CameraTile"
+import CameraTile, { type Mode, type Role } from "./CameraTile"
 
 export default function CameraGrid({
-  cameras,
+  tiles,
   liveOnly,
   onModeChange,
 }: {
-  cameras: Camera[]
+  tiles: { camera: Camera; role: Role }[]
   liveOnly: boolean
   onModeChange?: (id: string, mode: Mode) => void
 }) {
-  if (cameras.length === 0) {
+  if (tiles.length === 0) {
     return <div style={{ fontSize: 14, color: "#8e8e93", padding: "48px 0" }}>Feed unavailable.</div>
   }
 
@@ -33,8 +33,8 @@ export default function CameraGrid({
           gap: 12,
         }}
       >
-        {cameras.map((camera) => (
-          <CameraTile key={camera.id} camera={camera} liveOnly={liveOnly} onModeChange={onModeChange} />
+        {tiles.map(({ camera, role }) => (
+          <CameraTile key={camera.id} camera={camera} role={role} liveOnly={liveOnly} onModeChange={onModeChange} />
         ))}
       </div>
     </>

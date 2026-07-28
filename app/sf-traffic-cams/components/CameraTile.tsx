@@ -2,7 +2,6 @@
 
 import { memo, useEffect, useRef, useState } from "react"
 import type { Camera } from "@/lib/types-traffic-cams"
-import { useOnScreen } from "./useOnScreen"
 import { acquireHlsSlot } from "./hlsSemaphore"
 import { registerPaused, unregisterPaused } from "./pausedRegistry"
 
@@ -21,7 +20,8 @@ const WATCHDOG_NEGOTIATE_MS = 3_000
 const WATCHDOG_BUFFER_MS = 9_000
 
 // How long a confirmed-live tile keeps its connection alive (paused, not
-// destroyed) after scrolling off-screen, so scrolling back is instant.
+// destroyed) after being demoted from active to standby, so paging back to
+// it is instant.
 const PAUSE_GRACE_MS = 60_000
 
 // hls.js has its own internal stall detection, but it's slow — real
@@ -32,54 +32,26 @@ const PAUSE_GRACE_MS = 60_000
 const STALL_CHECK_MS = 2_000
 const STALL_MAX_MISSES = 2 // ~4s of zero progress before treating it as dead
 
-const RECENT_LIVE_KEY = "sf-traffic-cams:recentLive"
-const RECENT_LIVE_WINDOW_MS = 30 * 60 * 1000
-const RECENT_LIVE_MAX_ENTRIES = 300
-
-function readRecentLive(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(RECENT_LIVE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function wasRecentlyLive(id: string): boolean {
-  const ts = readRecentLive()[id]
-  return typeof ts === "number" && Date.now() - ts < RECENT_LIVE_WINDOW_MS
-}
-
-function markRecentlyLive(id: string): void {
-  try {
-    const record = readRecentLive()
-    record[id] = Date.now()
-    const pruned = Object.fromEntries(
-      Object.entries(record)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, RECENT_LIVE_MAX_ENTRIES)
-    )
-    localStorage.setItem(RECENT_LIVE_KEY, JSON.stringify(pruned))
-  } catch {
-    // localStorage unavailable (private mode, quota) — priority is a nice-to-
-    // have, not required, so just skip recording it.
-  }
-}
-
 type Mode = "loading" | "buffering" | "video" | "dead"
+// "active" = the page currently on screen (negotiates fully, plays, high-
+// priority slot). "standby" = an adjacent page (prev/next) kept mounted so
+// paging there is instant — negotiates too (a real prefetch, not idle), but
+// pauses itself the moment it reaches "video" instead of playing.
+type Role = "active" | "standby"
 
 function CameraTileInner({
   camera,
+  role,
   liveOnly,
   onModeChange,
 }: {
   camera: Camera
+  role: Role
   liveOnly: boolean
   onModeChange?: (id: string, mode: Mode) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const isVisible = useOnScreen(containerRef)
 
   const [mode, setMode] = useState<Mode>("loading")
   const [isDead, setIsDead] = useState(false)
@@ -92,8 +64,16 @@ function CameraTileInner({
   modeRef.current = mode
   const isDeadRef = useRef(isDead)
   isDeadRef.current = isDead
+  const roleRef = useRef(role)
+  roleRef.current = role
+  // True from the moment startNegotiation() kicks off an attempt until it
+  // resolves (playing) or is torn down — guards against double-negotiating
+  // when `role` flips mid-attempt (e.g. a standby prefetch gets promoted to
+  // active before it's finished connecting; the in-flight attempt should
+  // just keep going, not restart).
+  const attemptInFlightRef = useRef(false)
 
-  // Persist across isVisible toggles — these represent the *current attempt*
+  // Persist across role toggles — these represent the *current attempt*
   // (or live connection), not something scoped to a single effect run.
   const hlsInstanceRef = useRef<import("hls.js").default | null>(null)
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -131,16 +111,17 @@ function CameraTileInner({
   }
 
   // Starts fresh each time playback actually begins — both the initial
-  // success and a resume-from-pause (video.play() after scrolling back
-  // within the grace window also fires the native 'playing' event, which
-  // calls this again) — so there's never stale state from a previous run.
+  // success and a resume-from-pause (video.play() after being promoted back
+  // to active within the grace window also fires the native 'playing' event,
+  // which calls this again) — so there's never stale state from a previous
+  // run.
   function startStallWatcher() {
     stopStallWatcher()
     let lastTime = -1
     let misses = 0
     stallWatcherRef.current = setInterval(() => {
       const video = videoRef.current
-      // Deliberately paused (scroll-off grace window) — not a stall.
+      // Deliberately paused (standby grace window) — not a stall.
       if (!video || video.paused) return
       if (Math.abs(video.currentTime - lastTime) < 0.05) {
         misses++
@@ -159,6 +140,7 @@ function CameraTileInner({
   function fullTeardown() {
     cancelAttemptRef.current?.()
     cancelAttemptRef.current = null
+    attemptInFlightRef.current = false
     stopStallWatcher()
     if (watchdogRef.current) {
       clearTimeout(watchdogRef.current)
@@ -187,9 +169,32 @@ function CameraTileInner({
     setIsDead(true)
   }
 
+  // Pauses a confirmed-live tile without destroying its connection, and
+  // registers it with the shared paused-tile registry (grace timer + global
+  // cap) — used both when a tile that was active gets demoted to standby
+  // (paged away from) and when a standby prefetch reaches "video" on its own
+  // (it should sit ready, not actually play, until promoted to active).
+  function pauseAsStandby() {
+    const video = videoRef.current
+    if (!video) return
+    video.pause()
+    stopStallWatcher()
+    const expireOffScreen = () => {
+      fullTeardown()
+      setMode("loading")
+    }
+    registerPaused(camera.id, expireOffScreen)
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+    pauseTimerRef.current = setTimeout(() => {
+      unregisterPaused(camera.id)
+      expireOffScreen()
+    }, PAUSE_GRACE_MS)
+  }
+
   function startNegotiation() {
     const video = videoRef.current
     if (!video) return
+    attemptInFlightRef.current = true
 
     // Scoped to exactly this attempt — only guards the two async `.then()`
     // chains below, which run regardless of instance/listener state. Once an
@@ -210,11 +215,15 @@ function CameraTileInner({
         watchdogRef.current = null
       }
       setMode("video")
-      markRecentlyLive(camera.id)
+      attemptInFlightRef.current = false
       startStallWatcher()
       // A fresh successful stretch of playback earns its own fresh
       // one-reconnect allowance (see hasRetriedSinceLiveRef above).
       hasRetriedSinceLiveRef.current = false
+      // A standby prefetch that just finished connecting shouldn't actually
+      // play — pause it in place, ready for an instant resume the moment
+      // it's promoted to active.
+      if (roleRef.current === "standby") pauseAsStandby()
     }
     // If a fatal error hits a stream that already proved itself live, try
     // reconnecting once (identical to a fresh negotiation) instead of
@@ -235,7 +244,10 @@ function CameraTileInner({
       video.removeEventListener("loadedmetadata", onManifestParsed)
     }
 
-    const priority = wasRecentlyLive(camera.id)
+    // Active (on-screen page) tiles always outrank standby (prefetch) ones
+    // for a slot — a page you're actually looking at should never wait
+    // behind a background prefetch for a neighboring page.
+    const priority = roleRef.current === "active"
     const ticket = acquireHlsSlot(priority)
     cancelAttemptRef.current = () => {
       cancelled = true
@@ -314,17 +326,21 @@ function CameraTileInner({
     })
   }
 
-  // Drives every transition: fresh negotiation, resume-from-pause, pause-on-
-  // scroll-off, or immediate teardown — branching on the *current* mode via
-  // a ref rather than depending on `mode`, so a transition this effect
-  // triggers (e.g. negotiation succeeding) never re-fires the same effect.
+  // Drives every transition: fresh negotiation/prefetch, resume-from-pause,
+  // pause-on-demotion-to-standby — branching on the *current* mode via a ref
+  // rather than depending on `mode`, so a transition this effect triggers
+  // (e.g. negotiation succeeding) never re-fires the same effect. Note
+  // "not yet video" is handled identically for both roles (start/continue a
+  // negotiation, guarded by attemptInFlightRef so a role flip mid-attempt
+  // doesn't double-negotiate) — the *fate* of that attempt (play vs.
+  // pause-in-place) is decided later, in onPlaying(), by re-checking roleRef.
   useEffect(() => {
     if (isDeadRef.current) return
     const video = videoRef.current
     if (!video) return
 
-    if (isVisible) {
-      if (modeRef.current === "video") {
+    if (modeRef.current === "video") {
+      if (role === "active") {
         unregisterPaused(camera.id)
         if (pauseTimerRef.current) {
           clearTimeout(pauseTimerRef.current)
@@ -332,54 +348,44 @@ function CameraTileInner({
         }
         video.play().catch(() => {})
       } else {
-        startNegotiation()
+        // Demoted from active to standby (paged away from) — pause but keep
+        // the connection alive. Resetting `mode` to "loading" once the grace
+        // timer (or an early eviction via pausedRegistry's cap) actually
+        // tears it down is handled inside pauseAsStandby()'s expireOffScreen
+        // — without that reset, getting promoted back to active later would
+        // just call video.play() on nothing (the branch above assumes
+        // "video" means "just resume") and never reconnect.
+        pauseAsStandby()
       }
-    } else {
-      if (modeRef.current === "video") {
-        video.pause()
-        stopStallWatcher()
-        // Tear down for real *and* drop back to "loading" — found via a real
-        // 12-minute production observation: leaving `mode` at "video" here
-        // left the badge permanently stuck on LIVE over a genuinely dead,
-        // sourceless connection once the grace period (or an early eviction,
-        // via pausedRegistry's cap) actually tore it down. Without resetting
-        // mode, scrolling back later would just call video.play() on nothing
-        // (the resume branch above assumes "video" means "just resume") —
-        // it would never reconnect. Resetting to "loading" means the next
-        // scroll-into-view correctly starts a fresh negotiation instead.
-        const expireOffScreen = () => {
-          fullTeardown()
-          setMode("loading")
-        }
-        registerPaused(camera.id, expireOffScreen)
-        pauseTimerRef.current = setTimeout(() => {
-          unregisterPaused(camera.id)
-          expireOffScreen()
-        }, PAUSE_GRACE_MS)
-      } else {
-        fullTeardown()
-      }
+    } else if (!attemptInFlightRef.current) {
+      startNegotiation()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, camera.videoUrl])
+  }, [role, camera.videoUrl])
 
-  // Guarantees cleanup on true unmount (not just an isVisible toggle, which
-  // the effect above already handles explicitly).
+  // Guarantees cleanup on true unmount (a page more than one step away —
+  // not a promotion/demotion within the active/standby window, which the
+  // effect above already handles explicitly). Also tells the parent this
+  // tile is gone so its live-count tally doesn't leak a stale "video" entry
+  // for a camera that's no longer mounted at all.
   useEffect(() => {
-    return () => fullTeardown()
+    return () => {
+      fullTeardown()
+      onModeChange?.(camera.id, "dead")
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (isDead) return null
 
-  const hiddenByFilter = liveOnly && mode !== "video"
+  const hidden = role === "standby" || (liveOnly && mode !== "video")
   const label = mode === "video" ? "LIVE" : mode === "buffering" ? "BUFFERING" : "CONNECTING"
 
   return (
     <div
       ref={containerRef}
       style={{
-        display: hiddenByFilter ? "none" : undefined,
+        display: hidden ? "none" : undefined,
         position: "relative",
         width: "100%",
         aspectRatio: "16 / 9",
@@ -479,10 +485,11 @@ const CameraTile = memo(CameraTileInner, (prev, next) => {
   return (
     a.id === b.id &&
     a.videoUrl === b.videoUrl &&
+    prev.role === next.role &&
     prev.liveOnly === next.liveOnly &&
     prev.onModeChange === next.onModeChange
   )
 })
 
 export default CameraTile
-export type { Mode }
+export type { Mode, Role }
