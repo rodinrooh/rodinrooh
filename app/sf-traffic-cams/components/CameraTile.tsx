@@ -100,6 +100,14 @@ function CameraTileInner({
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stallWatcherRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const detachListenersRef = useRef<(() => void) | null>(null)
+  // Real 18-minute production observation caught intermittent CORS/403
+  // failures on chunklist refresh that, in a couple of cases, drained an
+  // already-live stream's buffer and killed it — but the same failure
+  // signature was harmless on other cameras when a later retry succeeded
+  // before the buffer ran dry. This flag caps the extra safety net below to
+  // exactly one reconnect attempt per live stretch, so a genuinely,
+  // repeatedly broken stream still gives up rather than retrying forever.
+  const hasRetriedSinceLiveRef = useRef(false)
   // Cancels only the *current in-flight negotiation attempt* — set fresh by
   // startNegotiation() each time it's called (which can happen more than
   // once per tile: scroll off before succeeding, scroll back, retry). NOT a
@@ -204,6 +212,22 @@ function CameraTileInner({
       setMode("video")
       markRecentlyLive(camera.id)
       startStallWatcher()
+      // A fresh successful stretch of playback earns its own fresh
+      // one-reconnect allowance (see hasRetriedSinceLiveRef above).
+      hasRetriedSinceLiveRef.current = false
+    }
+    // If a fatal error hits a stream that already proved itself live, try
+    // reconnecting once (identical to a fresh negotiation) instead of
+    // giving up immediately — real evidence showed intermittent Caltrans-
+    // side network blips can kill an established stream even though the
+    // exact same blip is harmless when a subsequent attempt succeeds first.
+    function onFatalWhilePlaying(): boolean {
+      if (modeRef.current !== "video" || hasRetriedSinceLiveRef.current) return false
+      hasRetriedSinceLiveRef.current = true
+      fullTeardown()
+      setMode("loading")
+      startNegotiation()
+      return true
     }
 
     detachListenersRef.current = () => {
@@ -247,13 +271,25 @@ function CameraTileInner({
         // having no native HLS demuxer, so checking canPlayType first sends
         // Chrome down a dead-end path that never fires any event at all.
         if (Hls.isSupported()) {
-          const hls = new Hls()
+          // Real 18-minute production observation: intermittent Caltrans-
+          // side CORS/403 failures on chunklist/segment refresh sometimes
+          // exhaust hls.js's default retry budget (4 level / 6 frag retries)
+          // within their typical ~10-20s failure window. Raising the retry
+          // *count* (not delay/ceiling — those defaults are already a
+          // generous 1s base / 64s ceiling per hls.js source) gives more
+          // attempts spread across that existing backoff, a real chance to
+          // clear before hls.js ever reports fatal.
+          const hls = new Hls({
+            levelLoadingMaxRetry: 8, // default 4
+            fragLoadingMaxRetry: 8, // default 6
+          })
           hlsInstanceRef.current = hls
           hls.on(Hls.Events.MANIFEST_PARSED, releaseOnceManifestParsed)
           hls.on(Hls.Events.ERROR, (_evt, data) => {
             if (!data.fatal) return
             releaseSlot?.()
             releaseSlot = null
+            if (onFatalWhilePlaying()) return
             die()
           })
           hls.loadSource(camera.videoUrl)
@@ -266,6 +302,7 @@ function CameraTileInner({
           video.addEventListener("error", () => {
             releaseSlot?.()
             releaseSlot = null
+            if (onFatalWhilePlaying()) return
             die()
           })
         } else {
