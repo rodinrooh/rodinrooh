@@ -365,14 +365,18 @@ function CameraTileInner({
 
   // Guarantees cleanup on true unmount (a page more than one step away —
   // not a promotion/demotion within the active/standby window, which the
-  // effect above already handles explicitly). Also tells the parent this
-  // tile is gone so its live-count tally doesn't leak a stale "video" entry
-  // for a camera that's no longer mounted at all.
+  // effect above already handles explicitly). Deliberately does NOT report
+  // a synthetic "dead" mode here — falling out of the mount window is a
+  // neutral event (not a failure), and conflating the two is actively
+  // dangerous: React Strict Mode's dev-only double-invoke calls this
+  // cleanup once "for practice" on every single mount, which would falsely
+  // mark every tile dead before it ever got a real chance to connect. The
+  // parent derives its own "this id is no longer mounted" bookkeeping by
+  // diffing its rendered tile set render-over-render instead (see
+  // `page.tsx`), which is immune to this since it only reacts to an actual
+  // change in what it chose to render.
   useEffect(() => {
-    return () => {
-      fullTeardown()
-      onModeChange?.(camera.id, "dead")
-    }
+    return () => fullTeardown()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
