@@ -409,12 +409,12 @@ function CameraTileInner({
 
       {mode !== "video" && (
         <div
+          className="cam-skeleton-pulse"
           style={{
             position: "absolute",
             inset: 0,
             background: "linear-gradient(90deg, #111 25%, #1a1a1c 37%, #111 63%)",
             backgroundSize: "400% 100%",
-            animation: "camPulse 1.6s ease-in-out infinite",
           }}
         />
       )}

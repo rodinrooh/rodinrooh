@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import type { Camera, CamerasResponse } from "@/lib/types-traffic-cams"
 import CameraGrid from "./components/CameraGrid"
 import CityToggle from "./components/CityToggle"
+import WelcomeModal from "./components/WelcomeModal"
 import type { Mode } from "./components/CameraTile"
 
 type City = "sf" | "la"
@@ -33,6 +34,16 @@ const PAGE_SIZE = 9
 // Nth block of 9 *confirmed-working* cameras — so a page never shows a
 // structurally-dead tile, only ones that were genuinely live at some point
 // (and may occasionally die again after being shown, same as any tile can).
+//
+// SCAN_CONCURRENCY=15 was A/B tested against 25 with real Chrome timing
+// runs (multiple trials each, alternated to control for Caltrans's own
+// live-rate fluctuating minute to minute) — 25 showed no measurable
+// improvement to time-to-page-1-filled (~21s either way) while running
+// more simultaneous background video decodes on the visitor's device.
+// The bottleneck is the per-attempt watchdog timing (3-12s to resolve
+// either way, see WATCHDOG_* in CameraTile.tsx), not candidate throughput
+// — so more parallelism just means more idle decoders, not a faster fill.
+// Don't raise this without a fresh measurement showing it actually helps.
 const SCAN_CONCURRENCY = 15
 
 export default function SFTrafficCamsPage() {
@@ -117,6 +128,20 @@ function TrafficCamsPageInner() {
   const knownPages = Math.max(1, Math.ceil(discoveredLive.length / PAGE_SIZE))
   const hasMoreAfterCurrent = discoveredLive.length > page * PAGE_SIZE || !scanningComplete
   const emptySlots = Math.max(0, PAGE_SIZE - activeCameras.length)
+
+  // Standard expectation for any paginated gallery on desktop. Reads
+  // hasMoreAfterCurrent/page fresh each render via the effect dependency
+  // array rather than a ref, since re-registering a listener on every page
+  // change is cheap and keeps the boundary checks trivially correct.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "ArrowRight" && hasMoreAfterCurrent) goToPage(page + 1)
+      else if (e.key === "ArrowLeft" && page > 1) goToPage(page - 1)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, hasMoreAfterCurrent, city])
 
   const [liveOnly, setLiveOnly] = useState(false)
   const [liveCount, setLiveCount] = useState(0)
@@ -244,6 +269,8 @@ function TrafficCamsPageInner() {
         boxSizing: "border-box",
       }}
     >
+      <WelcomeModal />
+
       <CityToggle
         city={city}
         onChange={(next) => router.push(`/sf-traffic-cams?city=${next}`, { scroll: false })}
@@ -285,7 +312,12 @@ function TrafficCamsPageInner() {
               hasMoreAfterCurrent={hasMoreAfterCurrent}
               onGoToPage={goToPage}
             />
-            <CameraGrid tiles={windowedTiles} liveOnly={liveOnly} onModeChange={handleModeChange} />
+            <CameraGrid
+              tiles={windowedTiles}
+              placeholderCount={emptySlots}
+              liveOnly={liveOnly}
+              onModeChange={handleModeChange}
+            />
             {emptySlots > 0 && !scanningComplete && (
               <div style={{ fontSize: 13, color: "#8e8e93", marginTop: 16 }}>
                 Finding live cameras… {discoveredLive.length} found so far ({scanningIds.size} checking now)
@@ -317,7 +349,10 @@ function PageNav({
   onGoToPage: (page: number) => void
 }) {
   const navButtonStyle = {
-    padding: "7px 14px",
+    // minHeight 44px clears the Apple HIG / Material minimum tap-target
+    // guideline — the padding alone previously landed around 35px tall.
+    minHeight: 44,
+    padding: "0 16px",
     borderRadius: 10,
     border: "1px solid rgba(255,255,255,0.1)",
     background: "rgba(18,18,20,0.72)",
