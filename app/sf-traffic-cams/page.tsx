@@ -91,13 +91,28 @@ function TrafficCamsPageInner() {
   )
   const scanningComplete = untried.length === 0 && scanningIds.size === 0
 
+  // A camera that was discovered live can later die (network blip, paused-
+  // standby eviction, a stall) — `discoveredLive` deliberately never removes
+  // it (dead-means-gone bookkeeping still needs the id), but every page-math
+  // computation below must use *this* filtered view instead. Using the raw
+  // list here would let a dead camera permanently squat a page slot (its
+  // tile renders null once isDead flips, but the array still counts it) with
+  // nothing ever scanning a replacement for it, since the scan coordinator
+  // below also keys off this same count.
+  const liveDiscovered = useMemo(
+    () => discoveredLive.filter((c) => !deadIds.has(c.id)),
+    [discoveredLive, deadIds]
+  )
+
   // Keeps the scan pool topped up to SCAN_CONCURRENCY while there aren't yet
-  // enough confirmed-live cameras to cover the current page plus a one-page
-  // buffer (so Next has something ready) — and stops pulling new candidates
-  // once that's satisfied or the whole list has been tried.
+  // enough *currently-alive* confirmed-live cameras to cover the current
+  // page plus a one-page buffer (so Next has something ready) — and stops
+  // pulling new candidates once that's satisfied or the whole list has been
+  // tried. Must key off liveDiscovered (not discoveredLive) so a camera
+  // dying after being counted re-opens a scan slot for a replacement.
   useEffect(() => {
     const needed = Math.min(sortedCameras.length, (page + 1) * PAGE_SIZE)
-    if (discoveredLive.length >= needed) return
+    if (liveDiscovered.length >= needed) return
     const room = SCAN_CONCURRENCY - scanningIds.size
     if (room <= 0) return
     const toAdd = untried.slice(0, room)
@@ -107,16 +122,16 @@ function TrafficCamsPageInner() {
       toAdd.forEach((c) => next.add(c.id))
       return next
     })
-  }, [sortedCameras, discoveredLive, scanningIds, untried, page])
+  }, [sortedCameras, liveDiscovered, scanningIds, untried, page])
 
   function goToPage(target: number) {
     router.push(`/sf-traffic-cams?city=${city}&page=${Math.max(1, target)}`, { scroll: false })
   }
 
-  const activeCameras = discoveredLive.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const activeCameras = liveDiscovered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const standbyDiscovered = [
-    ...discoveredLive.slice((page - 2) * PAGE_SIZE, (page - 1) * PAGE_SIZE),
-    ...discoveredLive.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    ...liveDiscovered.slice((page - 2) * PAGE_SIZE, (page - 1) * PAGE_SIZE),
+    ...liveDiscovered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
   ]
   const scanningCameras = sortedCameras.filter((c) => scanningIds.has(c.id))
   const windowedTiles = [
@@ -125,8 +140,8 @@ function TrafficCamsPageInner() {
     ...scanningCameras.map((camera) => ({ camera, role: "standby" as const })),
   ]
 
-  const knownPages = Math.max(1, Math.ceil(discoveredLive.length / PAGE_SIZE))
-  const hasMoreAfterCurrent = discoveredLive.length > page * PAGE_SIZE || !scanningComplete
+  const knownPages = Math.max(1, Math.ceil(liveDiscovered.length / PAGE_SIZE))
+  const hasMoreAfterCurrent = liveDiscovered.length > page * PAGE_SIZE || !scanningComplete
   const emptySlots = Math.max(0, PAGE_SIZE - activeCameras.length)
 
   // Standard expectation for any paginated gallery on desktop. Reads
@@ -320,7 +335,7 @@ function TrafficCamsPageInner() {
             />
             {emptySlots > 0 && !scanningComplete && (
               <div style={{ fontSize: 13, color: "#8e8e93", marginTop: 16 }}>
-                Finding live cameras… {discoveredLive.length} found so far ({scanningIds.size} checking now)
+                Finding live cameras… {liveDiscovered.length} found so far ({scanningIds.size} checking now)
               </div>
             )}
             {emptySlots > 0 && scanningComplete && activeCameras.length === 0 && (
