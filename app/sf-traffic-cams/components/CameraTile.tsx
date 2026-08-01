@@ -19,10 +19,15 @@ const WATCHDOG_NEGOTIATE_MS = 3_000
 // still cutting off ones that are genuinely stalled.
 const WATCHDOG_BUFFER_MS = 9_000
 
-// How long a confirmed-live tile keeps its connection alive (paused, not
-// destroyed) after being demoted from active to standby, so paging back to
-// it is instant.
-const PAUSE_GRACE_MS = 60_000
+// A confirmed-live tile demoted to standby is paused (not destroyed) so
+// paging back to it is instant. There is deliberately no fixed timeout that
+// tears it down after some elapsed time — that was tried and caused a real
+// bug: sit on page 2 for a few minutes, then go back to page 1, and its
+// tiles had already blindly expired on a clock even though nothing was
+// actually competing for resources, forcing a full 3-12s reconnect for no
+// reason. The only thing that should tear down a paused tile is genuine
+// capacity pressure (see pausedRegistry's MAX_PAUSED eviction) or actually
+// falling out of the mount window (more than one page away) — not a timer.
 
 // hls.js has its own internal stall detection, but it's slow — real
 // measurement (12-minute production observation) caught 5 separate stalls
@@ -77,7 +82,6 @@ function CameraTileInner({
   // (or live connection), not something scoped to a single effect run.
   const hlsInstanceRef = useRef<import("hls.js").default | null>(null)
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stallWatcherRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const detachListenersRef = useRef<(() => void) | null>(null)
   // Real 18-minute production observation caught intermittent CORS/403
@@ -112,9 +116,9 @@ function CameraTileInner({
 
   // Starts fresh each time playback actually begins — both the initial
   // success and a resume-from-pause (video.play() after being promoted back
-  // to active within the grace window also fires the native 'playing' event,
-  // which calls this again) — so there's never stale state from a previous
-  // run.
+  // to active while still paused-standby also fires the native 'playing'
+  // event, which calls this again) — so there's never stale state from a
+  // previous run.
   function startStallWatcher() {
     stopStallWatcher()
     let lastTime = -1
@@ -146,10 +150,6 @@ function CameraTileInner({
       clearTimeout(watchdogRef.current)
       watchdogRef.current = null
     }
-    if (pauseTimerRef.current) {
-      clearTimeout(pauseTimerRef.current)
-      pauseTimerRef.current = null
-    }
     unregisterPaused(camera.id)
     detachListenersRef.current?.()
     detachListenersRef.current = null
@@ -170,25 +170,22 @@ function CameraTileInner({
   }
 
   // Pauses a confirmed-live tile without destroying its connection, and
-  // registers it with the shared paused-tile registry (grace timer + global
-  // cap) — used both when a tile that was active gets demoted to standby
-  // (paged away from) and when a standby prefetch reaches "video" on its own
-  // (it should sit ready, not actually play, until promoted to active).
+  // registers it with the shared paused-tile registry (global capacity cap
+  // — see pausedRegistry.ts) — used both when a tile that was active gets
+  // demoted to standby (paged away from) and when a standby prefetch
+  // reaches "video" on its own (it should sit ready, not actually play,
+  // until promoted to active). No fixed grace timer here on purpose: it
+  // stays paused-and-connected indefinitely until either genuine capacity
+  // pressure evicts it or it actually falls out of the mount window.
   function pauseAsStandby() {
     const video = videoRef.current
     if (!video) return
     video.pause()
     stopStallWatcher()
-    const expireOffScreen = () => {
+    registerPaused(camera.id, () => {
       fullTeardown()
       setMode("loading")
-    }
-    registerPaused(camera.id, expireOffScreen)
-    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
-    pauseTimerRef.current = setTimeout(() => {
-      unregisterPaused(camera.id)
-      expireOffScreen()
-    }, PAUSE_GRACE_MS)
+    })
   }
 
   function startNegotiation() {
@@ -342,17 +339,13 @@ function CameraTileInner({
     if (modeRef.current === "video") {
       if (role === "active") {
         unregisterPaused(camera.id)
-        if (pauseTimerRef.current) {
-          clearTimeout(pauseTimerRef.current)
-          pauseTimerRef.current = null
-        }
         video.play().catch(() => {})
       } else {
         // Demoted from active to standby (paged away from) — pause but keep
-        // the connection alive. Resetting `mode` to "loading" once the grace
-        // timer (or an early eviction via pausedRegistry's cap) actually
-        // tears it down is handled inside pauseAsStandby()'s expireOffScreen
-        // — without that reset, getting promoted back to active later would
+        // the connection alive. Resetting `mode` to "loading" once an early
+        // eviction via pausedRegistry's capacity cap actually tears it down
+        // is handled inside pauseAsStandby()'s registerPaused callback —
+        // without that reset, getting promoted back to active later would
         // just call video.play() on nothing (the branch above assumes
         // "video" means "just resume") and never reconnect.
         pauseAsStandby()

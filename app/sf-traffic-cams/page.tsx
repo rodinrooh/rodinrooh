@@ -46,6 +46,17 @@ const PAGE_SIZE = 9
 // Don't raise this without a fresh measurement showing it actually helps.
 const SCAN_CONCURRENCY = 15
 
+// Extra confirmed-live cameras kept warm beyond exactly "current page + one
+// lookahead page" — a hot-swap reserve. When an active-page camera actually
+// dies, it's filtered out of liveDiscovered (see below), which means every
+// camera after it in that array shifts up an index for free. If a reserve
+// camera is already sitting warm at that index — already connected and
+// paused as a standby tile — it slides straight into the vacated slot and
+// only needs video.play(), not a fresh 3-12s reconnect. Without this
+// buffer the same reflow still happens, just later, once a brand-new scan
+// finds a replacement from scratch.
+const RESERVE_BUFFER = 6
+
 export default function SFTrafficCamsPage() {
   return (
     <Suspense fallback={null}>
@@ -111,7 +122,7 @@ function TrafficCamsPageInner() {
   // tried. Must key off liveDiscovered (not discoveredLive) so a camera
   // dying after being counted re-opens a scan slot for a replacement.
   useEffect(() => {
-    const needed = Math.min(sortedCameras.length, (page + 1) * PAGE_SIZE)
+    const needed = Math.min(sortedCameras.length, (page + 1) * PAGE_SIZE + RESERVE_BUFFER)
     if (liveDiscovered.length >= needed) return
     const room = SCAN_CONCURRENCY - scanningIds.size
     if (room <= 0) return
@@ -131,7 +142,10 @@ function TrafficCamsPageInner() {
   const activeCameras = liveDiscovered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const standbyDiscovered = [
     ...liveDiscovered.slice((page - 2) * PAGE_SIZE, (page - 1) * PAGE_SIZE),
-    ...liveDiscovered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    // Next page's own 9 plus the reserve buffer beyond it — all mounted as
+    // standby so they actually negotiate/connect and sit warm, ready to
+    // reflow into any gap that opens up on the active page.
+    ...liveDiscovered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE + RESERVE_BUFFER),
   ]
   const scanningCameras = sortedCameras.filter((c) => scanningIds.has(c.id))
   const windowedTiles = [

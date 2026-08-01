@@ -1,12 +1,13 @@
-// Confirmed-live tiles that scroll off-screen are paused (not destroyed) for
-// up to 60s so scrolling back is instant — see CameraTile.tsx. Left
-// unbounded, that could mean dozens of paused videos each holding a
-// MediaSource buffer in memory at once on a long scroll session, which the
-// old "destroy immediately" design accidentally avoided by being too
-// aggressive. This registry bounds that: past MAX_PAUSED simultaneously
-// paused tiles, the oldest-paused one is torn down immediately instead of
-// waiting out its remaining grace period.
-const MAX_PAUSED = 24
+// Confirmed-live tiles that get demoted to standby (paged away from, or a
+// background reserve prefetch that connected on its own) are paused, not
+// destroyed, so promoting them back to active is instant — see
+// CameraTile.tsx. There's deliberately no per-tile timeout for this
+// anymore (removed after it caused a real bug: a tile would blindly expire
+// on a clock even with zero actual resource pressure, forcing a needless
+// reconnect). This registry is the only thing standing between that and
+// unbounded growth: past MAX_PAUSED simultaneously paused tiles, the
+// oldest-paused one is torn down immediately to make room.
+const MAX_PAUSED = 30
 
 // Map preserves insertion order, so keys() gives oldest-paused-first.
 const paused = new Map<string, () => void>()
